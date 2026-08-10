@@ -2,9 +2,9 @@
 
 Cloudflare Workers と Durable Objects を利用するゲーム向けロビー機能のための TypeScript モノレポです。
 
-この変更では、今後の機能実装に共通して使う開発基盤と、`@flarelobby/core` の公開ドメイン型を用意しています。カスタムルーム、マッチメイキング、通信を実行する公開 API はまだ実装していません。
+この変更では、今後の機能実装に共通して使う開発基盤、`@flarelobby/core` の公開ドメイン型、Cloudflare 向けの型付き設定と Gateway Worker の最小構成を用意しています。カスタムルーム、マッチメイキング、通信の具体的な業務ロジックは後続 Issue で実装します。
 
-公開ドメイン型の用語、状態、型指定方法は [公開ドメイン型](./docs/domain-model.md) を、HTTP と WebSocket で共通に使う通信契約は [JSON 通信プロトコル v1](./docs/protocol.md) を参照してください。
+公開ドメイン型の用語、状態、型指定方法は [公開ドメイン型](./docs/domain-model.md) を、HTTP と WebSocket で共通に使う通信契約は [JSON 通信プロトコル v1](./docs/protocol.md) を、Cloudflare の Binding・環境・設定例は [Cloudflare 設定](./docs/cloudflare-configuration.md) を参照してください。
 
 ## パッケージ構成
 
@@ -41,7 +41,7 @@ pnpm install --frozen-lockfile
 | `pnpm test:integration` | Workers 実行環境で Cloudflare パッケージの統合テストを実行する |
 | `pnpm test` | 単体テストと統合テストを順番に実行する |
 | `pnpm build` | すべてのパッケージを `dist/` へビルドする |
-| `pnpm check:esm` | ビルド成果物を Node.js から ESM として読み込んで確認する |
+| `pnpm check:esm` | Node.js で読み込める ESM 成果物を確認する（Worker エントリーポイントは統合テストで確認） |
 | `pnpm dev:worker` | Cloudflare Worker をローカルで起動する |
 
 ## Cloudflare Workers

@@ -1,6 +1,83 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "flarelobby",
+  "name": "flarelobby-local",
   "main": "src/index.ts",
-  "compatibility_date": "2026-07-22"
+  "compatibility_date": "2026-08-08",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "FLARE_LOBBY_ROOMS",
+        "class_name": "RoomDurableObject"
+      },
+      {
+        "name": "FLARE_LOBBY_MATCH_POOLS",
+        "class_name": "MatchPoolDurableObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "RoomDurableObject",
+        "MatchPoolDurableObject"
+      ]
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "FLARE_LOBBY_DB",
+      "database_name": "flarelobby-local"
+    }
+  ],
+  "env": {
+    "staging": {
+      "name": "flarelobby-staging",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "FLARE_LOBBY_ROOMS",
+            "class_name": "RoomDurableObject"
+          },
+          {
+            "name": "FLARE_LOBBY_MATCH_POOLS",
+            "class_name": "MatchPoolDurableObject"
+          }
+        ]
+      },
+      "d1_databases": [
+        {
+          "binding": "FLARE_LOBBY_DB",
+          "database_name": "flarelobby-staging"
+        }
+      ]
+    },
+    "production": {
+      "name": "flarelobby-production",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "FLARE_LOBBY_ROOMS",
+            "class_name": "RoomDurableObject"
+          },
+          {
+            "name": "FLARE_LOBBY_MATCH_POOLS",
+            "class_name": "MatchPoolDurableObject"
+          }
+        ]
+      },
+      "d1_databases": [
+        {
+          "binding": "FLARE_LOBBY_DB",
+          "database_name": "flarelobby-production"
+        }
+      ],
+      "analytics_engine_datasets": [
+        {
+          "binding": "FLARE_LOBBY_ANALYTICS",
+          "dataset": "flarelobby-production"
+        }
+      ]
+    }
+  }
 }

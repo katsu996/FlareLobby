@@ -13,6 +13,9 @@
   },
   "types": "./dist/index.d.ts",
   "files": ["dist"],
+  "dependencies": {
+    "@flarelobby/core": "workspace:*"
+  },
   "scripts": {
     "build": "pnpm run generate:types && tsc -p tsconfig.json",
     "typecheck": "pnpm run generate:types && tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit",
