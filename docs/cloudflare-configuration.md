@@ -107,6 +107,46 @@ Room、Match Pool、利用制限の公開クラスは Wrangler から静的に�
 | 入力制限 | `INVALID_INPUT_LIMITS` |
 | 認証 Hook | `INVALID_AUTHENTICATION_HOOK` |
 
+`customRooms.finishedRoomRetentionMs` を指定すると、終了済み Room を SQLite から削除するまでの保持期間（ミリ秒）を変更できます。省略時は `DEFAULT_FINISHED_ROOM_RETENTION_MS`（24 時間）です。0 を指定した Room は終了後すぐに削除対象となります。
+
+## Room Durable Object の永続状態
+
+`FLARE_LOBBY_ROOMS.getByName(room.id)` は同じ `room.id` に対して常に同じ Room Durable Object を返します。`initialize()` は Room 本体、参加者、チームを SQLite へ一度だけ保存し、同じ初期化要求を再実行した場合は保存済みの `RoomSnapshot` を返します。
+
+```ts
+const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
+const snapshot = await room.initialize({
+  room: {
+    id: roomId,
+    kind: "custom",
+    invitationCode: "4F9K2D",
+    visibility: "unlisted",
+    settings: { map: "forest" },
+    metadata: { title: "練習ルーム" }
+  },
+  host: {
+    participantId: "participant-1",
+    playerId: "player-1"
+  },
+  participants: [
+    {
+      kind: "player",
+      id: "participant-1",
+      player: { id: "player-1" },
+      teamId: null,
+      ready: false
+    }
+  ],
+  finishedRoomRetentionMs: 24 * 60 * 60 * 1_000
+});
+
+await room.transition({ status: "preparing" });
+await room.transition({ status: "in_progress" });
+await room.transition({ status: "finished" });
+```
+
+状態は `waiting → preparing → in_progress → finished`、または `waiting → finished` のみを許可します。`RoomSnapshot.revision` は成功した状態変更ごとに増加し、終了済み Room は別状態へ戻せません。期限処理は SQLite に保存され、Room ごとに最も近い期限を単一 Alarm へ設定して順に処理します。
+
 Analytics Engine は `FLARE_LOBBY_ANALYTICS` という任意 Binding です。設定しない最小構成でも Worker は起動します。設定する場合だけ、次を環境の `wrangler.jsonc` へ追加してください。
 
 ```jsonc

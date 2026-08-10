@@ -25,6 +25,16 @@ export {
   RateLimitDurableObject,
   RoomDurableObject
 } from "./durable-objects.js";
+export { DEFAULT_FINISHED_ROOM_RETENTION_MS } from "./room.js";
+export type {
+  RoomInitializationOptions,
+  RoomProcessedCommand,
+  RoomProcessedCommandOptions,
+  RoomScheduledOperation,
+  RoomScheduledOperationKind,
+  RoomScheduledOperationOptions,
+  RoomStateTransitionOptions
+} from "./room.js";
 export {
   FLARE_LOBBY_RATE_LIMIT_SCOPES,
   authenticateGatewayRequest,

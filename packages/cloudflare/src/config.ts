@@ -12,6 +12,7 @@ import type {
   RateLimitDurableObject,
   RoomDurableObject
 } from "./durable-objects.js";
+import { DEFAULT_FINISHED_ROOM_RETENTION_MS } from "./room.js";
 import {
   authenticateGatewayRequest,
   createErrorResponse
@@ -56,6 +57,8 @@ export interface CustomRoomConfiguration<
 > {
   readonly maxPlayers: number;
   readonly defaultSettings: AppRoomSettings<TApp>;
+  /** 終了済み Room を削除するまでの保持期間（ミリ秒）です。 */
+  readonly finishedRoomRetentionMs?: number;
 }
 
 /** 1 対 1 マッチングに使うプール設定です。 */
@@ -304,7 +307,10 @@ function normalizeConfiguration<TApp extends AnyFlareLobbyApp>(
   const normalizedConfiguration: FlareLobbyConfiguration<TApp> = {
     customRooms: Object.freeze({
       maxPlayers: configuration.customRooms.maxPlayers,
-      defaultSettings: configuration.customRooms.defaultSettings
+      defaultSettings: configuration.customRooms.defaultSettings,
+      finishedRoomRetentionMs:
+        configuration.customRooms.finishedRoomRetentionMs ??
+        DEFAULT_FINISHED_ROOM_RETENTION_MS
     }),
     matchmakingPools: Object.freeze(
       configuration.matchmakingPools.map((pool) => Object.freeze({ ...pool }))
@@ -326,6 +332,17 @@ function assertCustomRoomConfiguration<TApp extends AnyFlareLobbyApp>(
     throw new FlareLobbyConfigurationError(
       "INVALID_CUSTOM_ROOM_CONFIGURATION",
       "customRooms.maxPlayers は 1 以上の整数で指定してください。"
+    );
+  }
+
+  if (
+    configuration.finishedRoomRetentionMs !== undefined &&
+    (!Number.isSafeInteger(configuration.finishedRoomRetentionMs) ||
+      configuration.finishedRoomRetentionMs < 0)
+  ) {
+    throw new FlareLobbyConfigurationError(
+      "INVALID_CUSTOM_ROOM_CONFIGURATION",
+      "customRooms.finishedRoomRetentionMs は 0 以上の整数で指定してください。"
     );
   }
 }

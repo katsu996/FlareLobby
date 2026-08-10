@@ -13,7 +13,8 @@ function createValidConfiguration() {
       maxPlayers: 4,
       defaultSettings: {
         map: "forest"
-      }
+      },
+      finishedRoomRetentionMs: 60_000
     },
     matchmakingPools: [
       {
@@ -105,6 +106,16 @@ describe("defineFlareLobby", () => {
     expectConfigurationError(
       () => defineFlareLobby(configuration),
       "INVALID_INPUT_LIMITS"
+    );
+  });
+
+  it("終了済み Room の保持期間に負の値を指定できない", () => {
+    const configuration = createValidConfiguration();
+    configuration.customRooms.finishedRoomRetentionMs = -1;
+
+    expectConfigurationError(
+      () => defineFlareLobby(configuration),
+      "INVALID_CUSTOM_ROOM_CONFIGURATION"
     );
   });
 
