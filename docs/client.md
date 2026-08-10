@@ -1,8 +1,8 @@
 # クライアント基盤
 
 `@flarelobby/client` はブラウザ標準の `fetch` と `WebSocket` を使い、認証と
-JSON 通信プロトコル v1 のエラー処理を共通化します。カスタムルームや
-マッチメイキング固有のメソッドは後続 Issue で追加します。
+JSON 通信プロトコル v1 のエラー処理を共通化します。カスタムルームの作成、
+参加、一覧、Room 操作までを接続済みのオブジェクト API として提供します。
 
 ## 初期化
 
@@ -13,6 +13,14 @@ const client = createFlareLobbyClient({
   endpoint: "https://lobby.example.com",
   getAccessToken: () => auth.getAccessToken()
 });
+
+const room = await client.createCustomRoom({ maxPlayers: 4 });
+const joinedRoom = await client.joinCustomRoom("4F9K2D");
+const rooms = await client.listCustomRooms({ available: true });
+
+await room.setReady(true);
+await room.selectTeam("blue");
+await room.send("chat.message", { text: "準備完了" });
 ```
 
 `getAccessToken` はクライアント生成時には呼ばれません。HTTP 要求ごとに直前で
@@ -37,6 +45,19 @@ const result = await client.request<{ readonly accepted: boolean }>(
 `AbortSignal` は `fetch` へそのまま伝播され、中止時は `CANCELLED` になります。
 HTTP の失敗、JSON の不正、通信例外は `FlareLobbyError` と安定したエラーコードへ
 正規化されます。
+
+## カスタムルーム
+
+`createCustomRoom()` は作成者をホストとして登録し、HTTP の初期スナップショットを
+凍結したうえで WebSocket へ接続した `HostRoom` を返します。`joinCustomRoom()` は
+招待コード文字列、または `roomId`、`invitationCode`、`role`、`password` を含む
+詳細 Options を受け付けます。`role: "spectator"` の参加者は観戦者用の型で返り、
+プレイヤー操作は実行時にも `FORBIDDEN` になります。
+
+Room の状態変更メソッドはサーバーの成功応答を待ってから解決し、成功時の最新
+スナップショットを返します。`snapshot` とその入れ子の値は利用者から変更できません。
+`leave()` は参加用トークンを使った HTTP 退出、ホストの `close()` は WebSocket
+操作として実行されます。
 
 ## WebSocket
 
