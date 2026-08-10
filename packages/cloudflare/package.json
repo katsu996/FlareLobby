@@ -1,0 +1,24 @@
+{
+  "name": "@flarelobby/cloudflare",
+  "version": "0.1.0",
+  "description": "FlareLobby の Cloudflare Workers 実装",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "pnpm run generate:types && tsc -p tsconfig.json",
+    "typecheck": "pnpm run generate:types && tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit",
+    "test:integration": "pnpm run generate:types && vitest run --config vitest.config.ts",
+    "generate:types": "wrangler types worker-configuration.d.ts --config wrangler.jsonc",
+    "check:types": "wrangler types worker-configuration.d.ts --config wrangler.jsonc --check",
+    "dev": "wrangler dev --config wrangler.jsonc"
+  }
+}

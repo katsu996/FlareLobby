@@ -1,0 +1,32 @@
+{
+  "name": "flarelobby",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Workers 向けゲームロビーライブラリのモノレポ",
+  "type": "module",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": "24.19.0",
+    "pnpm": "11.21.0"
+  },
+  "scripts": {
+    "build": "pnpm --filter @flarelobby/core run build && pnpm --filter @flarelobby/cloudflare run build && pnpm --filter @flarelobby/client run build && pnpm --filter @flarelobby/testing run build",
+    "typecheck": "pnpm --filter @flarelobby/core run typecheck && pnpm --filter @flarelobby/cloudflare run typecheck && pnpm --filter @flarelobby/client run typecheck && pnpm --filter @flarelobby/testing run typecheck",
+    "test": "pnpm test:unit && pnpm test:integration",
+    "test:unit": "pnpm --filter @flarelobby/core run test:unit && pnpm --filter @flarelobby/client run test:unit && pnpm --filter @flarelobby/testing run test:unit",
+    "test:integration": "pnpm --filter @flarelobby/cloudflare run test:integration",
+    "check:esm": "pnpm build && node scripts/verify-esm.mjs",
+    "dev:worker": "pnpm --filter @flarelobby/cloudflare run dev",
+    "generate:worker-types": "pnpm --filter @flarelobby/cloudflare run generate:types",
+    "check:worker-types": "pnpm --filter @flarelobby/cloudflare run check:types",
+    "changeset": "changeset",
+    "version-packages": "changeset version"
+  },
+  "devDependencies": {
+    "@changesets/cli": "2.31.0",
+    "@cloudflare/vitest-pool-workers": "0.19.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10",
+    "wrangler": "4.114.0"
+  }
+}
