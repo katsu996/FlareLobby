@@ -53,6 +53,29 @@ export {
   getRoleWebSocketTag,
   getRoomWebSocketTag
 } from "./room.js";
+export {
+  DEFAULT_MATCHMAKING_TICKET_TTL_MS,
+  MATCHMAKING_POOL_KEY_SEPARATOR,
+  createMatchmakingPoolKey,
+  createMatchPoolKey,
+  getMatchmakingPoolKey,
+  getMatchPoolName
+} from "./match-pool.js";
+export type {
+  MatchmakingPoolKeyInput,
+  MatchPoolInitializationOptions,
+  MatchPoolSnapshot,
+  MatchmakingAttributeObject,
+  MatchmakingMatchRoomRecord,
+  MatchmakingMatchResult,
+  MatchmakingTicketCancellationOptions,
+  MatchmakingTicketCreationOptions,
+  MatchmakingTicketEvent,
+  MatchmakingTicketEventQueryOptions,
+  MatchmakingTicketMatchOptions,
+  MatchmakingTicketRecord,
+  MatchmakingTicketReservationOptions
+} from "./match-pool.js";
 export type {
   RoomInitializationOptions,
   RoomStartConditions,
