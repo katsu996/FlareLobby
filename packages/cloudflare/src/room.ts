@@ -27,6 +27,9 @@ import type { GatewayPrincipalEnvelope } from "./security.js";
 /** 終了済みルームを削除するまでの既定保持期間です。 */
 export const DEFAULT_FINISHED_ROOM_RETENTION_MS = 24 * 60 * 60 * 1_000;
 
+/** カスタムルームで選択できる参加方式です。 */
+export type RoomJoinMethod = "public" | "invitation";
+
 const ROOM_RETENTION_OPERATION_ID = "__flarelobby_room_retention__";
 
 /** Room Durable Object を初期化するための永続化対象です。 */
@@ -43,6 +46,10 @@ export interface RoomInitializationOptions<
   readonly teams?: readonly Team[];
   /** 後続の参加処理で利用するプレイヤー定員です。 */
   readonly maxPlayers?: number;
+  /** 後続の参加処理で利用する観戦者定員です。 */
+  readonly maxSpectators?: number;
+  /** カスタムルームの参加方式です。 */
+  readonly joinMethod?: RoomJoinMethod;
   /** 終了済み状態を保持する期間です。0 の場合は即時削除対象になります。 */
   readonly finishedRoomRetentionMs?: number;
 }
@@ -110,6 +117,8 @@ interface RoomRow extends Record<string, SqlStorageValue> {
   hostParticipantId: string | null;
   hostPlayerId: string | null;
   maxPlayers: number | null;
+  maxSpectators: number | null;
+  joinMethod: RoomJoinMethod | null;
   finishedRoomRetentionMs: number;
 }
 
@@ -164,6 +173,8 @@ interface NormalizedInitialization {
   readonly hostParticipantId: string | null;
   readonly hostPlayerId: string | null;
   readonly maxPlayers: number | null;
+  readonly maxSpectators: number | null;
+  readonly joinMethod: RoomJoinMethod | null;
   readonly finishedRoomRetentionMs: number;
   readonly participants: readonly NormalizedParticipant[];
   readonly teams: readonly string[];
@@ -225,74 +236,97 @@ export class RoomDurableObject extends DurableObject<Env> {
       return snapshot;
     }
 
-    this.ctx.storage.sql.exec(
-      `INSERT INTO flarelobby_rooms (
-        singleton_id,
-        room_id,
-        kind,
-        invitation_code,
-        visibility,
-        match_id,
-        pool_json,
-        settings_json,
-        metadata_json,
-        state,
-        state_started_at,
-        revision,
-        host_participant_id,
-        host_player_id,
-        max_players,
-        finished_room_retention_ms,
-        created_at
-      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', NULL, 0, ?, ?, ?, ?, ?)`,
-      normalized.roomId,
-      normalized.kind,
-      normalized.invitationCode,
-      normalized.visibility,
-      normalized.matchId,
-      normalized.poolJson,
-      normalized.settingsJson,
-      normalized.metadataJson,
-      normalized.hostParticipantId,
-      normalized.hostPlayerId,
-      normalized.maxPlayers,
-      normalized.finishedRoomRetentionMs,
-      Date.now()
-    );
-
-    for (const participant of normalized.participants) {
+    try {
       this.ctx.storage.sql.exec(
-        `INSERT INTO flarelobby_room_participants (
-          participant_id,
+        `INSERT INTO flarelobby_rooms (
+          singleton_id,
+          room_id,
           kind,
-          player_id,
-          team_id,
-          ready,
-          joined_at
-        ) VALUES (?, ?, ?, ?, ?, ?)`,
-        participant.participantId,
-        participant.kind,
-        participant.playerId,
-        participant.teamId,
-        participant.ready ? 1 : 0,
+          invitation_code,
+          visibility,
+          match_id,
+          pool_json,
+          settings_json,
+          metadata_json,
+          state,
+          state_started_at,
+          revision,
+          host_participant_id,
+          host_player_id,
+          max_players,
+          max_spectators,
+          join_method,
+          finished_room_retention_ms,
+          created_at
+        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', NULL, 0, ?, ?, ?, ?, ?, ?, ?)`,
+        normalized.roomId,
+        normalized.kind,
+        normalized.invitationCode,
+        normalized.visibility,
+        normalized.matchId,
+        normalized.poolJson,
+        normalized.settingsJson,
+        normalized.metadataJson,
+        normalized.hostParticipantId,
+        normalized.hostPlayerId,
+        normalized.maxPlayers,
+        normalized.maxSpectators,
+        normalized.joinMethod,
+        normalized.finishedRoomRetentionMs,
         Date.now()
       );
-    }
 
-    for (const teamId of normalized.teams) {
-      this.ctx.storage.sql.exec(
-        "INSERT INTO flarelobby_room_teams (team_id) VALUES (?)",
-        teamId
-      );
-    }
+      for (const participant of normalized.participants) {
+        this.ctx.storage.sql.exec(
+          `INSERT INTO flarelobby_room_participants (
+            participant_id,
+            kind,
+            player_id,
+            team_id,
+            ready,
+            joined_at
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+          participant.participantId,
+          participant.kind,
+          participant.playerId,
+          participant.teamId,
+          participant.ready ? 1 : 0,
+          Date.now()
+        );
+      }
 
-    const snapshot = this.readSnapshot();
+      for (const teamId of normalized.teams) {
+        this.ctx.storage.sql.exec(
+          "INSERT INTO flarelobby_room_teams (team_id) VALUES (?)",
+          teamId
+        );
+      }
 
-    if (snapshot === null) {
+      const snapshot = this.readSnapshot();
+
+      if (snapshot === null) {
+        throw new FlareLobbyError("CONNECTION_FAILED");
+      }
+
+      return snapshot;
+    } catch (error) {
+      // 初期化途中のストレージ失敗で Room 本体だけが残ると、次の再送が
+      // 参加者のない半端な Room を成功として返してしまいます。初期化
+      // リクエストはこの入力ゲート内で直列化されるため、失敗時に新規
+      // 状態をまとめて消去してから同じエラーを返します。
+      try {
+        deleteRoomState(this.ctx.storage.sql);
+        await this.ctx.storage.deleteAlarm();
+      } catch {
+        // 元の失敗理由を隠さず、公開用の安定したエラーへ正規化します。
+      }
+
+      if (error instanceof FlareLobbyError) {
+        throw error;
+      }
+
       throw new FlareLobbyError("CONNECTION_FAILED");
     }
-
-    return snapshot;
   }
 
   /** 永続化された最新の読み取り専用スナップショットを返します。 */
@@ -622,6 +656,8 @@ export class RoomDurableObject extends DurableObject<Env> {
           host_participant_id AS hostParticipantId,
           host_player_id AS hostPlayerId,
           max_players AS maxPlayers,
+          max_spectators AS maxSpectators,
+          join_method AS joinMethod,
           finished_room_retention_ms AS finishedRoomRetentionMs
          FROM flarelobby_rooms
          WHERE singleton_id = 1`
@@ -890,6 +926,18 @@ function migrateRoomSchema(sql: SqlStorage): void {
       VALUES (2, ?)
     `, Date.now());
   }
+
+  if (currentVersion < 3) {
+    sql.exec(`
+      ALTER TABLE flarelobby_rooms
+        ADD COLUMN max_spectators INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE flarelobby_rooms
+        ADD COLUMN join_method TEXT NOT NULL DEFAULT 'public';
+
+      INSERT INTO flarelobby_room_schema_migrations (version, applied_at)
+      VALUES (3, ?)
+    `, Date.now());
+  }
 }
 
 function deleteRoomState(sql: SqlStorage): void {
@@ -927,6 +975,10 @@ function normalizeInitialization(
     options.maxPlayers,
     "maxPlayers"
   );
+  const maxSpectators =
+    options.maxSpectators === undefined
+      ? 0
+      : normalizeNonNegativeInteger(options.maxSpectators, "maxSpectators");
   const finishedRoomRetentionMs =
     options.finishedRoomRetentionMs === undefined
       ? DEFAULT_FINISHED_ROOM_RETENTION_MS
@@ -939,6 +991,9 @@ function normalizeInitialization(
     if (
       !isNonEmptyString(room.invitationCode) ||
       (room.visibility !== "public" && room.visibility !== "unlisted") ||
+      (options.joinMethod !== undefined &&
+        options.joinMethod !== "public" &&
+        options.joinMethod !== "invitation") ||
       host === null
     ) {
       throw new FlareLobbyError("INVALID_PAYLOAD", {
@@ -958,6 +1013,8 @@ function normalizeInitialization(
       hostParticipantId: host.participantId,
       hostPlayerId: host.playerId,
       maxPlayers,
+      maxSpectators,
+      joinMethod: options.joinMethod ?? "public",
       finishedRoomRetentionMs,
       participants,
       teams
@@ -986,6 +1043,8 @@ function normalizeInitialization(
     hostParticipantId: null,
     hostPlayerId: null,
     maxPlayers,
+    maxSpectators: null,
+    joinMethod: null,
     finishedRoomRetentionMs,
     participants,
     teams

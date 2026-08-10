@@ -12,6 +12,7 @@ import type {
   RateLimitDurableObject,
   RoomDurableObject
 } from "./durable-objects.js";
+import { createCustomRoom } from "./custom-room.js";
 import { DEFAULT_FINISHED_ROOM_RETENTION_MS } from "./room.js";
 import {
   authenticateGatewayRequest,
@@ -56,6 +57,8 @@ export interface CustomRoomConfiguration<
   TApp extends AnyFlareLobbyApp = AnyFlareLobbyApp,
 > {
   readonly maxPlayers: number;
+  /** 省略時は作成要求の既定値を 0（観戦不可）として扱います。 */
+  readonly maxSpectators?: number;
   readonly defaultSettings: AppRoomSettings<TApp>;
   /** 終了済み Room を削除するまでの保持期間（ミリ秒）です。 */
   readonly finishedRoomRetentionMs?: number;
@@ -209,9 +212,22 @@ export function createGatewayWorker<
         return createErrorResponse(authenticatedRequest.error);
       }
 
-      // 後続 Issue の HTTP / WebSocket ルートは、この時点で取得した
-      // authenticatedRequest.gatewayPrincipal だけを DO へ渡します。
-      // 未認証要求はここより先の操作ディスパッチへ到達できません。
+      if (
+        request.method === "POST" &&
+        new URL(request.url).pathname === "/v1/custom-rooms"
+      ) {
+        const result = await createCustomRoom(
+          request,
+          env,
+          normalizedConfiguration,
+          authenticatedRequest.value
+        );
+
+        return result.ok
+          ? Response.json(result.value, { status: 201 })
+          : createErrorResponse(result.error);
+      }
+
       return new Response("Not Found", { status: 404 });
     }
   };
@@ -307,6 +323,9 @@ function normalizeConfiguration<TApp extends AnyFlareLobbyApp>(
   const normalizedConfiguration: FlareLobbyConfiguration<TApp> = {
     customRooms: Object.freeze({
       maxPlayers: configuration.customRooms.maxPlayers,
+      ...(configuration.customRooms.maxSpectators === undefined
+        ? {}
+        : { maxSpectators: configuration.customRooms.maxSpectators }),
       defaultSettings: configuration.customRooms.defaultSettings,
       finishedRoomRetentionMs:
         configuration.customRooms.finishedRoomRetentionMs ??
@@ -332,6 +351,16 @@ function assertCustomRoomConfiguration<TApp extends AnyFlareLobbyApp>(
     throw new FlareLobbyConfigurationError(
       "INVALID_CUSTOM_ROOM_CONFIGURATION",
       "customRooms.maxPlayers は 1 以上の整数で指定してください。"
+    );
+  }
+
+  if (
+    configuration.maxSpectators !== undefined &&
+    !isNonNegativeInteger(configuration.maxSpectators)
+  ) {
+    throw new FlareLobbyConfigurationError(
+      "INVALID_CUSTOM_ROOM_CONFIGURATION",
+      "customRooms.maxSpectators は 0 以上の整数で指定してください。"
     );
   }
 
@@ -419,6 +448,10 @@ function assertRequiredBindings(env: FlareLobbyBindings): void {
 
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isNonEmptyString(value: unknown): value is string {
