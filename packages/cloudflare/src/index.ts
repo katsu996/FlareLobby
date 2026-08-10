@@ -10,6 +10,7 @@ export {
   createGatewayWorker,
   defineFlareLobby
 } from "./config.js";
+export { createCustomRoom } from "./custom-room.js";
 export type {
   CustomRoomConfiguration,
   DefinedFlareLobby,
@@ -20,6 +21,13 @@ export type {
   FlareLobbyInputLimits,
   MatchmakingPoolConfiguration
 } from "./config.js";
+export type {
+  CustomRoomCreationInput,
+  CustomRoomCreationOptions,
+  CustomRoomCreationResponse,
+  CustomRoomCreationResult,
+  CustomRoomJoinMethod
+} from "./custom-room.js";
 export {
   MatchPoolDurableObject,
   RateLimitDurableObject,
@@ -33,7 +41,8 @@ export type {
   RoomScheduledOperation,
   RoomScheduledOperationKind,
   RoomScheduledOperationOptions,
-  RoomStateTransitionOptions
+  RoomStateTransitionOptions,
+  RoomJoinMethod
 } from "./room.js";
 export {
   FLARE_LOBBY_RATE_LIMIT_SCOPES,
