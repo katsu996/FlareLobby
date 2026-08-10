@@ -4,7 +4,7 @@ Cloudflare Workers と Durable Objects を利用するゲーム向けロビー�
 
 この変更では、今後の機能実装に共通して使う開発基盤、`@flarelobby/core` の公開ドメイン型、Cloudflare 向けの型付き設定と Gateway Worker の最小構成を用意しています。カスタムルーム、マッチメイキング、通信の具体的な業務ロジックは後続 Issue で実装します。
 
-公開ドメイン型の用語、状態、型指定方法は [公開ドメイン型](./docs/domain-model.md) を、HTTP と WebSocket で共通に使う通信契約は [JSON 通信プロトコル v1](./docs/protocol.md) を、Cloudflare の Binding・環境・設定例は [Cloudflare 設定](./docs/cloudflare-configuration.md) を参照してください。
+公開ドメイン型の用語、状態、型指定方法は [公開ドメイン型](./docs/domain-model.md) を、HTTP と WebSocket で共通に使う通信契約は [JSON 通信プロトコル v1](./docs/protocol.md) を、認証・認可・入力検証・利用制限の安全上の前提は [セキュリティ基盤](./docs/security.md) を、Cloudflare の Binding・環境・設定例は [Cloudflare 設定](./docs/cloudflare-configuration.md) を参照してください。
 
 ## パッケージ構成
 

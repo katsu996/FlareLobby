@@ -31,7 +31,8 @@ function createValidConfiguration() {
     inputLimits: {
       maxHttpRequestBytes: 16 * 1024,
       maxWebSocketMessageBytes: 8 * 1024,
-      maxMessagesPerMinute: 60
+      maxMessagesPerMinute: 60,
+      maxRoomCreationsPerMinute: 10
     }
   };
 }
@@ -94,6 +95,16 @@ describe("defineFlareLobby", () => {
     expectConfigurationError(
       () => defineFlareLobby(configuration),
       "INVALID_MATCHMAKING_POOL"
+    );
+  });
+
+  it("ルーム作成頻度の上限が不正な設定を拒否する", () => {
+    const configuration = createValidConfiguration();
+    configuration.inputLimits.maxRoomCreationsPerMinute = 0;
+
+    expectConfigurationError(
+      () => defineFlareLobby(configuration),
+      "INVALID_INPUT_LIMITS"
     );
   });
 

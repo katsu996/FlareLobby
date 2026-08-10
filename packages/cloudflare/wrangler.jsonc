@@ -3,6 +3,9 @@
   "name": "flarelobby-local",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-08",
+  "secrets": {
+    "required": ["FLARE_LOBBY_TOKEN_SECRET"]
+  },
   "durable_objects": {
     "bindings": [
       {
@@ -12,6 +15,10 @@
       {
         "name": "FLARE_LOBBY_MATCH_POOLS",
         "class_name": "MatchPoolDurableObject"
+      },
+      {
+        "name": "FLARE_LOBBY_RATE_LIMITS",
+        "class_name": "RateLimitDurableObject"
       }
     ]
   },
@@ -22,6 +29,10 @@
         "RoomDurableObject",
         "MatchPoolDurableObject"
       ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["RateLimitDurableObject"]
     }
   ],
   "d1_databases": [
@@ -33,6 +44,9 @@
   "env": {
     "staging": {
       "name": "flarelobby-staging",
+      "secrets": {
+        "required": ["FLARE_LOBBY_TOKEN_SECRET"]
+      },
       "durable_objects": {
         "bindings": [
           {
@@ -42,6 +56,10 @@
           {
             "name": "FLARE_LOBBY_MATCH_POOLS",
             "class_name": "MatchPoolDurableObject"
+          },
+          {
+            "name": "FLARE_LOBBY_RATE_LIMITS",
+            "class_name": "RateLimitDurableObject"
           }
         ]
       },
@@ -54,6 +72,9 @@
     },
     "production": {
       "name": "flarelobby-production",
+      "secrets": {
+        "required": ["FLARE_LOBBY_TOKEN_SECRET"]
+      },
       "durable_objects": {
         "bindings": [
           {
@@ -63,6 +84,10 @@
           {
             "name": "FLARE_LOBBY_MATCH_POOLS",
             "class_name": "MatchPoolDurableObject"
+          },
+          {
+            "name": "FLARE_LOBBY_RATE_LIMITS",
+            "class_name": "RateLimitDurableObject"
           }
         ]
       },
