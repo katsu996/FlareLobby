@@ -79,6 +79,8 @@ export interface FlareLobbyRoomTokenIssueOptions {
   readonly expiresAt: number;
   /** テストなどで現在時刻を固定するときだけ指定します。 */
   readonly now?: number;
+  /** 再開接続を同じ接続履歴へ束縛するときに使う内部識別子です。 */
+  readonly nonce?: string;
 }
 
 /** 参加用または再開用トークンを検証するときの期待値です。 */
@@ -100,6 +102,8 @@ export interface FlareLobbyRoomTokenClaims {
   readonly principalId: string;
   readonly roomId: RoomId;
   readonly expiresAt: number;
+  /** トークンと Room 内の再開セッションを結び付ける識別子です。 */
+  readonly nonce: string;
   readonly participantId?: string;
 }
 
@@ -118,6 +122,10 @@ export interface FlareLobbyWebSocketJoinTokenVerificationOptions {
   /** テストなどで現在時刻を固定するときだけ指定します。 */
   readonly now?: number;
 }
+
+/** WebSocket Upgrade で参加用または再開用トークンを検証する共通入力です。 */
+export type FlareLobbyWebSocketRoomTokenVerificationOptions =
+  FlareLobbyWebSocketJoinTokenVerificationOptions;
 
 /** Gateway から Durable Object へ渡す、署名済み主体の内部証明です。 */
 export interface GatewayPrincipalEnvelope {
@@ -412,6 +420,44 @@ export async function verifyWebSocketJoinToken(
   token: string,
   options: FlareLobbyWebSocketJoinTokenVerificationOptions
 ): Promise<ProtocolResult<FlareLobbyRoomTokenClaims>> {
+  return verifyWebSocketRoomTokenPurpose(tokenSecret, token, "join", options);
+}
+
+/** 主体を別経路で持たない WebSocket Upgrade 用に、再開用トークンを検証します。 */
+export async function verifyWebSocketResumeToken(
+  tokenSecret: string,
+  token: string,
+  options: FlareLobbyWebSocketJoinTokenVerificationOptions
+): Promise<ProtocolResult<FlareLobbyRoomTokenClaims>> {
+  return verifyWebSocketRoomTokenPurpose(tokenSecret, token, "resume", options);
+}
+
+/** WebSocket Upgrade 用に、参加用または再開用トークンを検証します。 */
+export async function verifyWebSocketRoomToken(
+  tokenSecret: string,
+  token: string,
+  options: FlareLobbyWebSocketRoomTokenVerificationOptions
+): Promise<ProtocolResult<FlareLobbyRoomTokenClaims>> {
+  const join = await verifyWebSocketRoomTokenPurpose(
+    tokenSecret,
+    token,
+    "join",
+    options
+  );
+
+  if (join.ok) {
+    return join;
+  }
+
+  return verifyWebSocketRoomTokenPurpose(tokenSecret, token, "resume", options);
+}
+
+async function verifyWebSocketRoomTokenPurpose(
+  tokenSecret: string,
+  token: string,
+  purpose: FlareLobbyRoomTokenPurpose,
+  options: FlareLobbyWebSocketRoomTokenVerificationOptions
+): Promise<ProtocolResult<FlareLobbyRoomTokenClaims>> {
   const now = options.now ?? Date.now();
 
   if (
@@ -430,7 +476,7 @@ export async function verifyWebSocketJoinToken(
   if (
     payload === null ||
     payload.kind !== "room" ||
-    payload.purpose !== "join" ||
+    payload.purpose !== purpose ||
     payload.expiresAt <= now ||
     payload.roomId !== options.roomId ||
     (options.role !== undefined && payload.role !== options.role) ||
@@ -447,6 +493,7 @@ export async function verifyWebSocketJoinToken(
       principalId: payload.principalId,
       roomId: payload.roomId,
       expiresAt: payload.expiresAt,
+      nonce: payload.nonce,
       ...(payload.participantId === undefined
         ? {}
         : { participantId: payload.participantId })
@@ -537,6 +584,7 @@ async function issueRoomToken(
 ): Promise<ProtocolResult<string>> {
   const principal = normalizePrincipal(options.principal);
   const now = options.now ?? Date.now();
+  const nonce = options.nonce ?? createTokenNonce();
 
   if (
     principal === null ||
@@ -547,6 +595,8 @@ async function issueRoomToken(
     !isSafeTimestamp(now) ||
     !isSafeTimestamp(options.expiresAt) ||
     options.expiresAt <= now ||
+    !isNonEmptyString(nonce) ||
+    nonce.length > 256 ||
     !isUsableSecret(tokenSecret)
   ) {
     return protocolFailure("INVALID_PAYLOAD");
@@ -560,7 +610,7 @@ async function issueRoomToken(
     principalId: principal.id,
     roomId: options.roomId,
     expiresAt: options.expiresAt,
-    nonce: createTokenNonce(),
+    nonce,
     ...(options.participantId === undefined
       ? {}
       : { participantId: options.participantId })
@@ -613,6 +663,7 @@ async function verifyRoomToken(
       principalId: payload.principalId,
       roomId: payload.roomId,
       expiresAt: payload.expiresAt,
+      nonce: payload.nonce,
       ...(payload.participantId === undefined
         ? {}
         : { participantId: payload.participantId })

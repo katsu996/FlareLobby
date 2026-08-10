@@ -300,6 +300,105 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
     );
     expect(conflictCode).toBe("CONFLICT");
   });
+
+  it("状態イベント履歴を上限件数で保持し、古い履歴を削除する", async () => {
+    const roomId = `room-event-history-${crypto.randomUUID()}`;
+    const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
+    const hostPrincipal = await createGatewayPrincipal(
+      `principal-event-history-${crypto.randomUUID()}`,
+      "player-host"
+    );
+
+    await room.initialize(
+      createRoomOptions(roomId, {
+        eventHistoryLimit: 2
+      })
+    );
+
+    await room.setReady({
+      gatewayPrincipal: hostPrincipal,
+      participantId: "participant-host",
+      ready: true
+    });
+    await room.setReady({
+      gatewayPrincipal: hostPrincipal,
+      participantId: "participant-host",
+      ready: false
+    });
+    await room.setReady({
+      gatewayPrincipal: hostPrincipal,
+      participantId: "participant-host",
+      ready: true
+    });
+
+    await runInDurableObject(room, (_instance, state) => {
+      expect(
+        state.storage.sql
+          .exec<{ revision: number }>(
+            "SELECT revision FROM flarelobby_room_events ORDER BY revision ASC"
+          )
+          .toArray()
+          .map((event) => event.revision)
+      ).toEqual([2, 3]);
+    });
+  });
+
+  it("ホストの切断猶予終了後に最古のプレイヤーへ自動移譲する", async () => {
+    const roomId = `room-disconnect-grace-${crypto.randomUUID()}`;
+    const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
+    const hostPrincipal = await createGatewayPrincipal(
+      `principal-disconnect-grace-${crypto.randomUUID()}`,
+      "player-host"
+    );
+
+    await room.initialize(
+      createRoomOptions(roomId, {
+        disconnectGracePeriodMs: 0,
+        participants: [
+          {
+            kind: "player",
+            id: "participant-host",
+            player: { id: "player-host" },
+            teamId: null,
+            ready: true
+          },
+          {
+            kind: "player",
+            id: "participant-oldest",
+            player: { id: "player-oldest" },
+            teamId: null,
+            ready: false
+          }
+        ]
+      })
+    );
+
+    const disconnectedAt = new Date(Date.now() - 1_000).toISOString();
+    await room.disconnect({
+      gatewayPrincipal: hostPrincipal,
+      participantId: "participant-host",
+      role: "player",
+      at: disconnectedAt
+    });
+
+    await runInDurableObject(room, async (instance: RoomDurableObject) => {
+      await instance.alarm();
+    });
+
+    const snapshot = await room.getSnapshot();
+    if (snapshot === null) {
+      throw new Error("切断猶予処理後のスナップショットがありません。");
+    }
+
+    expect(snapshot.host).toEqual({
+      participantId: "participant-oldest",
+      playerId: "player-oldest"
+    });
+    expect(snapshot.participants.map((participant: Participant) => participant.id)).toEqual([
+      "participant-oldest"
+    ]);
+    expect(snapshot.revision).toBe(1);
+  });
 });
 
 describe("Room Durable Object のカスタムルーム操作", () => {

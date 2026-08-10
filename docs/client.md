@@ -1,8 +1,8 @@
 # クライアント基盤
 
 `@flarelobby/client` はブラウザ標準の `fetch` と `WebSocket` を使い、認証と
-JSON 通信プロトコル v1 のエラー処理を共通化します。カスタムルームや
-マッチメイキング固有のメソッドは後続 Issue で追加します。
+JSON 通信プロトコル v1 のエラー処理を共通化します。カスタムルームの作成、
+参加、一覧、Room 操作までを接続済みのオブジェクト API として提供します。
 
 ## 初期化
 
@@ -13,6 +13,14 @@ const client = createFlareLobbyClient({
   endpoint: "https://lobby.example.com",
   getAccessToken: () => auth.getAccessToken()
 });
+
+const room = await client.createCustomRoom({ maxPlayers: 4 });
+const joinedRoom = await client.joinCustomRoom("4F9K2D");
+const rooms = await client.listCustomRooms({ available: true });
+
+await room.setReady(true);
+await room.selectTeam("blue");
+await room.send("chat.message", { text: "準備完了" });
 ```
 
 `getAccessToken` はクライアント生成時には呼ばれません。HTTP 要求ごとに直前で
@@ -38,6 +46,19 @@ const result = await client.request<{ readonly accepted: boolean }>(
 HTTP の失敗、JSON の不正、通信例外は `FlareLobbyError` と安定したエラーコードへ
 正規化されます。
 
+## カスタムルーム
+
+`createCustomRoom()` は作成者をホストとして登録し、HTTP の初期スナップショットを
+凍結したうえで WebSocket へ接続した `HostRoom` を返します。`joinCustomRoom()` は
+招待コード文字列、または `roomId`、`invitationCode`、`role`、`password` を含む
+詳細 Options を受け付けます。`role: "spectator"` の参加者は観戦者用の型で返り、
+プレイヤー操作は実行時にも `FORBIDDEN` になります。
+
+Room の状態変更メソッドはサーバーの成功応答を待ってから解決し、成功時の最新
+スナップショットを返します。`snapshot` とその入れ子の値は利用者から変更できません。
+`leave()` は参加用トークンを使った HTTP 退出、ホストの `close()` は WebSocket
+操作として実行されます。
+
 ## WebSocket
 
 ```ts
@@ -59,6 +80,25 @@ WebSocket は任意の HTTP ヘッダーを付けられないため、トーク�
 `connect` と `connection.send` は AbortSignal を受け付けます。`dispose()` は
 保有中の WebSocket、イベント購読、応答待機を解放し、以後の操作を
 `CANCELLED` として拒否します。
+
+### 再接続と状態復元
+
+Room Durable Object は初回接続の `room.snapshot` Payload に、参加者へ束縛された
+`resumeToken`、`resumeTokenExpiresAt`、および `resume` Handshake 情報を追加します。
+トークンは URL や通常の Query へ入れず、初回の参加用トークンと同じ認証用
+WebSocket subprotocol へ渡してください。切断後は、同じ再開トークンと最後に適用
+した `revision` を `lastRevision` Query（または
+`x-flarelobby-last-revision` Header）へ指定して再接続します。
+
+履歴が残っている場合、サーバーは `lastRevision + 1` から現在の版までの
+`room.snapshot` イベントを順番に送ってから、再接続済み Handshake を含む最新
+スナップショットを送ります。履歴不足、範囲外、または不整合の場合は差分を送らず、
+最新の完全スナップショットだけを返します。履歴は `eventHistoryLimit` 件で有界です。
+
+WebSocket の切断は直ちに `leave()` へ変換されず、`disconnectGracePeriodMs` の間は
+参加者の準備状態・チーム・参加者 ID を保持します。猶予終了時に参加者を退出させ、
+ホストなら最古のプレイヤーへ移譲します。`leave()` または `kick()` は対象参加者の
+再開セッションを明示的に無効化するため、古い再開トークンで新規参加へ暗黙変換されません。
 
 ## テスト用差し替え
 

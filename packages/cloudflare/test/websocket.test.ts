@@ -118,10 +118,14 @@ function encodeWebSocketToken(token: string): string {
 function createWebSocketRequest(
   roomId: string,
   token: string,
-  protocol = "flarelobby.v1"
+  protocol = "flarelobby.v1",
+  lastRevision?: number
 ): Request {
+  const query =
+    lastRevision === undefined ? "" : `?lastRevision=${lastRevision}`;
+
   return new Request(
-    `https://example.test/v1/custom-rooms/${encodeURIComponent(roomId)}/ws`,
+    `https://example.test/v1/custom-rooms/${encodeURIComponent(roomId)}/ws${query}`,
     {
       method: "GET",
       headers: {
@@ -133,8 +137,16 @@ function createWebSocketRequest(
 }
 
 async function connect(room: RoomResult): Promise<WebSocket> {
+  return connectWithToken(room.roomId, room.joinToken);
+}
+
+async function connectWithToken(
+  roomId: string,
+  token: string,
+  lastRevision?: number
+): Promise<WebSocket> {
   const response = await testWorker.fetch(
-    createWebSocketRequest(room.roomId, room.joinToken) as unknown as Parameters<
+    createWebSocketRequest(roomId, token, "flarelobby.v1", lastRevision) as unknown as Parameters<
       typeof testWorker.fetch
     >[0],
     env,
@@ -532,5 +544,202 @@ describe("Room Hibernation WebSocket", () => {
       closeSocket(playerSocket),
       closeSocket(otherSocket)
     ]);
+  });
+
+  it("猶予期間内の再接続で参加状態を引き継ぎ、欠落イベントを順序どおり再送する", async () => {
+    const owner = await createRoom(`principal-resume-${crypto.randomUUID()}`);
+    const socket = await connect(owner);
+    const initial = await waitForMessage(socket);
+    const resumeToken = initial.payload?.resumeToken;
+
+    expect(initial).toMatchObject({
+      kind: "event",
+      event: "room.snapshot",
+      revision: 0,
+      payload: {
+        room: { id: owner.roomId },
+        resume: {
+          participantId: owner.participantId,
+          role: "player",
+          resumed: false
+        },
+        resumeToken: expect.any(String),
+        resumeTokenExpiresAt: expect.any(Number)
+      }
+    });
+    expect(typeof resumeToken).toBe("string");
+
+    for (const ready of [true, false, true]) {
+      sendCommand(socket, "room.set_ready", { ready });
+      await expect(waitForMessage(socket)).resolves.toMatchObject({
+        kind: "event",
+        event: "room.snapshot",
+        revision: expect.any(Number)
+      });
+      await expect(waitForMessage(socket)).resolves.toMatchObject({
+        kind: "success"
+      });
+    }
+
+    await closeSocket(socket);
+    await waitForDisconnectedConnections(owner.roomId, 1);
+
+    const multipleMissing = await connectWithToken(
+      owner.roomId,
+      resumeToken as string,
+      0
+    );
+    const multipleMessages = [
+      await waitForMessage(multipleMissing),
+      await waitForMessage(multipleMissing),
+      await waitForMessage(multipleMissing),
+      await waitForMessage(multipleMissing)
+    ];
+
+    expect(multipleMessages.map((message) => message.revision)).toEqual([
+      1,
+      2,
+      3,
+      3
+    ]);
+    expect(multipleMessages[0]).toMatchObject({
+      kind: "event",
+      event: "room.snapshot",
+      payload: { participants: expect.any(Array) }
+    });
+    expect(multipleMessages[3]).toMatchObject({
+      kind: "event",
+      event: "room.snapshot",
+      payload: {
+        participants: expect.arrayContaining([
+          expect.objectContaining({ id: owner.participantId, ready: true })
+        ]),
+        resume: {
+          participantId: owner.participantId,
+          resumed: true
+        }
+      }
+    });
+
+    await closeSocket(multipleMissing);
+    await waitForDisconnectedConnections(owner.roomId, 1);
+
+    const oneMissing = await connectWithToken(
+      owner.roomId,
+      resumeToken as string,
+      2
+    );
+    await expect(waitForMessage(oneMissing)).resolves.toMatchObject({
+      kind: "event",
+      event: "room.snapshot",
+      revision: 3
+    });
+    await expect(waitForMessage(oneMissing)).resolves.toMatchObject({
+      kind: "event",
+      event: "room.snapshot",
+      revision: 3,
+      payload: { resume: { resumed: true } }
+    });
+
+    await closeSocket(oneMissing);
+    await waitForDisconnectedConnections(owner.roomId, 1);
+
+    await runInDurableObject(
+      env.FLARE_LOBBY_ROOMS.getByName(owner.roomId),
+      (_instance: RoomDurableObject, state) => {
+        state.storage.sql.exec(
+          "DELETE FROM flarelobby_room_events WHERE revision = ?",
+          1
+        );
+      }
+    );
+
+    const insufficientHistory = await connectWithToken(
+      owner.roomId,
+      resumeToken as string,
+      0
+    );
+    await expect(waitForMessage(insufficientHistory)).resolves.toMatchObject({
+      kind: "event",
+      event: "room.snapshot",
+      revision: 3,
+      payload: { resume: { resumed: true } }
+    });
+    await expect(waitForMessage(insufficientHistory, 50)).rejects.toThrow(
+      "WebSocket メッセージがタイムアウトしました。"
+    );
+    await closeSocket(insufficientHistory);
+
+    await waitForDisconnectedConnections(owner.roomId, 1);
+    const outOfRange = await connectWithToken(
+      owner.roomId,
+      resumeToken as string,
+      999
+    );
+    await expect(waitForMessage(outOfRange)).resolves.toMatchObject({
+      kind: "event",
+      event: "room.snapshot",
+      revision: 3,
+      payload: { resume: { resumed: true } }
+    });
+    await expect(waitForMessage(outOfRange, 50)).rejects.toThrow(
+      "WebSocket メッセージがタイムアウトしました。"
+    );
+    await closeSocket(outOfRange);
+  });
+
+  it("明示退出後の古い再開トークンと改ざんトークンを拒否する", async () => {
+    const principalId = `principal-resume-leave-${crypto.randomUUID()}`;
+    const owner = await createRoom(principalId);
+    await joinRoom(owner.roomId);
+    const socket = await connect(owner);
+    const initial = await waitForMessage(socket);
+    const resumeToken = initial.payload?.resumeToken;
+
+    expect(typeof resumeToken).toBe("string");
+
+    const leaveResponse = await testWorker.fetch(
+      new Request("https://example.test/v1/custom-rooms/leave", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-principal": principalId
+        },
+        body: JSON.stringify({
+          requestId: `leave-${crypto.randomUUID()}`,
+          roomId: owner.roomId,
+          joinToken: owner.joinToken,
+          participantId: owner.participantId,
+          role: "player"
+        })
+      }) as unknown as Parameters<typeof testWorker.fetch>[0],
+      env,
+      {} as ExecutionContext
+    );
+
+    expect(leaveResponse.status).toBe(200);
+
+    const oldTokenResponse = await testWorker.fetch(
+      createWebSocketRequest(owner.roomId, resumeToken as string) as unknown as Parameters<
+        typeof testWorker.fetch
+      >[0],
+      env,
+      {} as ExecutionContext
+    );
+    expect(oldTokenResponse.status).toBe(403);
+
+    const tamperedToken = `${(resumeToken as string).slice(0, -1)}${
+      (resumeToken as string).endsWith("A") ? "B" : "A"
+    }`;
+    const tamperedResponse = await testWorker.fetch(
+      createWebSocketRequest(owner.roomId, tamperedToken) as unknown as Parameters<
+        typeof testWorker.fetch
+      >[0],
+      env,
+      {} as ExecutionContext
+    );
+    expect(tamperedResponse.status).toBe(401);
+
+    await closeSocket(socket);
   });
 });

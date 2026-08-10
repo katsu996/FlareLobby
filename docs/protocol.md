@@ -105,6 +105,20 @@
 
 サーバーは状態変更のたびに `revision` を単調増加させ、同じルームのイベントをその順序で配信します。受信側は未知の `event` を適用してはいけません。`decodeServerMessage()` へ `knownEventTypes` を渡すと、登録されていないイベントは `UNKNOWN_EVENT` で拒否できます。
 
+Room の初回接続または再接続時の `room.snapshot` は、通常のスナップショット項目に加えて
+次の再開 Handshake 項目を Payload へ持てます。
+
+| 項目 | 型 | 意味 |
+| --- | --- | --- |
+| `resumeToken` | 文字列 | 次回接続の認証用 subprotocol へ渡す期限付き再開トークン |
+| `resumeTokenExpiresAt` | 数値 | 再開トークンの Unix epoch milliseconds の期限 |
+| `resume` | オブジェクト | `participantId`、`role`、`resumed` を含む接続結果 |
+
+再接続要求は最後に適用した `revision` を `lastRevision` Query または
+`x-flarelobby-last-revision` Header で指定します。サーバーは有界履歴から連続した
+差分を返せる場合だけ順番に再送し、履歴不足や範囲外では完全スナップショットへ切り替えます。
+再開トークンは明示的な `leave()` 後には無効です。
+
 ## 公開エラー
 
 `FlareLobbyError` は安全な `message` と、表示文言から独立した `code` を持ちます。HTTP と WebSocket の失敗は同じコードへ正規化します。

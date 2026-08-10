@@ -109,6 +109,19 @@ Room、Match Pool、利用制限の公開クラスは Wrangler から静的に�
 
 `customRooms.finishedRoomRetentionMs` を指定すると、終了済み Room を SQLite から削除するまでの保持期間（ミリ秒）を変更できます。省略時は `DEFAULT_FINISHED_ROOM_RETENTION_MS`（24 時間）です。0 を指定した Room は終了後すぐに削除対象となります。
 
+再接続を使う場合は、次の `customRooms` 設定で保持期間と履歴容量を調整できます。省略時は、再開トークン 30 分、切断猶予 30 秒、状態イベント履歴 128 件、処理済みコマンド結果 10 分です。
+
+```ts
+customRooms: {
+  maxPlayers: 4,
+  defaultSettings: { maxPlayers: 4, map: "forest" },
+  resumeTokenTtlMs: 30 * 60 * 1_000,
+  disconnectGracePeriodMs: 30 * 1_000,
+  eventHistoryLimit: 128,
+  processedCommandRetentionMs: 10 * 60 * 1_000
+}
+```
+
 ## Room Durable Object の永続状態
 
 `FLARE_LOBBY_ROOMS.getByName(room.id)` は同じ `room.id` に対して常に同じ Room Durable Object を返します。`initialize()` は Room 本体、参加者、チームを SQLite へ一度だけ保存し、同じ初期化要求を再実行した場合は保存済みの `RoomSnapshot` を返します。
