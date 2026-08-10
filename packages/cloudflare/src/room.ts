@@ -1,10 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import {
-  FlareLobbyError
+  encodeProtocolMessage,
+  FlareLobbyError,
+  PROTOCOL_VERSION
 } from "@flarelobby/core";
 import type {
   AnyFlareLobbyApp,
   CustomRoom,
+  ClientCommandEnvelope,
   FlareLobbyApp,
   Host,
   JsonObject,
@@ -17,10 +20,21 @@ import type {
   RoomSnapshot,
   RoomState,
   RoomStatus,
+  ProtocolMessage,
+  ProtocolResult,
+  ServerEventEnvelope,
+  ServerFailureEnvelope,
+  ServerSuccessEnvelope,
   Team,
   Timestamp
 } from "@flarelobby/core";
 import {
+  createGatewayPrincipalEnvelope,
+  createErrorResponse,
+  FLARE_LOBBY_WEBSOCKET_PROTOCOL,
+  readWebSocketJoinToken,
+  validateWebSocketCommand,
+  verifyWebSocketJoinToken,
   verifyGatewayPrincipalEnvelope
 } from "./security.js";
 import type {
@@ -44,6 +58,59 @@ const ROOM_TRANSFER_HOST_COMMAND = "room.transfer_host";
 const ROOM_KICK_COMMAND = "room.kick";
 const ROOM_START_MATCH_COMMAND = "room.start_match";
 const ROOM_CLOSE_COMMAND = "room.close";
+const ROOM_SNAPSHOT_EVENT = "room.snapshot";
+const GAME_MESSAGE_EVENT = "game.message";
+const ROOM_WEBSOCKET_ATTACHMENT_VERSION = 1 as const;
+const DEFAULT_WEBSOCKET_MESSAGE_BYTES = 8 * 1024;
+const DEFAULT_WEBSOCKET_MESSAGE_LIMIT = 60;
+const ROOM_WEBSOCKET_MESSAGE_BYTES_HEADER =
+  "x-flarelobby-websocket-message-bytes";
+const ROOM_WEBSOCKET_MESSAGE_LIMIT_HEADER =
+  "x-flarelobby-websocket-message-limit";
+const ROOM_WEBSOCKET_TAG_PREFIX = "flarelobby:room:";
+const PARTICIPANT_WEBSOCKET_TAG_PREFIX = "flarelobby:participant:";
+const PRINCIPAL_WEBSOCKET_TAG_PREFIX = "flarelobby:principal:";
+const ROLE_WEBSOCKET_TAG_PREFIX = "flarelobby:role:";
+const RESUME_WEBSOCKET_TAG_PREFIX = "flarelobby:resume:";
+const MAX_GAME_MESSAGE_NAME_LENGTH = 128;
+
+/** ルーム単位の Hibernation WebSocket を検索するタグです。 */
+export function getRoomWebSocketTag(roomId: string): string {
+  return `${ROOM_WEBSOCKET_TAG_PREFIX}${roomId}`;
+}
+
+/** 参加者単位の Hibernation WebSocket を検索するタグです。 */
+export function getParticipantWebSocketTag(participantId: string): string {
+  return `${PARTICIPANT_WEBSOCKET_TAG_PREFIX}${participantId}`;
+}
+
+/** 主体単位の Hibernation WebSocket を検索するタグです。 */
+export function getPrincipalWebSocketTag(principalId: string): string {
+  return `${PRINCIPAL_WEBSOCKET_TAG_PREFIX}${principalId}`;
+}
+
+/** WebSocket の役割単位で接続を検索するタグです。 */
+export function getRoleWebSocketTag(role: RoomParticipantRole): string {
+  return `${ROLE_WEBSOCKET_TAG_PREFIX}${role}`;
+}
+
+/** WebSocket の再開識別子を検索するタグです。 */
+export function getResumeWebSocketTag(resumeId: string): string {
+  return `${RESUME_WEBSOCKET_TAG_PREFIX}${resumeId}`;
+}
+
+/** Hibernation WebSocket の attachment に保存する接続固有情報です。 */
+export interface RoomWebSocketAttachment {
+  readonly version: typeof ROOM_WEBSOCKET_ATTACHMENT_VERSION;
+  readonly roomId: string;
+  readonly principal: Principal;
+  readonly participantId: string;
+  readonly role: RoomParticipantRole;
+  readonly connectedAt: Timestamp;
+  readonly resumeId: string;
+  readonly maxWebSocketMessageBytes: number;
+  readonly maxMessagesPerMinute: number;
+}
 
 /** Room Durable Object を初期化するための永続化対象です。 */
 export interface RoomInitializationOptions<
@@ -343,6 +410,171 @@ export class RoomDurableObject extends DurableObject<Env> {
     });
   }
 
+  /** Gateway から転送された WebSocket Upgrade を Hibernation API へ渡します。 */
+  public override async fetch(request: Request): Promise<Response> {
+    if (
+      request.method !== "GET" ||
+      request.headers.get("Upgrade")?.toLowerCase() !== "websocket"
+    ) {
+      return new Response("Not Found", { status: 404 });
+    }
+
+    const roomId = getWebSocketRoomId(request);
+
+    if (roomId === null || !hasWebSocketProtocol(request)) {
+      return createErrorResponse(new FlareLobbyError("INVALID_MESSAGE"));
+    }
+
+    const token = readWebSocketJoinToken(request);
+
+    if (!token.ok) {
+      return createErrorResponse(token.error);
+    }
+
+    const claims = await verifyWebSocketJoinToken(
+      this.env.FLARE_LOBBY_TOKEN_SECRET,
+      token.value,
+      { roomId }
+    );
+
+    if (!claims.ok) {
+      return createErrorResponse(claims.error);
+    }
+
+    if (claims.value.participantId === undefined) {
+      return createErrorResponse(new FlareLobbyError("UNAUTHENTICATED"));
+    }
+
+    let connectionAttachment: RoomWebSocketAttachment | undefined;
+
+    try {
+      const room = this.readRoomRow();
+
+      if (room === undefined || room.roomId !== roomId) {
+        return createErrorResponse(new FlareLobbyError("FORBIDDEN"));
+      }
+
+      if (room.state === "finished") {
+        return createErrorResponse(new FlareLobbyError("ROOM_FINISHED"));
+      }
+
+      const participant = this.readParticipantById(claims.value.participantId);
+
+      if (
+        participant === undefined ||
+        participant.kind !== claims.value.role
+      ) {
+        return createErrorResponse(new FlareLobbyError("FORBIDDEN"));
+      }
+
+      const snapshot = this.readSnapshot();
+
+      if (snapshot === null) {
+        return createErrorResponse(new FlareLobbyError("CONNECTION_FAILED"));
+      }
+
+      connectionAttachment = Object.freeze({
+        version: ROOM_WEBSOCKET_ATTACHMENT_VERSION,
+        roomId,
+        principal: Object.freeze({
+          id: claims.value.principalId,
+          playerId: participant.playerId
+        }),
+        participantId: participant.participantId,
+        role: participant.kind,
+        connectedAt: new Date().toISOString(),
+        resumeId: crypto.randomUUID(),
+        maxWebSocketMessageBytes: readPositiveHeader(
+          request.headers.get(ROOM_WEBSOCKET_MESSAGE_BYTES_HEADER),
+          DEFAULT_WEBSOCKET_MESSAGE_BYTES
+        ),
+        maxMessagesPerMinute: readPositiveHeader(
+          request.headers.get(ROOM_WEBSOCKET_MESSAGE_LIMIT_HEADER),
+          DEFAULT_WEBSOCKET_MESSAGE_LIMIT
+        )
+      });
+      const pair = new WebSocketPair();
+      const client = pair[0];
+      const server = pair[1];
+
+      server.serializeAttachment(connectionAttachment);
+      this.storeWebSocketConnection(connectionAttachment);
+      this.ctx.acceptWebSocket(server, createWebSocketTags(connectionAttachment));
+
+      if (
+        !this.sendProtocolMessage(
+          server,
+          createRoomSnapshotEvent(snapshot)
+        )
+      ) {
+        this.markWebSocketDisconnected(connectionAttachment);
+        try {
+          server.close(1011, "接続を初期化できませんでした。");
+        } catch {
+          // すでに閉じた WebSocket の例外は公開しません。
+        }
+      }
+
+      return new Response(null, {
+        status: 101,
+        headers: {
+          "Sec-WebSocket-Protocol": FLARE_LOBBY_WEBSOCKET_PROTOCOL
+        },
+        webSocket: client
+      });
+    } catch (error) {
+      if (connectionAttachment !== undefined) {
+        try {
+          this.markWebSocketDisconnected(connectionAttachment);
+        } catch {
+          // 接続行の後始末に失敗しても、公開エラーへ内部情報を含めません。
+        }
+      }
+
+      return createErrorResponse(normalizeWebSocketError(error));
+    }
+  }
+
+  /** Hibernation 後を含む WebSocket の受信 Handler です。 */
+  public override async webSocketMessage(
+    webSocket: WebSocket,
+    message: string | ArrayBuffer
+  ): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      await this.handleWebSocketMessage(webSocket, message);
+    });
+  }
+
+  /** 切断時は接続状態だけを更新し、参加者行を削除しません。 */
+  public override async webSocketClose(
+    webSocket: WebSocket,
+    _code: number,
+    _reason: string,
+    _wasClean: boolean
+  ): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const attachment = readWebSocketAttachment(webSocket);
+
+      if (attachment !== null) {
+        this.markWebSocketDisconnected(attachment);
+      }
+    });
+  }
+
+  /** WebSocket エラー時も切断済み状態だけを記録します。 */
+  public override async webSocketError(
+    webSocket: WebSocket,
+    _error: unknown
+  ): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const attachment = readWebSocketAttachment(webSocket);
+
+      if (attachment !== null) {
+        this.markWebSocketDisconnected(attachment);
+      }
+    });
+  }
+
   /** Gateway の署名済み主体だけを受け入れます。 */
   public async resolveGatewayPrincipal(
     gatewayPrincipal: GatewayPrincipalEnvelope
@@ -597,6 +829,8 @@ export class RoomDurableObject extends DurableObject<Env> {
       throw new FlareLobbyError("CONNECTION_FAILED");
     }
 
+    this.broadcastRoomSnapshot(snapshot);
+
     return {
       participantId,
       role: normalized.role,
@@ -734,6 +968,8 @@ export class RoomDurableObject extends DurableObject<Env> {
       snapshot
     };
 
+    this.broadcastRoomSnapshot(snapshot);
+
     if (normalized.requestId !== null) {
       await this.recordProcessedCommand({
         requestId: normalized.requestId,
@@ -825,10 +1061,13 @@ export class RoomDurableObject extends DurableObject<Env> {
     );
     this.incrementRevision(actor.room.revision);
 
+    const snapshot = this.readRequiredSnapshot();
+    this.broadcastRoomSnapshot(snapshot);
+
     return this.storeOperationResult(
       request,
       ROOM_SET_READY_COMMAND,
-      this.readRequiredSnapshot()
+      snapshot
     );
   }
 
@@ -876,10 +1115,13 @@ export class RoomDurableObject extends DurableObject<Env> {
     );
     this.incrementRevision(actor.room.revision);
 
+    const snapshot = this.readRequiredSnapshot();
+    this.broadcastRoomSnapshot(snapshot);
+
     return this.storeOperationResult(
       request,
       ROOM_SELECT_TEAM_COMMAND,
-      this.readRequiredSnapshot()
+      snapshot
     );
   }
 
@@ -918,10 +1160,13 @@ export class RoomDurableObject extends DurableObject<Env> {
       actor.room.revision + 1
     );
 
+    const snapshot = this.readRequiredSnapshot();
+    this.broadcastRoomSnapshot(snapshot);
+
     return this.storeOperationResult(
       request,
       ROOM_UPDATE_SETTINGS_COMMAND,
-      this.readRequiredSnapshot()
+      snapshot
     );
   }
 
@@ -966,10 +1211,13 @@ export class RoomDurableObject extends DurableObject<Env> {
     this.setHost(target);
     this.incrementRevision(actor.room.revision);
 
+    const snapshot = this.readRequiredSnapshot();
+    this.broadcastRoomSnapshot(snapshot);
+
     return this.storeOperationResult(
       request,
       ROOM_TRANSFER_HOST_COMMAND,
-      this.readRequiredSnapshot()
+      snapshot
     );
   }
 
@@ -1021,10 +1269,13 @@ export class RoomDurableObject extends DurableObject<Env> {
     );
     this.incrementRevision(actor.room.revision);
 
+    const snapshot = this.readRequiredSnapshot();
+    this.broadcastRoomSnapshot(snapshot);
+
     return this.storeOperationResult(
       request,
       ROOM_KICK_COMMAND,
-      this.readRequiredSnapshot()
+      snapshot
     );
   }
 
@@ -1079,6 +1330,8 @@ export class RoomDurableObject extends DurableObject<Env> {
       startedAt,
       preparationRevision
     );
+    const preparingSnapshot = this.readRequiredSnapshot();
+    this.broadcastRoomSnapshot(preparingSnapshot);
     this.ctx.storage.sql.exec(
       `UPDATE flarelobby_rooms
        SET state = 'in_progress', state_started_at = ?, revision = ?
@@ -1087,10 +1340,13 @@ export class RoomDurableObject extends DurableObject<Env> {
       preparationRevision + 1
     );
 
+    const snapshot = this.readRequiredSnapshot();
+    this.broadcastRoomSnapshot(snapshot);
+
     return this.storeOperationResult(
       request,
       ROOM_START_MATCH_COMMAND,
-      this.readRequiredSnapshot()
+      snapshot
     );
   }
 
@@ -1142,6 +1398,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     );
 
     const snapshot = this.readRequiredSnapshot();
+    this.broadcastRoomSnapshot(snapshot);
     const result = await this.storeOperationResult(
       request,
       ROOM_CLOSE_COMMAND,
@@ -1252,6 +1509,8 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (snapshot === null) {
       throw new FlareLobbyError("CONNECTION_FAILED");
     }
+
+    this.broadcastRoomSnapshot(snapshot);
 
     return snapshot;
   }
@@ -1453,6 +1712,408 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     await this.synchronizeAlarm();
+  }
+
+  private async handleWebSocketMessage(
+    webSocket: WebSocket,
+    message: string | ArrayBuffer
+  ): Promise<void> {
+    const attachment = readWebSocketAttachment(webSocket);
+
+    if (attachment === null) {
+      closeWebSocketSafely(webSocket, 1008, "接続情報が無効です。");
+      return;
+    }
+
+    const command = validateWebSocketCommand(
+      message,
+      attachment.maxWebSocketMessageBytes
+    );
+
+    if (!command.ok) {
+      this.sendWebSocketFailure(webSocket, command.error);
+
+      if (command.error.requestId === undefined) {
+        closeWebSocketSafely(webSocket, 1002, "メッセージを解釈できません。");
+      }
+
+      return;
+    }
+
+    const gatewayPrincipal = await createGatewayPrincipalEnvelope(
+      this.env.FLARE_LOBBY_TOKEN_SECRET,
+      attachment.principal
+    );
+
+    if (!gatewayPrincipal.ok) {
+      this.sendWebSocketFailure(
+        webSocket,
+        new FlareLobbyError("UNAUTHENTICATED", {
+          requestId: command.value.requestId
+        })
+      );
+      return;
+    }
+
+    const rateLimit = await this.consumeWebSocketMessageRateLimit(
+      attachment.principal.id,
+      gatewayPrincipal.value,
+      attachment.maxMessagesPerMinute
+    );
+
+    if (!rateLimit.ok) {
+      this.sendWebSocketFailure(
+        webSocket,
+        new FlareLobbyError(rateLimit.error.code, {
+          message: rateLimit.error.message,
+          requestId: command.value.requestId
+        })
+      );
+      return;
+    }
+
+    try {
+      const payload = await this.dispatchWebSocketCommand(
+        attachment,
+        gatewayPrincipal.value,
+        command.value
+      );
+      const response: ServerSuccessEnvelope = {
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "success",
+        requestId: command.value.requestId,
+        payload
+      };
+
+      if (!this.sendProtocolMessage(webSocket, response)) {
+        closeWebSocketSafely(webSocket, 1011, "応答を送信できません。");
+      }
+    } catch (error) {
+      this.sendWebSocketFailure(
+        webSocket,
+        normalizeWebSocketError(error, command.value.requestId)
+      );
+    }
+  }
+
+  private async dispatchWebSocketCommand(
+    attachment: RoomWebSocketAttachment,
+    gatewayPrincipal: GatewayPrincipalEnvelope,
+    command: ClientCommandEnvelope
+  ): Promise<JsonValue> {
+    const requestId = scopeWebSocketRequestId(
+      attachment.principal.id,
+      command.requestId
+    );
+    const common = {
+      gatewayPrincipal,
+      participantId: attachment.participantId,
+      requestId,
+      requestPayload: command.payload
+    } as const;
+
+    switch (command.command) {
+      case ROOM_SET_READY_COMMAND: {
+        const payload = requireJsonObject(command.payload);
+
+        if (typeof payload["ready"] !== "boolean") {
+          throw new FlareLobbyError("INVALID_PAYLOAD");
+        }
+
+        return (await this.setReady({
+          ...common,
+          ready: payload["ready"]
+        })) as unknown as JsonValue;
+      }
+      case ROOM_SELECT_TEAM_COMMAND: {
+        const payload = requireJsonObject(command.payload);
+        const teamId = payload["teamId"];
+
+        if (teamId !== null && !isNonEmptyString(teamId)) {
+          throw new FlareLobbyError("INVALID_PAYLOAD");
+        }
+
+        return (await this.selectTeam({
+          ...common,
+          teamId: teamId === null ? null : teamId
+        })) as unknown as JsonValue;
+      }
+      case ROOM_UPDATE_SETTINGS_COMMAND: {
+        const payload = requireJsonObject(command.payload);
+
+        return (await this.updateSettings({
+          ...common,
+          settings: requireJsonObject(payload["settings"])
+        })) as unknown as JsonValue;
+      }
+      case ROOM_TRANSFER_HOST_COMMAND: {
+        const payload = requireJsonObject(command.payload);
+
+        if (!isNonEmptyString(payload["targetParticipantId"])) {
+          throw new FlareLobbyError("INVALID_PAYLOAD");
+        }
+
+        return (await this.transferHost({
+          ...common,
+          targetParticipantId: payload["targetParticipantId"]
+        })) as unknown as JsonValue;
+      }
+      case ROOM_KICK_COMMAND: {
+        const payload = requireJsonObject(command.payload);
+        const targetParticipantId = optionalString(
+          payload["targetParticipantId"]
+        );
+        const targetPlayerId = optionalString(payload["targetPlayerId"]);
+        const reason = optionalString(payload["reason"]);
+
+        return (await this.kick({
+          ...common,
+          ...(targetParticipantId === undefined ? {} : { targetParticipantId }),
+          ...(targetPlayerId === undefined ? {} : { targetPlayerId }),
+          ...(reason === undefined ? {} : { reason })
+        })) as unknown as JsonValue;
+      }
+      case ROOM_START_MATCH_COMMAND: {
+        const payload = requireJsonObject(command.payload);
+        const at = payload["at"];
+
+        if (at !== undefined && !isNonEmptyString(at)) {
+          throw new FlareLobbyError("INVALID_PAYLOAD");
+        }
+
+        return (await this.startMatch({
+          ...common,
+          ...(at === undefined ? {} : { at })
+        })) as unknown as JsonValue;
+      }
+      case ROOM_CLOSE_COMMAND: {
+        const payload = requireJsonObject(command.payload);
+        const at = payload["at"];
+
+        if (at !== undefined && !isNonEmptyString(at)) {
+          throw new FlareLobbyError("INVALID_PAYLOAD");
+        }
+
+        return (await this.close({
+          ...common,
+          ...(at === undefined ? {} : { at })
+        })) as unknown as JsonValue;
+      }
+      default:
+        return this.dispatchGameMessage(
+          attachment,
+          gatewayPrincipal,
+          command,
+          requestId
+        );
+    }
+  }
+
+  private async dispatchGameMessage(
+    attachment: RoomWebSocketAttachment,
+    gatewayPrincipal: GatewayPrincipalEnvelope,
+    command: ClientCommandEnvelope,
+    requestId: string
+  ): Promise<JsonValue> {
+    const actor = await this.authenticateParticipant({
+      gatewayPrincipal,
+      participantId: attachment.participantId
+    });
+
+    if (actor.participant.kind !== attachment.role) {
+      throw new FlareLobbyError("FORBIDDEN");
+    }
+
+    assertActiveRoom(actor.room);
+
+    if (command.command.startsWith("room.")) {
+      throw new FlareLobbyError("INVALID_PAYLOAD", {
+        message: "未知の Room コマンドです。"
+      });
+    }
+
+    if (actor.participant.kind !== "player") {
+      throw new FlareLobbyError("FORBIDDEN");
+    }
+
+    if (command.command.length > MAX_GAME_MESSAGE_NAME_LENGTH) {
+      throw new FlareLobbyError("INVALID_PAYLOAD");
+    }
+
+    const existing = this.readProcessedCommand(requestId);
+
+    if (existing !== null) {
+      if (
+        existing.value.command !== command.command ||
+        JSON.stringify(existing.value.payload) !== JSON.stringify(command.payload)
+      ) {
+        throw new FlareLobbyError("CONFLICT", {
+          message: "同じ requestId に異なるゲームメッセージを指定できません。"
+        });
+      }
+
+      return existing.value.result;
+    }
+
+    await this.recordProcessedCommand({
+      requestId,
+      command: command.command,
+      payload: command.payload,
+      result: null
+    });
+    this.broadcastGameMessage(attachment, command);
+    return null;
+  }
+
+  private async consumeWebSocketMessageRateLimit(
+    principalId: string,
+    gatewayPrincipal: GatewayPrincipalEnvelope,
+    limit: number
+  ): Promise<ProtocolResult<void>> {
+    try {
+      const decision = await this.env.FLARE_LOBBY_RATE_LIMITS
+        .getByName(principalId)
+        .consume(gatewayPrincipal, "websocket_message", limit);
+
+      return decision.allowed
+        ? { ok: true, value: undefined }
+        : {
+            ok: false,
+            error: new FlareLobbyError("CONFLICT", {
+              message: "要求が許可された頻度を超えています。"
+            })
+          };
+    } catch {
+      return {
+        ok: false,
+        error: new FlareLobbyError("CONNECTION_FAILED")
+      };
+    }
+  }
+
+  private sendWebSocketFailure(
+    webSocket: WebSocket,
+    error: FlareLobbyError
+  ): void {
+    const failure: ServerFailureEnvelope = {
+      protocolVersion: PROTOCOL_VERSION,
+      kind: "failure",
+      requestId: error.requestId ?? null,
+      error: error.toJSON()
+    };
+
+    if (!this.sendProtocolMessage(webSocket, failure)) {
+      closeWebSocketSafely(webSocket, 1011, "失敗応答を送信できません。");
+    }
+  }
+
+  private sendProtocolMessage(
+    webSocket: WebSocket,
+    message: ProtocolMessage
+  ): boolean {
+    const encoded = encodeProtocolMessage(message);
+
+    if (!encoded.ok) {
+      return false;
+    }
+
+    try {
+      webSocket.send(encoded.value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private broadcastRoomSnapshot(snapshot: RoomSnapshot): void {
+    this.broadcastProtocolMessage(createRoomSnapshotEvent(snapshot));
+  }
+
+  private broadcastGameMessage(
+    attachment: RoomWebSocketAttachment,
+    command: ClientCommandEnvelope
+  ): void {
+    const room = this.readRoomRow();
+
+    if (room === undefined) {
+      return;
+    }
+
+    const message: ServerEventEnvelope = {
+      protocolVersion: PROTOCOL_VERSION,
+      kind: "event",
+      event: GAME_MESSAGE_EVENT,
+      revision: room.revision,
+      payload: {
+        name: command.command,
+        payload: command.payload,
+        sender: {
+          participantId: attachment.participantId,
+          role: attachment.role
+        }
+      }
+    };
+
+    this.broadcastProtocolMessage(message);
+  }
+
+  private broadcastProtocolMessage(message: ProtocolMessage): void {
+    const encoded = encodeProtocolMessage(message);
+
+    if (!encoded.ok) {
+      return;
+    }
+
+    const roomId = getRoomWebSocketTag(this.readRoomRow()?.roomId ?? "");
+
+    for (const webSocket of this.ctx.getWebSockets(roomId)) {
+      try {
+        webSocket.send(encoded.value);
+      } catch {
+        closeWebSocketSafely(webSocket, 1011, "イベントを送信できません。");
+      }
+    }
+  }
+
+  private storeWebSocketConnection(
+    attachment: RoomWebSocketAttachment
+  ): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO flarelobby_room_connections (
+        resume_id,
+        room_id,
+        principal_id,
+        participant_id,
+        role,
+        connected_at,
+        disconnected_at
+      ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+      ON CONFLICT(resume_id) DO UPDATE SET
+        room_id = excluded.room_id,
+        principal_id = excluded.principal_id,
+        participant_id = excluded.participant_id,
+        role = excluded.role,
+        connected_at = excluded.connected_at,
+        disconnected_at = NULL`,
+      attachment.resumeId,
+      attachment.roomId,
+      attachment.principal.id,
+      attachment.participantId,
+      attachment.role,
+      attachment.connectedAt
+    );
+  }
+
+  private markWebSocketDisconnected(
+    attachment: RoomWebSocketAttachment
+  ): void {
+    this.ctx.storage.sql.exec(
+      `UPDATE flarelobby_room_connections
+       SET disconnected_at = COALESCE(disconnected_at, ?)
+       WHERE resume_id = ?`,
+      new Date().toISOString(),
+      attachment.resumeId
+    );
   }
 
   private async authenticateParticipant(
@@ -1994,17 +2655,214 @@ function migrateRoomSchema(sql: SqlStorage): void {
       VALUES (5, ?)
     `, Date.now());
   }
+
+  if (currentVersion < 6) {
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS flarelobby_room_connections (
+        resume_id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL,
+        principal_id TEXT NOT NULL,
+        participant_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('player', 'spectator')),
+        connected_at TEXT NOT NULL,
+        disconnected_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_flarelobby_room_connections_room
+        ON flarelobby_room_connections (room_id, disconnected_at);
+      CREATE INDEX IF NOT EXISTS idx_flarelobby_room_connections_participant
+        ON flarelobby_room_connections (participant_id, disconnected_at);
+
+      INSERT INTO flarelobby_room_schema_migrations (version, applied_at)
+      VALUES (6, ?)
+    `, Date.now());
+  }
 }
 
 function deleteRoomState(sql: SqlStorage): void {
   sql.exec(`
     DELETE FROM flarelobby_room_scheduled_operations;
     DELETE FROM flarelobby_processed_commands;
+    DELETE FROM flarelobby_room_connections;
     DELETE FROM flarelobby_room_participants;
     DELETE FROM flarelobby_room_teams;
     DELETE FROM flarelobby_rooms
      WHERE singleton_id = 1
   `);
+}
+
+function getWebSocketRoomId(request: Request): string | null {
+  const match = /^\/v1\/custom-rooms\/([^/]+)\/ws$/u.exec(
+    new URL(request.url).pathname
+  );
+
+  if (match?.[1] === undefined) {
+    return null;
+  }
+
+  try {
+    const roomId = decodeURIComponent(match[1]);
+    return isNonEmptyString(roomId) ? roomId : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasWebSocketProtocol(request: Request): boolean {
+  return (
+    request.headers
+      .get("Sec-WebSocket-Protocol")
+      ?.split(",")
+      .some((protocol) => protocol.trim() === FLARE_LOBBY_WEBSOCKET_PROTOCOL) ??
+    false
+  );
+}
+
+function readPositiveHeader(value: string | null, fallback: number): number {
+  if (value === null || !/^\d+$/u.test(value)) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function createWebSocketTags(
+  attachment: RoomWebSocketAttachment
+): string[] {
+  return [
+    getRoomWebSocketTag(attachment.roomId),
+    getParticipantWebSocketTag(attachment.participantId),
+    getPrincipalWebSocketTag(attachment.principal.id),
+    getRoleWebSocketTag(attachment.role),
+    getResumeWebSocketTag(attachment.resumeId)
+  ];
+}
+
+function readWebSocketAttachment(
+  webSocket: WebSocket
+): RoomWebSocketAttachment | null {
+  let value: unknown;
+
+  try {
+    value = webSocket.deserializeAttachment();
+  } catch {
+    return null;
+  }
+
+  if (!isRecord(value) || value["version"] !== ROOM_WEBSOCKET_ATTACHMENT_VERSION) {
+    return null;
+  }
+
+  const principal = value["principal"];
+  const roomId = value["roomId"];
+  const participantId = value["participantId"];
+  const role = value["role"];
+  const connectedAt = value["connectedAt"];
+  const resumeId = value["resumeId"];
+  const maxWebSocketMessageBytes = value["maxWebSocketMessageBytes"];
+  const maxMessagesPerMinute = value["maxMessagesPerMinute"];
+
+  if (
+    !isRecord(principal) ||
+    !isNonEmptyString(principal["id"]) ||
+    !isNonEmptyString(principal["playerId"]) ||
+    !isNonEmptyString(roomId) ||
+    !isNonEmptyString(participantId) ||
+    !isRoomParticipantRole(role) ||
+    !isValidTimestamp(connectedAt) ||
+    !isNonEmptyString(resumeId) ||
+    !isPositiveSafeInteger(maxWebSocketMessageBytes) ||
+    !isPositiveSafeInteger(maxMessagesPerMinute)
+  ) {
+    return null;
+  }
+
+  return Object.freeze({
+    version: ROOM_WEBSOCKET_ATTACHMENT_VERSION,
+    roomId,
+    principal: Object.freeze({
+      id: principal["id"],
+      playerId: principal["playerId"]
+    }),
+    participantId,
+    role,
+    connectedAt,
+    resumeId,
+    maxWebSocketMessageBytes,
+    maxMessagesPerMinute
+  });
+}
+
+function createRoomSnapshotEvent(
+  snapshot: RoomSnapshot
+): ServerEventEnvelope {
+  return {
+    protocolVersion: PROTOCOL_VERSION,
+    kind: "event",
+    event: ROOM_SNAPSHOT_EVENT,
+    revision: snapshot.revision,
+    payload: snapshot as unknown as JsonValue
+  };
+}
+
+function scopeWebSocketRequestId(
+  principalId: string,
+  requestId: string
+): string {
+  return normalizeRequestIdentifier(`websocket:${principalId}:${requestId}`);
+}
+
+function requireJsonObject(value: unknown): JsonObject {
+  if (!isJsonObject(value)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return value;
+}
+
+function optionalString(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!isNonEmptyString(value)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return value;
+}
+
+function closeWebSocketSafely(
+  webSocket: WebSocket,
+  code: number,
+  reason: string
+): void {
+  try {
+    if (webSocket.readyState !== 3) {
+      webSocket.close(code, reason);
+    }
+  } catch {
+    // すでに閉じた WebSocket の例外は公開しません。
+  }
+}
+
+function normalizeWebSocketError(
+  error: unknown,
+  requestId?: string
+): FlareLobbyError {
+  if (error instanceof FlareLobbyError) {
+    return error.requestId === undefined && requestId !== undefined
+      ? new FlareLobbyError(error.code, {
+          message: error.message,
+          requestId
+        })
+      : error;
+  }
+
+  return new FlareLobbyError("CONNECTION_FAILED", {
+    ...(requestId === undefined ? {} : { requestId })
+  });
 }
 
 async function normalizeInitialization(
@@ -3057,6 +3915,10 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isSafeTimestamp(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 function isValidTimestamp(value: unknown): value is string {

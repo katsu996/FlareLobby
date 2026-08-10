@@ -103,6 +103,22 @@ export interface FlareLobbyRoomTokenClaims {
   readonly participantId?: string;
 }
 
+/** Gateway と Room Durable Object が共有する WebSocket の基本 protocol 名です。 */
+export const FLARE_LOBBY_WEBSOCKET_PROTOCOL = "flarelobby.v1" as const;
+
+/** 参加用トークンを WebSocket subprotocol へ安全に運ぶための接頭辞です。 */
+export const FLARE_LOBBY_WEBSOCKET_AUTH_PROTOCOL_PREFIX =
+  "flarelobby.auth." as const;
+
+/** 主体をまだ復元できない WebSocket 接続で行うトークン検証の期待値です。 */
+export interface FlareLobbyWebSocketJoinTokenVerificationOptions {
+  readonly roomId: RoomId;
+  readonly role?: FlareLobbyRoomParticipantRole;
+  readonly participantId?: string;
+  /** テストなどで現在時刻を固定するときだけ指定します。 */
+  readonly now?: number;
+}
+
 /** Gateway から Durable Object へ渡す、署名済み主体の内部証明です。 */
 export interface GatewayPrincipalEnvelope {
   readonly token: string;
@@ -312,6 +328,59 @@ export function validateWebSocketCommand(
     : validateInput(command.value, validator, command.value.requestId);
 }
 
+/** WebSocket subprotocol から参加用トークンを読み取ります。トークン自体は公開しません。 */
+export function readWebSocketJoinToken(
+  request: Request
+): ProtocolResult<string> {
+  const header = request.headers.get("Sec-WebSocket-Protocol");
+
+  if (header === null) {
+    return protocolFailure("UNAUTHENTICATED");
+  }
+
+  const protocols = header
+    .split(",")
+    .map((protocol) => protocol.trim())
+    .filter((protocol) => protocol.length > 0);
+  const authProtocols = protocols.filter((protocol) =>
+    protocol.startsWith(FLARE_LOBBY_WEBSOCKET_AUTH_PROTOCOL_PREFIX)
+  );
+
+  if (authProtocols.length !== 1) {
+    return protocolFailure("UNAUTHENTICATED");
+  }
+
+  const encodedToken = authProtocols[0]?.slice(
+    FLARE_LOBBY_WEBSOCKET_AUTH_PROTOCOL_PREFIX.length
+  );
+
+  if (!isNonEmptyString(encodedToken)) {
+    return protocolFailure("UNAUTHENTICATED");
+  }
+
+  const tokenBytes = decodeBase64Url(encodedToken);
+
+  if (
+    tokenBytes === null ||
+    encodeBase64Url(tokenBytes) !== encodedToken
+  ) {
+    return protocolFailure("UNAUTHENTICATED");
+  }
+
+  try {
+    const token = new TextDecoder("utf-8", {
+      fatal: true,
+      ignoreBOM: false
+    }).decode(tokenBytes);
+
+    return isNonEmptyString(token)
+      ? protocolSuccess(token)
+      : protocolFailure("UNAUTHENTICATED");
+  } catch {
+    return protocolFailure("UNAUTHENTICATED");
+  }
+}
+
 /** 参加用の期限付きトークンを発行します。 */
 export async function issueJoinToken(
   tokenSecret: string,
@@ -335,6 +404,54 @@ export async function verifyJoinToken(
   options: FlareLobbyRoomTokenVerificationOptions
 ): Promise<ProtocolResult<FlareLobbyRoomTokenClaims>> {
   return verifyRoomToken(tokenSecret, token, "join", options);
+}
+
+/** 主体を別経路で持たない WebSocket Upgrade 用に、署名済み参加用トークンを検証します。 */
+export async function verifyWebSocketJoinToken(
+  tokenSecret: string,
+  token: string,
+  options: FlareLobbyWebSocketJoinTokenVerificationOptions
+): Promise<ProtocolResult<FlareLobbyRoomTokenClaims>> {
+  const now = options.now ?? Date.now();
+
+  if (
+    !isNonEmptyString(options.roomId) ||
+    (options.role !== undefined && !isRoomParticipantRole(options.role)) ||
+    (options.participantId !== undefined &&
+      !isNonEmptyString(options.participantId)) ||
+    !isSafeTimestamp(now) ||
+    !isUsableSecret(tokenSecret)
+  ) {
+    return protocolFailure("UNAUTHENTICATED");
+  }
+
+  const payload = await verifySignedToken(tokenSecret, token);
+
+  if (
+    payload === null ||
+    payload.kind !== "room" ||
+    payload.purpose !== "join" ||
+    payload.expiresAt <= now ||
+    payload.roomId !== options.roomId ||
+    (options.role !== undefined && payload.role !== options.role) ||
+    (options.participantId !== undefined &&
+      payload.participantId !== options.participantId)
+  ) {
+    return protocolFailure("UNAUTHENTICATED");
+  }
+
+  return protocolSuccess(
+    Object.freeze({
+      purpose: payload.purpose,
+      role: payload.role,
+      principalId: payload.principalId,
+      roomId: payload.roomId,
+      expiresAt: payload.expiresAt,
+      ...(payload.participantId === undefined
+        ? {}
+        : { participantId: payload.participantId })
+    })
+  );
 }
 
 /** 再開用トークンを、主体・ルーム・用途・期限まで照合して検証します。 */
