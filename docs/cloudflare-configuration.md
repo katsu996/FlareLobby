@@ -137,6 +137,8 @@ const snapshot = await room.initialize({
       ready: false
     }
   ],
+  minimumPlayers: 2,
+  requireAllPlayersReady: true,
   finishedRoomRetentionMs: 24 * 60 * 60 * 1_000
 });
 
@@ -146,6 +148,8 @@ await room.transition({ status: "finished" });
 ```
 
 状態は `waiting → preparing → in_progress → finished`、または `waiting → finished` のみを許可します。`RoomSnapshot.revision` は成功した状態変更ごとに増加し、終了済み Room は別状態へ戻せません。期限処理は SQLite に保存され、Room ごとに最も近い期限を単一 Alarm へ設定して順に処理します。
+
+`minimumPlayers` の既定値は `maxPlayers`、`requireAllPlayersReady` の既定値は `true` です。Gateway が発行した `gatewayPrincipal` を添えて Room RPC を呼ぶと、参加者本人の `setReady()`、`selectTeam()` と、ホスト専用の `updateSettings()`、`transferHost()`、`kick()`、`startMatch()`、`close()` を利用できます。各成功操作は最新の `RoomSnapshot` を返し、`requestId` を指定した再送は保存済み結果へ収束します。ホストの明示的な `leave()` は参加時刻が最も古いプレイヤーへ移譲され、移譲先がない場合は Room を閉鎖します。通信切断だけでは退出やホスト移譲を発生させません。
 
 Analytics Engine は `FLARE_LOBBY_ANALYTICS` という任意 Binding です。設定しない最小構成でも Worker は起動します。設定する場合だけ、次を環境の `wrangler.jsonc` へ追加してください。
 

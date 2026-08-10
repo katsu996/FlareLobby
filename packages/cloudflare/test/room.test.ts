@@ -4,9 +4,12 @@ import {
   runInDurableObject
 } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import type { Participant } from "@flarelobby/core";
 
+import { createGatewayPrincipalEnvelope } from "../src/index.js";
 import type {
   RoomInitializationOptions,
+  RoomOperationResult,
   RoomScheduledOperationOptions,
   RoomDurableObject
 } from "../src/index.js";
@@ -42,6 +45,34 @@ function createRoomOptions(
     finishedRoomRetentionMs: 60_000,
     ...overrides
   };
+}
+
+async function createGatewayPrincipal(
+  principalId: string,
+  playerId = principalId
+): Promise<{ readonly token: string }> {
+  const result = await createGatewayPrincipalEnvelope(
+    env.FLARE_LOBBY_TOKEN_SECRET,
+    { id: principalId, playerId }
+  );
+
+  if (!result.ok) {
+    throw new Error("Gateway 主体証明を作成できません。");
+  }
+
+  return result.value;
+}
+
+async function readErrorCode(
+  operation: () => Promise<unknown>
+): Promise<string | undefined> {
+  try {
+    await operation();
+  } catch (error) {
+    return (error as { code?: string }).code;
+  }
+
+  return undefined;
 }
 
 describe("Room Durable Object の永続状態とライフサイクル", () => {
@@ -268,5 +299,430 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
       }
     );
     expect(conflictCode).toBe("CONFLICT");
+  });
+});
+
+describe("Room Durable Object のカスタムルーム操作", () => {
+  it("本人だけが準備状態と許可されたチームを変更できる", async () => {
+    const roomId = `room-operations-self-${crypto.randomUUID()}`;
+    const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
+    const hostPrincipal = await createGatewayPrincipal(
+      "principal-host-self",
+      "player-host"
+    );
+    const playerPrincipal = await createGatewayPrincipal(
+      "principal-player-self",
+      "player-self"
+    );
+    const outsiderPrincipal = await createGatewayPrincipal(
+      "principal-outsider-self",
+      "player-outsider"
+    );
+
+    await room.initialize(
+      createRoomOptions(roomId, {
+        maxPlayers: 2,
+        minimumPlayers: 2,
+        participants: [
+          {
+            kind: "player",
+            id: "participant-host",
+            player: { id: "player-host" },
+            teamId: null,
+            ready: false
+          },
+          {
+            kind: "player",
+            id: "participant-self",
+            player: { id: "player-self" },
+            teamId: null,
+            ready: false
+          }
+        ]
+      })
+    );
+
+    const ready = await room.setReady({
+      gatewayPrincipal: hostPrincipal,
+      participantId: "participant-host",
+      ready: true
+    });
+    expect(ready.revision).toBe(1);
+    expect(ready.participants[0]).toMatchObject({ ready: true });
+
+    const selected = await room.selectTeam({
+      gatewayPrincipal: playerPrincipal,
+      participantId: "participant-self",
+      teamId: "blue"
+    });
+    expect(selected.revision).toBeGreaterThan(ready.revision);
+    expect(selected.participants).toContainEqual({
+      kind: "player",
+      id: "participant-self",
+      player: { id: "player-self" },
+      teamId: "blue",
+      ready: false
+    });
+
+    expect(
+      await readErrorCode(() =>
+        room.selectTeam({
+          gatewayPrincipal: playerPrincipal,
+          participantId: "participant-self",
+          teamId: "unknown"
+        })
+      )
+    ).toBe("CONFLICT");
+
+    expect(
+      await readErrorCode(() =>
+        room.setReady({
+          gatewayPrincipal: outsiderPrincipal,
+          participantId: "participant-host",
+          ready: false
+        })
+      )
+    ).toBe("FORBIDDEN");
+
+    const disconnected = await room.disconnect({
+      gatewayPrincipal: hostPrincipal,
+      participantId: "participant-host"
+    });
+    expect(disconnected.host).toEqual({
+      participantId: "participant-host",
+      playerId: "player-host"
+    });
+    expect(disconnected.revision).toBe(selected.revision);
+  });
+
+  it("ホストだけが設定更新・移譲・強制退出を実行できる", async () => {
+    const roomId = `room-operations-host-${crypto.randomUUID()}`;
+    const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
+    const hostPrincipal = await createGatewayPrincipal(
+      "principal-host-operation",
+      "player-host"
+    );
+    const playerOnePrincipal = await createGatewayPrincipal(
+      "principal-player-one-operation",
+      "player-one"
+    );
+    const playerTwoPrincipal = await createGatewayPrincipal(
+      "principal-player-two-operation",
+      "player-two"
+    );
+
+    await room.initialize(
+      createRoomOptions(roomId, {
+        maxPlayers: 3,
+        participants: [
+          {
+            kind: "player",
+            id: "participant-host",
+            player: { id: "player-host" },
+            teamId: null,
+            ready: false
+          },
+          {
+            kind: "player",
+            id: "participant-one",
+            player: { id: "player-one" },
+            teamId: null,
+            ready: false
+          },
+          {
+            kind: "player",
+            id: "participant-two",
+            player: { id: "player-two" },
+            teamId: null,
+            ready: false
+          }
+        ]
+      })
+    );
+
+    const updated = await room.updateSettings({
+      gatewayPrincipal: hostPrincipal,
+      participantId: "participant-host",
+      settings: { map: "desert" }
+    });
+    expect(updated.room.settings).toEqual({ map: "desert" });
+
+    expect(
+      await readErrorCode(() =>
+        room.updateSettings({
+          gatewayPrincipal: playerOnePrincipal,
+          participantId: "participant-one",
+          settings: { map: "cheat" }
+        })
+      )
+    ).toBe("FORBIDDEN");
+
+    const transferred = await room.transferHost({
+      gatewayPrincipal: hostPrincipal,
+      participantId: "participant-host",
+      targetParticipantId: "participant-one",
+      requestId: "transfer-host-once"
+    });
+    expect(transferred.host).toEqual({
+      participantId: "participant-one",
+      playerId: "player-one"
+    });
+    expect(transferred.revision).toBeGreaterThan(updated.revision);
+
+    expect(
+      await readErrorCode(() =>
+        room.kick({
+          gatewayPrincipal: hostPrincipal,
+          participantId: "participant-host",
+          targetParticipantId: "participant-two"
+        })
+      )
+    ).toBe("FORBIDDEN");
+
+    const kicked = await room.kick({
+      gatewayPrincipal: playerOnePrincipal,
+      participantId: "participant-one",
+      targetPlayerId: "player-two",
+      reason: "AFK"
+    });
+    expect(kicked.revision).toBeGreaterThan(transferred.revision);
+    expect(kicked.participants.map((participant: Participant) => participant.id)).toEqual([
+      "participant-host",
+      "participant-one"
+    ]);
+
+    expect(
+      await readErrorCode(() =>
+        room.startMatch({
+          gatewayPrincipal: playerTwoPrincipal,
+          participantId: "participant-two"
+        })
+      )
+    ).toBe("FORBIDDEN");
+  });
+
+  it("ホスト退出時に最古のプレイヤーへ自動移譲する", async () => {
+    const roomId = `room-operations-leave-host-${crypto.randomUUID()}`;
+    const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
+    const hostPrincipal = await createGatewayPrincipal(
+      "principal-host-leave",
+      "player-host"
+    );
+
+    await room.initialize(
+      createRoomOptions(roomId, {
+        maxPlayers: 3,
+        participants: [
+          {
+            kind: "player",
+            id: "participant-host",
+            player: { id: "player-host" },
+            teamId: null,
+            ready: false
+          },
+          {
+            kind: "player",
+            id: "participant-oldest",
+            player: { id: "player-oldest" },
+            teamId: null,
+            ready: false
+          },
+          {
+            kind: "player",
+            id: "participant-newest",
+            player: { id: "player-newest" },
+            teamId: null,
+            ready: false
+          }
+        ]
+      })
+    );
+
+    await runInDurableObject(room, (_instance, state) => {
+      state.storage.sql.exec(
+        `UPDATE flarelobby_room_participants
+         SET joined_at = CASE participant_id
+           WHEN 'participant-host' THEN 10
+           WHEN 'participant-oldest' THEN 20
+           WHEN 'participant-newest' THEN 30
+         END`
+      );
+    });
+
+    const left = await room.leave({
+      gatewayPrincipal: hostPrincipal,
+      participantId: "participant-host",
+      role: "player",
+      requestId: "host-leave-once"
+    });
+    expect(left.snapshot.host).toEqual({
+      participantId: "participant-oldest",
+      playerId: "player-oldest"
+    });
+    expect(left.snapshot.participants.map((participant: Participant) => participant.id)).toEqual([
+      "participant-oldest",
+      "participant-newest"
+    ]);
+
+    const resent = await room.leave({
+      gatewayPrincipal: hostPrincipal,
+      participantId: "participant-host",
+      role: "player",
+      requestId: "host-leave-once"
+    });
+    expect(resent).toEqual(left);
+  });
+
+  it("開始条件を検証し、準備完了後に対戦中へ遷移する", async () => {
+    const roomId = `room-operations-start-${crypto.randomUUID()}`;
+    const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
+    const hostPrincipal = await createGatewayPrincipal(
+      "principal-host-start",
+      "player-host"
+    );
+    const playerPrincipal = await createGatewayPrincipal(
+      "principal-player-start",
+      "player-start"
+    );
+
+    await room.initialize(
+      createRoomOptions(roomId, {
+        maxPlayers: 3,
+        minimumPlayers: 2,
+        participants: [
+          {
+            kind: "player",
+            id: "participant-host",
+            player: { id: "player-host" },
+            teamId: null,
+            ready: false
+          },
+          {
+            kind: "player",
+            id: "participant-start",
+            player: { id: "player-start" },
+            teamId: null,
+            ready: false
+          }
+        ]
+      })
+    );
+
+    expect(
+      await readErrorCode(() =>
+        room.startMatch({
+          gatewayPrincipal: hostPrincipal,
+          participantId: "participant-host",
+          at: "2026-08-11T00:00:00.000Z"
+        })
+      )
+    ).toBe("CONFLICT");
+
+    await room.setReady({
+      gatewayPrincipal: hostPrincipal,
+      participantId: "participant-host",
+      ready: true
+    });
+    await room.setReady({
+      gatewayPrincipal: playerPrincipal,
+      participantId: "participant-start",
+      ready: true
+    });
+
+    const started = await room.startMatch({
+      gatewayPrincipal: hostPrincipal,
+      participantId: "participant-host",
+      at: "2026-08-11T00:00:00.000Z"
+    });
+    expect(started.state).toEqual({
+      status: "in_progress",
+      startedAt: "2026-08-11T00:00:00.000Z"
+    });
+    expect(started.revision).toBe(4);
+
+    expect(
+      await readErrorCode(() =>
+        room.setReady({
+          gatewayPrincipal: hostPrincipal,
+          participantId: "participant-host",
+          ready: false
+        })
+      )
+    ).toBe("CONFLICT");
+  });
+
+  it("同じ要求 ID の再送では revision を二重に増やさず、閉鎖後の操作を拒否する", async () => {
+    const roomId = `room-operations-idempotency-${crypto.randomUUID()}`;
+    const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
+    const hostPrincipal = await createGatewayPrincipal(
+      "principal-host-idempotency",
+      "player-host"
+    );
+
+    await room.initialize(
+      createRoomOptions(roomId, {
+        maxPlayers: 1,
+        minimumPlayers: 1,
+        finishedRoomRetentionMs: 60_000
+      })
+    );
+
+    const readyResults = await Promise.all(
+      Array.from({ length: 3 }, () =>
+        room.setReady({
+          gatewayPrincipal: hostPrincipal,
+          participantId: "participant-host",
+          ready: true,
+          requestId: "ready-once"
+        })
+      )
+    );
+    expect(new Set(readyResults.map((result: RoomOperationResult) => result.revision))).toEqual(
+      new Set([1])
+    );
+    expect((await room.getSnapshot())?.revision).toBe(1);
+
+    const closeResults = await Promise.all(
+      Array.from({ length: 2 }, () =>
+        room.close({
+          gatewayPrincipal: hostPrincipal,
+          participantId: "participant-host",
+          requestId: "close-once",
+          at: "2026-08-11T00:01:00.000Z"
+        })
+      )
+    );
+    expect(new Set(closeResults.map((result: RoomOperationResult) => result.revision))).toEqual(
+      new Set([2])
+    );
+    expect(closeResults[0]?.state.status).toBe("finished");
+
+    expect(
+      await readErrorCode(() =>
+        room.setReady({
+          gatewayPrincipal: hostPrincipal,
+          participantId: "participant-host",
+          ready: false
+        })
+      )
+    ).toBe("ROOM_FINISHED");
+    expect(
+      await readErrorCode(() =>
+        room.updateSettings({
+          gatewayPrincipal: hostPrincipal,
+          participantId: "participant-host",
+          settings: { map: "desert" }
+        })
+      )
+    ).toBe("ROOM_FINISHED");
+    expect(
+      await readErrorCode(() =>
+        room.leave({
+          gatewayPrincipal: hostPrincipal,
+          participantId: "participant-host",
+          role: "player"
+        })
+      )
+    ).toBe("ROOM_FINISHED");
   });
 });
