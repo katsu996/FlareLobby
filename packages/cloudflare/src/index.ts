@@ -46,7 +46,11 @@ export {
   RoomDurableObject
 } from "./durable-objects.js";
 export {
+  DEFAULT_DISCONNECT_GRACE_PERIOD_MS,
+  DEFAULT_EVENT_HISTORY_LIMIT,
   DEFAULT_FINISHED_ROOM_RETENTION_MS,
+  DEFAULT_PROCESSED_COMMAND_RETENTION_MS,
+  DEFAULT_RESUME_TOKEN_TTL_MS,
   getParticipantWebSocketTag,
   getPrincipalWebSocketTag,
   getResumeWebSocketTag,
@@ -106,6 +110,7 @@ export type {
   RoomJoinResult,
   RoomLeaveOptions,
   RoomLeaveResult,
+  RoomResumeHandshake,
   RoomWebSocketAttachment
 } from "./room.js";
 export {
@@ -127,7 +132,9 @@ export {
   verifyGatewayPrincipalEnvelope,
   verifyJoinToken,
   verifyResumeToken,
-  verifyWebSocketJoinToken
+  verifyWebSocketJoinToken,
+  verifyWebSocketResumeToken,
+  verifyWebSocketRoomToken
 } from "./security.js";
 export type {
   AuthenticatedGatewayRequest,
@@ -147,6 +154,7 @@ export type {
   FlareLobbyRoomTokenPurpose,
   FlareLobbyRoomTokenVerificationOptions,
   FlareLobbyWebSocketJoinTokenVerificationOptions,
+  FlareLobbyWebSocketRoomTokenVerificationOptions,
   GatewayPrincipalEnvelope
 } from "./security.js";
 

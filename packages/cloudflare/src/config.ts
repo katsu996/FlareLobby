@@ -17,12 +17,18 @@ import {
   joinCustomRoom,
   leaveCustomRoom
 } from "./custom-room.js";
-import { DEFAULT_FINISHED_ROOM_RETENTION_MS } from "./room-constants.js";
+import {
+  DEFAULT_DISCONNECT_GRACE_PERIOD_MS,
+  DEFAULT_EVENT_HISTORY_LIMIT,
+  DEFAULT_FINISHED_ROOM_RETENTION_MS,
+  DEFAULT_PROCESSED_COMMAND_RETENTION_MS,
+  DEFAULT_RESUME_TOKEN_TTL_MS
+} from "./room-constants.js";
 import {
   authenticateGatewayRequest,
   createErrorResponse,
   readWebSocketJoinToken,
-  verifyWebSocketJoinToken
+  verifyWebSocketRoomToken
 } from "./security.js";
 import type {
   AuthenticatedGatewayRequest,
@@ -68,6 +74,14 @@ export interface CustomRoomConfiguration<
   readonly defaultSettings: AppRoomSettings<TApp>;
   /** 終了済み Room を削除するまでの保持期間（ミリ秒）です。 */
   readonly finishedRoomRetentionMs?: number;
+  /** 再開トークンの有効期間（ミリ秒）です。 */
+  readonly resumeTokenTtlMs?: number;
+  /** 通信切断後に参加状態を保持する猶予期間（ミリ秒）です。 */
+  readonly disconnectGracePeriodMs?: number;
+  /** Room に保持する状態変更イベントの最大件数です。 */
+  readonly eventHistoryLimit?: number;
+  /** 処理済みコマンド結果の保持期間（ミリ秒）です。 */
+  readonly processedCommandRetentionMs?: number;
 }
 
 /** 1 対 1 マッチングに使うプール設定です。 */
@@ -330,7 +344,7 @@ async function upgradeCustomRoomWebSocket<
     return createErrorResponse(token.error);
   }
 
-  const claims = await verifyWebSocketJoinToken(
+  const claims = await verifyWebSocketRoomToken(
     env.FLARE_LOBBY_TOKEN_SECRET,
     token.value,
     { roomId }
@@ -460,7 +474,17 @@ function normalizeConfiguration<TApp extends AnyFlareLobbyApp>(
       defaultSettings: configuration.customRooms.defaultSettings,
       finishedRoomRetentionMs:
         configuration.customRooms.finishedRoomRetentionMs ??
-        DEFAULT_FINISHED_ROOM_RETENTION_MS
+        DEFAULT_FINISHED_ROOM_RETENTION_MS,
+      resumeTokenTtlMs:
+        configuration.customRooms.resumeTokenTtlMs ?? DEFAULT_RESUME_TOKEN_TTL_MS,
+      disconnectGracePeriodMs:
+        configuration.customRooms.disconnectGracePeriodMs ??
+        DEFAULT_DISCONNECT_GRACE_PERIOD_MS,
+      eventHistoryLimit:
+        configuration.customRooms.eventHistoryLimit ?? DEFAULT_EVENT_HISTORY_LIMIT,
+      processedCommandRetentionMs:
+        configuration.customRooms.processedCommandRetentionMs ??
+        DEFAULT_PROCESSED_COMMAND_RETENTION_MS
     }),
     matchmakingPools: Object.freeze(
       configuration.matchmakingPools.map((pool) => Object.freeze({ ...pool }))
@@ -503,6 +527,46 @@ function assertCustomRoomConfiguration<TApp extends AnyFlareLobbyApp>(
     throw new FlareLobbyConfigurationError(
       "INVALID_CUSTOM_ROOM_CONFIGURATION",
       "customRooms.finishedRoomRetentionMs は 0 以上の整数で指定してください。"
+    );
+  }
+
+  if (
+    configuration.resumeTokenTtlMs !== undefined &&
+    !isPositiveInteger(configuration.resumeTokenTtlMs)
+  ) {
+    throw new FlareLobbyConfigurationError(
+      "INVALID_CUSTOM_ROOM_CONFIGURATION",
+      "customRooms.resumeTokenTtlMs は 1 以上の整数で指定してください。"
+    );
+  }
+
+  if (
+    configuration.disconnectGracePeriodMs !== undefined &&
+    !isNonNegativeInteger(configuration.disconnectGracePeriodMs)
+  ) {
+    throw new FlareLobbyConfigurationError(
+      "INVALID_CUSTOM_ROOM_CONFIGURATION",
+      "customRooms.disconnectGracePeriodMs は 0 以上の整数で指定してください。"
+    );
+  }
+
+  if (
+    configuration.eventHistoryLimit !== undefined &&
+    !isPositiveInteger(configuration.eventHistoryLimit)
+  ) {
+    throw new FlareLobbyConfigurationError(
+      "INVALID_CUSTOM_ROOM_CONFIGURATION",
+      "customRooms.eventHistoryLimit は 1 以上の整数で指定してください。"
+    );
+  }
+
+  if (
+    configuration.processedCommandRetentionMs !== undefined &&
+    !isPositiveInteger(configuration.processedCommandRetentionMs)
+  ) {
+    throw new FlareLobbyConfigurationError(
+      "INVALID_CUSTOM_ROOM_CONFIGURATION",
+      "customRooms.processedCommandRetentionMs は 1 以上の整数で指定してください。"
     );
   }
 }

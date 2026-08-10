@@ -60,6 +60,25 @@ WebSocket は任意の HTTP ヘッダーを付けられないため、トーク�
 保有中の WebSocket、イベント購読、応答待機を解放し、以後の操作を
 `CANCELLED` として拒否します。
 
+### 再接続と状態復元
+
+Room Durable Object は初回接続の `room.snapshot` Payload に、参加者へ束縛された
+`resumeToken`、`resumeTokenExpiresAt`、および `resume` Handshake 情報を追加します。
+トークンは URL や通常の Query へ入れず、初回の参加用トークンと同じ認証用
+WebSocket subprotocol へ渡してください。切断後は、同じ再開トークンと最後に適用
+した `revision` を `lastRevision` Query（または
+`x-flarelobby-last-revision` Header）へ指定して再接続します。
+
+履歴が残っている場合、サーバーは `lastRevision + 1` から現在の版までの
+`room.snapshot` イベントを順番に送ってから、再接続済み Handshake を含む最新
+スナップショットを送ります。履歴不足、範囲外、または不整合の場合は差分を送らず、
+最新の完全スナップショットだけを返します。履歴は `eventHistoryLimit` 件で有界です。
+
+WebSocket の切断は直ちに `leave()` へ変換されず、`disconnectGracePeriodMs` の間は
+参加者の準備状態・チーム・参加者 ID を保持します。猶予終了時に参加者を退出させ、
+ホストなら最古のプレイヤーへ移譲します。`leave()` または `kick()` は対象参加者の
+再開セッションを明示的に無効化するため、古い再開トークンで新規参加へ暗黙変換されません。
+
 ## テスト用差し替え
 
 `fetch`、`webSocket`、`webSocketFactory` を初期化設定へ渡すと、ブラウザ API を

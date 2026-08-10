@@ -32,17 +32,30 @@ import {
   createGatewayPrincipalEnvelope,
   createErrorResponse,
   FLARE_LOBBY_WEBSOCKET_PROTOCOL,
+  issueResumeToken,
   readWebSocketJoinToken,
   validateWebSocketCommand,
-  verifyWebSocketJoinToken,
+  verifyWebSocketRoomToken,
   verifyGatewayPrincipalEnvelope
 } from "./security.js";
 import type {
   FlareLobbyRoomParticipantRole,
   GatewayPrincipalEnvelope
 } from "./security.js";
-import { DEFAULT_FINISHED_ROOM_RETENTION_MS } from "./room-constants.js";
-export { DEFAULT_FINISHED_ROOM_RETENTION_MS } from "./room-constants.js";
+import {
+  DEFAULT_DISCONNECT_GRACE_PERIOD_MS,
+  DEFAULT_EVENT_HISTORY_LIMIT,
+  DEFAULT_FINISHED_ROOM_RETENTION_MS,
+  DEFAULT_PROCESSED_COMMAND_RETENTION_MS,
+  DEFAULT_RESUME_TOKEN_TTL_MS
+} from "./room-constants.js";
+export {
+  DEFAULT_DISCONNECT_GRACE_PERIOD_MS,
+  DEFAULT_EVENT_HISTORY_LIMIT,
+  DEFAULT_FINISHED_ROOM_RETENTION_MS,
+  DEFAULT_PROCESSED_COMMAND_RETENTION_MS,
+  DEFAULT_RESUME_TOKEN_TTL_MS
+} from "./room-constants.js";
 
 /** カスタムルームで選択できる参加方式です。 */
 export type RoomJoinMethod = "public" | "invitation" | "password";
@@ -51,6 +64,9 @@ export type RoomJoinMethod = "public" | "invitation" | "password";
 export type RoomParticipantRole = FlareLobbyRoomParticipantRole;
 
 const ROOM_RETENTION_OPERATION_ID = "__flarelobby_room_retention__";
+const ROOM_PROCESSED_COMMAND_CLEANUP_OPERATION_ID =
+  "__flarelobby_processed_command_cleanup__";
+const ROOM_DISCONNECT_OPERATION_PREFIX = "__flarelobby_disconnect__:";
 const ROOM_SET_READY_COMMAND = "room.set_ready";
 const ROOM_SELECT_TEAM_COMMAND = "room.select_team";
 const ROOM_UPDATE_SETTINGS_COMMAND = "room.update_settings";
@@ -73,6 +89,9 @@ const PRINCIPAL_WEBSOCKET_TAG_PREFIX = "flarelobby:principal:";
 const ROLE_WEBSOCKET_TAG_PREFIX = "flarelobby:role:";
 const RESUME_WEBSOCKET_TAG_PREFIX = "flarelobby:resume:";
 const MAX_GAME_MESSAGE_NAME_LENGTH = 128;
+const ROOM_DISCONNECT_OPERATION_TYPE = "participant_disconnect";
+const ROOM_PROCESSED_COMMAND_CLEANUP_OPERATION_TYPE =
+  "processed_command_cleanup";
 
 /** ルーム単位の Hibernation WebSocket を検索するタグです。 */
 export function getRoomWebSocketTag(roomId: string): string {
@@ -99,6 +118,10 @@ export function getResumeWebSocketTag(resumeId: string): string {
   return `${RESUME_WEBSOCKET_TAG_PREFIX}${resumeId}`;
 }
 
+function getDisconnectOperationId(participantId: string): string {
+  return `${ROOM_DISCONNECT_OPERATION_PREFIX}${participantId}`;
+}
+
 /** Hibernation WebSocket の attachment に保存する接続固有情報です。 */
 export interface RoomWebSocketAttachment {
   readonly version: typeof ROOM_WEBSOCKET_ATTACHMENT_VERSION;
@@ -108,6 +131,7 @@ export interface RoomWebSocketAttachment {
   readonly role: RoomParticipantRole;
   readonly connectedAt: Timestamp;
   readonly resumeId: string;
+  readonly connectionGeneration: string;
   readonly maxWebSocketMessageBytes: number;
   readonly maxMessagesPerMinute: number;
 }
@@ -140,6 +164,14 @@ export interface RoomInitializationOptions<
   readonly password?: string;
   /** 終了済み状態を保持する期間です。0 の場合は即時削除対象になります。 */
   readonly finishedRoomRetentionMs?: number;
+  /** 再開トークンの有効期間です。 */
+  readonly resumeTokenTtlMs?: number;
+  /** 通信切断後に参加状態を保持する猶予期間です。0 の場合は次の Alarm で処理します。 */
+  readonly disconnectGracePeriodMs?: number;
+  /** Room に保持する状態変更イベントの最大件数です。 */
+  readonly eventHistoryLimit?: number;
+  /** 処理済みコマンド結果の保持期間です。 */
+  readonly processedCommandRetentionMs?: number;
 }
 
 /** Room の対戦開始条件です。 */
@@ -185,6 +217,17 @@ export interface RoomParticipantDisconnectOptions {
   readonly gatewayPrincipal: GatewayPrincipalEnvelope;
   readonly participantId: string;
   readonly role?: RoomParticipantRole;
+  /** 切断時刻。省略時は Durable Object の現在時刻を使用します。 */
+  readonly at?: Timestamp;
+}
+
+/** 再開情報を含む初回または再接続時の `room.snapshot` Payload 拡張です。 */
+export interface RoomResumeHandshake {
+  readonly resumeToken: string;
+  readonly resumeTokenExpiresAt: number;
+  readonly participantId: string;
+  readonly role: RoomParticipantRole;
+  readonly resumed: boolean;
 }
 
 /** 参加者本人が行う Room 操作の共通入力です。 */
@@ -323,6 +366,10 @@ interface RoomRow extends Record<string, SqlStorageValue> {
   joinPasswordSalt: string | null;
   joinPasswordHash: string | null;
   finishedRoomRetentionMs: number;
+  resumeTokenTtlMs: number;
+  disconnectGracePeriodMs: number;
+  eventHistoryLimit: number;
+  processedCommandRetentionMs: number;
 }
 
 interface ParticipantRow extends Record<string, SqlStorageValue> {
@@ -343,6 +390,7 @@ interface ProcessedCommandRow extends Record<string, SqlStorageValue> {
   payloadJson: string;
   resultJson: string;
   createdAt: number;
+  expiresAt: number;
 }
 
 interface ScheduledOperationRow extends Record<string, SqlStorageValue> {
@@ -350,6 +398,25 @@ interface ScheduledOperationRow extends Record<string, SqlStorageValue> {
   dueAt: number;
   kind: RoomScheduledOperationKind;
   payloadJson: string;
+}
+
+interface RoomConnectionRow extends Record<string, SqlStorageValue> {
+  resumeId: string;
+  roomId: string;
+  principalId: string;
+  participantId: string;
+  role: RoomParticipantRole;
+  connectedAt: string;
+  disconnectedAt: string | null;
+  connectionGeneration: string;
+  resumeTokenExpiresAt: number;
+  invalidatedAt: string | null;
+}
+
+interface RoomEventRow extends Record<string, SqlStorageValue> {
+  eventId: number;
+  revision: number;
+  eventJson: string;
 }
 
 interface NextAlarmRow extends Record<string, SqlStorageValue> {
@@ -383,6 +450,10 @@ interface NormalizedInitialization {
   readonly joinPasswordSalt: string | null;
   readonly joinPasswordHash: string | null;
   readonly finishedRoomRetentionMs: number;
+  readonly resumeTokenTtlMs: number;
+  readonly disconnectGracePeriodMs: number;
+  readonly eventHistoryLimit: number;
+  readonly processedCommandRetentionMs: number;
   readonly participants: readonly NormalizedParticipant[];
   readonly teams: readonly string[];
 }
@@ -431,7 +502,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       return createErrorResponse(token.error);
     }
 
-    const claims = await verifyWebSocketJoinToken(
+    const claims = await verifyWebSocketRoomToken(
       this.env.FLARE_LOBBY_TOKEN_SECRET,
       token.value,
       { roomId }
@@ -443,6 +514,12 @@ export class RoomDurableObject extends DurableObject<Env> {
 
     if (claims.value.participantId === undefined) {
       return createErrorResponse(new FlareLobbyError("UNAUTHENTICATED"));
+    }
+
+    const lastRevision = readLastRevision(request);
+
+    if (!lastRevision.ok) {
+      return createErrorResponse(lastRevision.error);
     }
 
     let connectionAttachment: RoomWebSocketAttachment | undefined;
@@ -467,6 +544,76 @@ export class RoomDurableObject extends DurableObject<Env> {
         return createErrorResponse(new FlareLobbyError("FORBIDDEN"));
       }
 
+      const isResume = claims.value.purpose === "resume";
+      let resumeToken = token.value;
+      let resumeTokenExpiresAt = claims.value.expiresAt;
+      let resumeId = crypto.randomUUID();
+
+      if (isResume) {
+        const connection = this.readRoomConnection(claims.value.nonce);
+
+        if (
+          connection === undefined ||
+          connection.roomId !== roomId ||
+          connection.principalId !== claims.value.principalId ||
+          connection.participantId !== participant.participantId ||
+          connection.role !== participant.kind ||
+          connection.invalidatedAt !== null ||
+          connection.resumeTokenExpiresAt <= Date.now() ||
+          connection.disconnectedAt === null
+        ) {
+          return createErrorResponse(new FlareLobbyError("FORBIDDEN"));
+        }
+
+        const disconnectedAt = Date.parse(connection.disconnectedAt);
+
+        if (
+          !Number.isFinite(disconnectedAt) ||
+          disconnectedAt + room.disconnectGracePeriodMs < Date.now()
+        ) {
+          this.expireDisconnectedParticipant(
+            room,
+            participant.participantId,
+            connection.disconnectedAt
+          );
+          await this.synchronizeAlarm();
+          return createErrorResponse(new FlareLobbyError("FORBIDDEN"));
+        }
+
+        resumeId = connection.resumeId;
+        resumeTokenExpiresAt = connection.resumeTokenExpiresAt;
+        this.cancelDisconnectOperation(participant.participantId);
+      }
+
+      const connectedAt = new Date().toISOString();
+      const connectionGeneration = crypto.randomUUID();
+
+      if (!isResume) {
+        const resumeTokenNow = Date.now();
+        resumeTokenExpiresAt = resumeTokenNow + room.resumeTokenTtlMs;
+        const issuedResumeToken = await issueResumeToken(
+          this.env.FLARE_LOBBY_TOKEN_SECRET,
+          {
+            principal: {
+              id: claims.value.principalId,
+              playerId: participant.playerId
+            },
+            roomId,
+            role: participant.kind,
+            participantId: participant.participantId,
+            expiresAt: resumeTokenExpiresAt,
+            now: resumeTokenNow,
+            nonce: resumeId
+          }
+        );
+
+        if (!issuedResumeToken.ok) {
+          return createErrorResponse(issuedResumeToken.error);
+        }
+
+        resumeToken = issuedResumeToken.value;
+      }
+
       const snapshot = this.readSnapshot();
 
       if (snapshot === null) {
@@ -482,8 +629,9 @@ export class RoomDurableObject extends DurableObject<Env> {
         }),
         participantId: participant.participantId,
         role: participant.kind,
-        connectedAt: new Date().toISOString(),
-        resumeId: crypto.randomUUID(),
+        connectedAt,
+        resumeId,
+        connectionGeneration,
         maxWebSocketMessageBytes: readPositiveHeader(
           request.headers.get(ROOM_WEBSOCKET_MESSAGE_BYTES_HEADER),
           DEFAULT_WEBSOCKET_MESSAGE_BYTES
@@ -498,16 +646,50 @@ export class RoomDurableObject extends DurableObject<Env> {
       const server = pair[1];
 
       server.serializeAttachment(connectionAttachment);
-      this.storeWebSocketConnection(connectionAttachment);
+      this.storeWebSocketConnection(
+        connectionAttachment,
+        resumeTokenExpiresAt,
+        claims.value.purpose === "resume"
+      );
       this.ctx.acceptWebSocket(server, createWebSocketTags(connectionAttachment));
 
-      if (
-        !this.sendProtocolMessage(
-          server,
-          createRoomSnapshotEvent(snapshot)
-        )
-      ) {
-        this.markWebSocketDisconnected(connectionAttachment);
+      const replay = isResume
+        ? this.readResumeEvents(lastRevision.value, snapshot.revision)
+        : null;
+      const messages =
+        replay === null || replay.useSnapshot
+          ? [
+              createRoomSnapshotEvent(snapshot, {
+                resumeToken,
+                resumeTokenExpiresAt,
+                participantId: participant.participantId,
+                role: participant.kind,
+                resumed: isResume
+              })
+            ]
+          : replay.events.length === 0
+            ? [
+                createRoomSnapshotEvent(snapshot, {
+                  resumeToken,
+                  resumeTokenExpiresAt,
+                  participantId: participant.participantId,
+                  role: participant.kind,
+                  resumed: true
+                })
+              ]
+            : [
+                ...replay.events,
+                createRoomSnapshotEvent(snapshot, {
+                  resumeToken,
+                  resumeTokenExpiresAt,
+                  participantId: participant.participantId,
+                  role: participant.kind,
+                  resumed: true
+                })
+              ];
+
+      if (!messages.every((message) => this.sendProtocolMessage(server, message))) {
+        await this.markWebSocketDisconnected(connectionAttachment);
         try {
           server.close(1011, "接続を初期化できませんでした。");
         } catch {
@@ -525,7 +707,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     } catch (error) {
       if (connectionAttachment !== undefined) {
         try {
-          this.markWebSocketDisconnected(connectionAttachment);
+          await this.markWebSocketDisconnected(connectionAttachment);
         } catch {
           // 接続行の後始末に失敗しても、公開エラーへ内部情報を含めません。
         }
@@ -556,7 +738,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       const attachment = readWebSocketAttachment(webSocket);
 
       if (attachment !== null) {
-        this.markWebSocketDisconnected(attachment);
+        await this.markWebSocketDisconnected(attachment);
       }
     });
   }
@@ -570,7 +752,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       const attachment = readWebSocketAttachment(webSocket);
 
       if (attachment !== null) {
-        this.markWebSocketDisconnected(attachment);
+        await this.markWebSocketDisconnected(attachment);
       }
     });
   }
@@ -639,8 +821,12 @@ export class RoomDurableObject extends DurableObject<Env> {
           join_password_salt,
           join_password_hash,
           finished_room_retention_ms,
+          resume_token_ttl_ms,
+          disconnect_grace_period_ms,
+          event_history_limit,
+          processed_command_retention_ms,
           created_at
-        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', NULL, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', NULL, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         normalized.roomId,
         normalized.kind,
         normalized.invitationCode,
@@ -659,6 +845,10 @@ export class RoomDurableObject extends DurableObject<Env> {
         normalized.joinPasswordSalt,
         normalized.joinPasswordHash,
         normalized.finishedRoomRetentionMs,
+        normalized.resumeTokenTtlMs,
+        normalized.disconnectGracePeriodMs,
+        normalized.eventHistoryLimit,
+        normalized.processedCommandRetentionMs,
         Date.now()
       );
 
@@ -909,6 +1099,9 @@ export class RoomDurableObject extends DurableObject<Env> {
       ? this.readOldestPlayerParticipant(participant.participantId)
       : undefined;
 
+    this.invalidateResumeSessions(participant.participantId);
+    this.cancelDisconnectOperation(participant.participantId);
+
     this.ctx.storage.sql.exec(
       "DELETE FROM flarelobby_room_participants WHERE participant_id = ?",
       participant.participantId
@@ -993,10 +1186,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     return this.leave(options);
   }
 
-  /**
-   * 通信切断を参加状態の変更として扱わず、現在のスナップショットを返します。
-   * 実際の WebSocket 接続管理は後続 Issue がこの契約を利用します。
-   */
+  /** 通信切断を参加猶予へ移し、現在のスナップショットを返します。 */
   public async disconnect(
     options: RoomParticipantDisconnectOptions
   ): Promise<RoomSnapshot> {
@@ -1018,6 +1208,11 @@ export class RoomDurableObject extends DurableObject<Env> {
     ) {
       throw new FlareLobbyError("FORBIDDEN");
     }
+
+    await this.scheduleParticipantDisconnect(
+      participant.participantId,
+      normalized.at
+    );
 
     const snapshot = this.readSnapshot();
 
@@ -1267,6 +1462,8 @@ export class RoomDurableObject extends DurableObject<Env> {
       "DELETE FROM flarelobby_room_participants WHERE participant_id = ?",
       target.participantId
     );
+    this.invalidateResumeSessions(target.participantId);
+    this.cancelDisconnectOperation(target.participantId);
     this.incrementRevision(actor.room.revision);
 
     const snapshot = this.readRequiredSnapshot();
@@ -1611,6 +1808,27 @@ export class RoomDurableObject extends DurableObject<Env> {
     options: RoomProcessedCommandOptions
   ): Promise<RoomProcessedCommand> {
     const normalized = normalizeProcessedCommand(options);
+    const room = this.readRoomRow();
+
+    if (room === undefined) {
+      throw new FlareLobbyError("CONFLICT", {
+        message: "初期化されていない Room に処理済みコマンドを保存できません。"
+      });
+    }
+
+    const expiresAtCandidate =
+      Math.max(Date.now(), normalized.createdAt) +
+      room.processedCommandRetentionMs;
+
+    if (!Number.isSafeInteger(expiresAtCandidate)) {
+      throw new FlareLobbyError("INVALID_PAYLOAD", {
+        message: "処理済みコマンドの保持期限を安全に計算できません。"
+      });
+    }
+
+    const expiresAt = expiresAtCandidate;
+
+    this.purgeExpiredProcessedCommands(Date.now());
     const existing = this.readProcessedCommand(normalized.requestId);
 
     if (existing !== null) {
@@ -1632,14 +1850,19 @@ export class RoomDurableObject extends DurableObject<Env> {
         command,
         payload_json,
         result_json,
-        created_at
-      ) VALUES (?, ?, ?, ?, ?)`,
+        created_at,
+        expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
       normalized.requestId,
       normalized.command,
       normalized.payloadJson,
       normalized.resultJson,
-      normalized.createdAt
+      normalized.createdAt,
+      expiresAt
     );
+
+    this.scheduleProcessedCommandCleanup(expiresAt);
+    await this.synchronizeAlarm();
 
     const stored = this.readProcessedCommand(normalized.requestId);
 
@@ -1658,6 +1881,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       throw new FlareLobbyError("INVALID_PAYLOAD");
     }
 
+    this.purgeExpiredProcessedCommands(Date.now());
     return this.readProcessedCommand(requestId)?.value ?? null;
   }
 
@@ -1679,10 +1903,10 @@ export class RoomDurableObject extends DurableObject<Env> {
       .toArray();
 
     let roomDeleted = false;
-    const room = this.readRoomRow();
 
     for (const operation of dueOperations) {
       if (operation.kind === "room_retention") {
+        const room = this.readRoomRow();
         if (room?.state === "finished") {
           deleteRoomState(this.ctx.storage.sql);
           roomDeleted = true;
@@ -1695,6 +1919,66 @@ export class RoomDurableObject extends DurableObject<Env> {
           "DELETE FROM flarelobby_room_scheduled_operations WHERE operation_id = ?",
           operation.operationId
         );
+        continue;
+      }
+
+      const payload = parseJsonValue(operation.payloadJson);
+
+      if (
+        isJsonObject(payload) &&
+        payload["type"] === ROOM_DISCONNECT_OPERATION_TYPE
+      ) {
+        const participantId = payload["participantId"];
+        const disconnectedAt = payload["disconnectedAt"];
+
+        if (
+          isNonEmptyString(participantId) &&
+          isValidTimestamp(disconnectedAt)
+        ) {
+          const result = this.expireDisconnectedParticipant(
+            this.readRoomRow(),
+            participantId,
+            disconnectedAt
+          );
+
+          if (result === "deferred") {
+            continue;
+          }
+        }
+
+        this.ctx.storage.sql.exec(
+          "DELETE FROM flarelobby_room_scheduled_operations WHERE operation_id = ?",
+          operation.operationId
+        );
+        continue;
+      }
+
+      if (
+        isJsonObject(payload) &&
+        payload["type"] === ROOM_PROCESSED_COMMAND_CLEANUP_OPERATION_TYPE
+      ) {
+        this.purgeExpiredProcessedCommands(now);
+        const nextExpiry = this.ctx.storage.sql
+          .exec<{ nextExpiresAt: number | null }>(
+            "SELECT MIN(expires_at) AS nextExpiresAt FROM flarelobby_processed_commands"
+          )
+          .one().nextExpiresAt;
+
+        if (nextExpiry === null) {
+          this.ctx.storage.sql.exec(
+            "DELETE FROM flarelobby_room_scheduled_operations WHERE operation_id = ?",
+            operation.operationId
+          );
+        } else {
+          this.ctx.storage.sql.exec(
+            `UPDATE flarelobby_room_scheduled_operations
+             SET due_at = ?, payload_json = ?
+             WHERE operation_id = ?`,
+            nextExpiry,
+            JSON.stringify({ type: ROOM_PROCESSED_COMMAND_CLEANUP_OPERATION_TYPE }),
+            operation.operationId
+          );
+        }
         continue;
       }
 
@@ -1712,6 +1996,137 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     await this.synchronizeAlarm();
+  }
+
+  private expireDisconnectedParticipant(
+    room: RoomRow | undefined,
+    participantId: string,
+    disconnectedAt: Timestamp
+  ): "removed" | "deferred" | "noop" {
+    if (room === undefined || room.state === "finished") {
+      return "noop";
+    }
+
+    const participant = this.readParticipantById(participantId);
+
+    if (participant === undefined) {
+      return "noop";
+    }
+
+    const activeConnections = this.ctx.storage.sql
+      .exec<{ count: number }>(
+        `SELECT COUNT(*) AS count
+         FROM flarelobby_room_connections
+         WHERE room_id = ?
+           AND participant_id = ?
+           AND disconnected_at IS NULL
+           AND invalidated_at IS NULL`,
+        room.roomId,
+        participantId
+      )
+      .one().count;
+
+    if (activeConnections > 0) {
+      return "noop";
+    }
+
+    const latestDisconnectedAt = this.ctx.storage.sql
+      .exec<{ disconnectedAt: string | null }>(
+        `SELECT MAX(disconnected_at) AS disconnectedAt
+         FROM flarelobby_room_connections
+         WHERE room_id = ?
+           AND participant_id = ?
+           AND disconnected_at IS NOT NULL
+           AND invalidated_at IS NULL`,
+        room.roomId,
+        participantId
+      )
+      .one().disconnectedAt;
+    const effectiveDisconnectedAt =
+      latestDisconnectedAt ?? disconnectedAt;
+    const effectiveDisconnectedAtMs = Date.parse(effectiveDisconnectedAt);
+    const dueAt = effectiveDisconnectedAtMs + room.disconnectGracePeriodMs;
+
+    if (
+      !Number.isFinite(effectiveDisconnectedAtMs) ||
+      !Number.isSafeInteger(dueAt)
+    ) {
+      return "noop";
+    }
+
+    if (dueAt > Date.now()) {
+      this.writeParticipantDisconnectOperation(
+        participantId,
+        effectiveDisconnectedAt,
+        dueAt
+      );
+      return "deferred";
+    }
+
+    const successor =
+      room.hostParticipantId === participant.participantId
+        ? this.readOldestPlayerParticipant(participant.participantId)
+        : undefined;
+    const hostIsLeaving = room.hostParticipantId === participant.participantId;
+    const finishedAt = new Date().toISOString();
+    const retentionDueAt =
+      hostIsLeaving && successor === undefined
+        ? Date.parse(finishedAt) + room.finishedRoomRetentionMs
+        : undefined;
+
+    if (
+      retentionDueAt !== undefined &&
+      !Number.isSafeInteger(retentionDueAt)
+    ) {
+      return "noop";
+    }
+
+    this.invalidateResumeSessions(participant.participantId);
+    this.cancelDisconnectOperation(participant.participantId);
+    this.ctx.storage.sql.exec(
+      "DELETE FROM flarelobby_room_participants WHERE participant_id = ?",
+      participant.participantId
+    );
+
+    if (successor !== undefined) {
+      this.setHost(successor);
+    } else if (hostIsLeaving) {
+      this.ctx.storage.sql.exec(
+        `UPDATE flarelobby_rooms
+         SET state = 'finished', state_started_at = ?, revision = ?
+         WHERE singleton_id = 1`,
+        finishedAt,
+        room.revision + 1
+      );
+      this.ctx.storage.sql.exec(
+        `INSERT INTO flarelobby_room_scheduled_operations (
+          operation_id,
+          due_at,
+          kind,
+          payload_json
+        ) VALUES (?, ?, 'room_retention', '{}')
+        ON CONFLICT(operation_id) DO UPDATE SET
+          due_at = excluded.due_at,
+          kind = excluded.kind,
+          payload_json = excluded.payload_json`,
+        ROOM_RETENTION_OPERATION_ID,
+        retentionDueAt
+      );
+    } else {
+      this.incrementRevision(room.revision);
+    }
+
+    if (successor !== undefined) {
+      this.incrementRevision(room.revision);
+    }
+
+    const snapshot = this.readSnapshot();
+
+    if (snapshot !== null) {
+      this.broadcastRoomSnapshot(snapshot);
+    }
+
+    return "removed";
   }
 
   private async handleWebSocketMessage(
@@ -2026,7 +2441,97 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   private broadcastRoomSnapshot(snapshot: RoomSnapshot): void {
-    this.broadcastProtocolMessage(createRoomSnapshotEvent(snapshot));
+    const event = createRoomSnapshotEvent(snapshot);
+    this.recordRoomEvent(event);
+    this.broadcastProtocolMessage(event);
+  }
+
+  private recordRoomEvent(event: ServerEventEnvelope): void {
+    const room = this.readRoomRow();
+
+    if (room === undefined) {
+      return;
+    }
+
+    this.ctx.storage.sql.exec(
+      `INSERT INTO flarelobby_room_events (
+        revision,
+        event_json,
+        created_at
+      ) VALUES (?, ?, ?)`,
+      event.revision,
+      JSON.stringify(event),
+      Date.now()
+    );
+    this.ctx.storage.sql.exec(
+      `DELETE FROM flarelobby_room_events
+       WHERE event_id NOT IN (
+         SELECT event_id
+         FROM flarelobby_room_events
+         ORDER BY event_id DESC
+         LIMIT ?
+       )`,
+      room.eventHistoryLimit
+    );
+  }
+
+  private readResumeEvents(
+    lastRevision: number | null,
+    currentRevision: number
+  ): { readonly useSnapshot: boolean; readonly events: readonly ProtocolMessage[] } {
+    const room = this.readRoomRow();
+
+    if (
+      room === undefined ||
+      lastRevision === null ||
+      lastRevision < 0 ||
+      lastRevision > currentRevision ||
+      currentRevision - lastRevision > room.eventHistoryLimit
+    ) {
+      return { useSnapshot: true, events: [] };
+    }
+
+    const rows = this.ctx.storage.sql
+      .exec<RoomEventRow>(
+        `SELECT
+          event_id AS eventId,
+          revision,
+          event_json AS eventJson
+         FROM flarelobby_room_events
+         WHERE revision > ? AND revision <= ?
+         ORDER BY revision ASC, event_id ASC`,
+        lastRevision,
+        currentRevision
+      )
+      .toArray();
+    const revisions = new Set(rows.map((row) => row.revision));
+
+    for (
+      let revision = lastRevision + 1;
+      revision <= currentRevision;
+      revision += 1
+    ) {
+      if (!revisions.has(revision)) {
+        return { useSnapshot: true, events: [] };
+      }
+    }
+
+    try {
+      return {
+        useSnapshot: false,
+        events: rows.map((row) => {
+          const event = parseJsonValue(row.eventJson);
+
+          if (!isJsonObject(event) || event["kind"] !== "event") {
+            throw new Error("invalid-room-event");
+          }
+
+          return event as unknown as ProtocolMessage;
+        })
+      };
+    } catch {
+      return { useSnapshot: true, events: [] };
+    }
   }
 
   private broadcastGameMessage(
@@ -2076,7 +2581,9 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   private storeWebSocketConnection(
-    attachment: RoomWebSocketAttachment
+    attachment: RoomWebSocketAttachment,
+    resumeTokenExpiresAt: number,
+    isResume: boolean
   ): void {
     this.ctx.storage.sql.exec(
       `INSERT INTO flarelobby_room_connections (
@@ -2086,33 +2593,182 @@ export class RoomDurableObject extends DurableObject<Env> {
         participant_id,
         role,
         connected_at,
-        disconnected_at
-      ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+        disconnected_at,
+        connection_generation,
+        resume_token_expires_at,
+        invalidated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)
       ON CONFLICT(resume_id) DO UPDATE SET
         room_id = excluded.room_id,
         principal_id = excluded.principal_id,
         participant_id = excluded.participant_id,
         role = excluded.role,
         connected_at = excluded.connected_at,
-        disconnected_at = NULL`,
+        disconnected_at = NULL,
+        connection_generation = excluded.connection_generation,
+        resume_token_expires_at = excluded.resume_token_expires_at,
+        invalidated_at = CASE
+          WHEN ? THEN invalidated_at
+          ELSE NULL
+        END`,
       attachment.resumeId,
       attachment.roomId,
       attachment.principal.id,
       attachment.participantId,
       attachment.role,
-      attachment.connectedAt
+      attachment.connectedAt,
+      attachment.connectionGeneration,
+      resumeTokenExpiresAt,
+      isResume ? 1 : 0
     );
   }
 
-  private markWebSocketDisconnected(
+  private async markWebSocketDisconnected(
     attachment: RoomWebSocketAttachment
-  ): void {
+  ): Promise<void> {
+    const current = this.readRoomConnection(attachment.resumeId);
+
+    if (
+      current === undefined ||
+      current.connectionGeneration !== attachment.connectionGeneration ||
+      current.disconnectedAt !== null ||
+      current.invalidatedAt !== null
+    ) {
+      return;
+    }
+
+    const disconnectedAt = new Date().toISOString();
     this.ctx.storage.sql.exec(
       `UPDATE flarelobby_room_connections
-       SET disconnected_at = COALESCE(disconnected_at, ?)
-       WHERE resume_id = ?`,
-      new Date().toISOString(),
-      attachment.resumeId
+       SET disconnected_at = ?
+       WHERE resume_id = ?
+         AND connection_generation = ?
+         AND disconnected_at IS NULL`,
+      disconnectedAt,
+      attachment.resumeId,
+      attachment.connectionGeneration
+    );
+
+    await this.scheduleParticipantDisconnect(
+      attachment.participantId,
+      disconnectedAt
+    );
+  }
+
+  private readRoomConnection(
+    resumeId: string
+  ): RoomConnectionRow | undefined {
+    return this.ctx.storage.sql
+      .exec<RoomConnectionRow>(
+        `SELECT
+          resume_id AS resumeId,
+          room_id AS roomId,
+          principal_id AS principalId,
+          participant_id AS participantId,
+          role,
+          connected_at AS connectedAt,
+          disconnected_at AS disconnectedAt,
+          connection_generation AS connectionGeneration,
+          resume_token_expires_at AS resumeTokenExpiresAt,
+          invalidated_at AS invalidatedAt
+         FROM flarelobby_room_connections
+         WHERE resume_id = ?`,
+        resumeId
+      )
+      .toArray()[0];
+  }
+
+  private invalidateResumeSessions(participantId: string): void {
+    const now = new Date().toISOString();
+    this.ctx.storage.sql.exec(
+      `UPDATE flarelobby_room_connections
+       SET invalidated_at = COALESCE(invalidated_at, ?),
+           disconnected_at = COALESCE(disconnected_at, ?)
+       WHERE participant_id = ?`,
+      now,
+      now,
+      participantId
+    );
+  }
+
+  private async scheduleParticipantDisconnect(
+    participantId: string,
+    disconnectedAt: Timestamp
+  ): Promise<void> {
+    const room = this.readRoomRow();
+
+    if (room === undefined) {
+      return;
+    }
+
+    const disconnectedAtMs = Date.parse(disconnectedAt);
+    const dueAt = disconnectedAtMs + room.disconnectGracePeriodMs;
+
+    if (!Number.isSafeInteger(dueAt)) {
+      return;
+    }
+
+    this.writeParticipantDisconnectOperation(participantId, disconnectedAt, dueAt);
+    await this.synchronizeAlarm();
+  }
+
+  private writeParticipantDisconnectOperation(
+    participantId: string,
+    disconnectedAt: Timestamp,
+    dueAt: number
+  ): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO flarelobby_room_scheduled_operations (
+        operation_id,
+        due_at,
+        kind,
+        payload_json
+      ) VALUES (?, ?, 'noop', ?)
+      ON CONFLICT(operation_id) DO UPDATE SET
+        due_at = excluded.due_at,
+        kind = excluded.kind,
+        payload_json = excluded.payload_json`,
+      getDisconnectOperationId(participantId),
+      dueAt,
+      JSON.stringify({
+        type: ROOM_DISCONNECT_OPERATION_TYPE,
+        participantId,
+        disconnectedAt
+      })
+    );
+  }
+
+  private cancelDisconnectOperation(participantId: string): void {
+    this.ctx.storage.sql.exec(
+      "DELETE FROM flarelobby_room_scheduled_operations WHERE operation_id = ?",
+      getDisconnectOperationId(participantId)
+    );
+  }
+
+  private scheduleProcessedCommandCleanup(expiresAt: number): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO flarelobby_room_scheduled_operations (
+        operation_id,
+        due_at,
+        kind,
+        payload_json
+      ) VALUES (?, ?, 'noop', ?)
+      ON CONFLICT(operation_id) DO UPDATE SET
+        due_at = MIN(due_at, excluded.due_at),
+        kind = excluded.kind,
+        payload_json = excluded.payload_json`,
+      ROOM_PROCESSED_COMMAND_CLEANUP_OPERATION_ID,
+      expiresAt,
+      JSON.stringify({
+        type: ROOM_PROCESSED_COMMAND_CLEANUP_OPERATION_TYPE
+      })
+    );
+  }
+
+  private purgeExpiredProcessedCommands(now: number): void {
+    this.ctx.storage.sql.exec(
+      "DELETE FROM flarelobby_processed_commands WHERE expires_at <= ?",
+      now
     );
   }
 
@@ -2280,7 +2936,11 @@ export class RoomDurableObject extends DurableObject<Env> {
           join_method AS joinMethod,
           join_password_salt AS joinPasswordSalt,
           join_password_hash AS joinPasswordHash,
-          finished_room_retention_ms AS finishedRoomRetentionMs
+          finished_room_retention_ms AS finishedRoomRetentionMs,
+          resume_token_ttl_ms AS resumeTokenTtlMs,
+          disconnect_grace_period_ms AS disconnectGracePeriodMs,
+          event_history_limit AS eventHistoryLimit,
+          processed_command_retention_ms AS processedCommandRetentionMs
          FROM flarelobby_rooms
          WHERE singleton_id = 1`
       )
@@ -2487,7 +3147,8 @@ export class RoomDurableObject extends DurableObject<Env> {
           command,
           payload_json AS payloadJson,
           result_json AS resultJson,
-          created_at AS createdAt
+          created_at AS createdAt,
+          expires_at AS expiresAt
          FROM flarelobby_processed_commands
          WHERE request_id = ?`,
         requestId
@@ -2495,6 +3156,14 @@ export class RoomDurableObject extends DurableObject<Env> {
       .toArray()[0];
 
     if (row === undefined) {
+      return null;
+    }
+
+    if (row.expiresAt <= Date.now()) {
+      this.ctx.storage.sql.exec(
+        "DELETE FROM flarelobby_processed_commands WHERE request_id = ?",
+        requestId
+      );
       return null;
     }
 
@@ -2677,6 +3346,42 @@ function migrateRoomSchema(sql: SqlStorage): void {
       VALUES (6, ?)
     `, Date.now());
   }
+
+  if (currentVersion < 7) {
+    sql.exec(`
+      ALTER TABLE flarelobby_rooms
+        ADD COLUMN resume_token_ttl_ms INTEGER NOT NULL DEFAULT 1800000;
+      ALTER TABLE flarelobby_rooms
+        ADD COLUMN disconnect_grace_period_ms INTEGER NOT NULL DEFAULT 30000;
+      ALTER TABLE flarelobby_rooms
+        ADD COLUMN event_history_limit INTEGER NOT NULL DEFAULT 128;
+      ALTER TABLE flarelobby_rooms
+        ADD COLUMN processed_command_retention_ms INTEGER NOT NULL DEFAULT 600000;
+
+      ALTER TABLE flarelobby_processed_commands
+        ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0;
+
+      ALTER TABLE flarelobby_room_connections
+        ADD COLUMN connection_generation TEXT NOT NULL DEFAULT 'legacy';
+      ALTER TABLE flarelobby_room_connections
+        ADD COLUMN resume_token_expires_at INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE flarelobby_room_connections
+        ADD COLUMN invalidated_at TEXT;
+
+      CREATE TABLE IF NOT EXISTS flarelobby_room_events (
+        event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        revision INTEGER NOT NULL,
+        event_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_flarelobby_room_events_revision
+        ON flarelobby_room_events (revision, event_id);
+
+      INSERT INTO flarelobby_room_schema_migrations (version, applied_at)
+      VALUES (7, ?)
+    `, Date.now());
+  }
 }
 
 function deleteRoomState(sql: SqlStorage): void {
@@ -2684,6 +3389,7 @@ function deleteRoomState(sql: SqlStorage): void {
     DELETE FROM flarelobby_room_scheduled_operations;
     DELETE FROM flarelobby_processed_commands;
     DELETE FROM flarelobby_room_connections;
+    DELETE FROM flarelobby_room_events;
     DELETE FROM flarelobby_room_participants;
     DELETE FROM flarelobby_room_teams;
     DELETE FROM flarelobby_rooms
@@ -2760,6 +3466,7 @@ function readWebSocketAttachment(
   const role = value["role"];
   const connectedAt = value["connectedAt"];
   const resumeId = value["resumeId"];
+  const connectionGeneration = value["connectionGeneration"];
   const maxWebSocketMessageBytes = value["maxWebSocketMessageBytes"];
   const maxMessagesPerMinute = value["maxMessagesPerMinute"];
 
@@ -2772,6 +3479,7 @@ function readWebSocketAttachment(
     !isRoomParticipantRole(role) ||
     !isValidTimestamp(connectedAt) ||
     !isNonEmptyString(resumeId) ||
+    !isNonEmptyString(connectionGeneration) ||
     !isPositiveSafeInteger(maxWebSocketMessageBytes) ||
     !isPositiveSafeInteger(maxMessagesPerMinute)
   ) {
@@ -2789,21 +3497,73 @@ function readWebSocketAttachment(
     role,
     connectedAt,
     resumeId,
+    connectionGeneration,
     maxWebSocketMessageBytes,
     maxMessagesPerMinute
   });
 }
 
 function createRoomSnapshotEvent(
-  snapshot: RoomSnapshot
+  snapshot: RoomSnapshot,
+  resume?: RoomResumeHandshake
 ): ServerEventEnvelope {
+  const payload =
+    resume === undefined
+      ? snapshot
+      : {
+          ...snapshot,
+          resumeToken: resume.resumeToken,
+          resumeTokenExpiresAt: resume.resumeTokenExpiresAt,
+          resume
+        };
+
   return {
     protocolVersion: PROTOCOL_VERSION,
     kind: "event",
     event: ROOM_SNAPSHOT_EVENT,
     revision: snapshot.revision,
-    payload: snapshot as unknown as JsonValue
+    payload: payload as unknown as JsonValue
   };
+}
+
+function readLastRevision(
+  request: Request
+): ProtocolResult<number | null> {
+  const url = new URL(request.url);
+  const queryValue =
+    url.searchParams.get("lastRevision") ?? url.searchParams.get("revision");
+  const headerValue = request.headers.get("x-flarelobby-last-revision");
+
+  if (queryValue !== null && headerValue !== null && queryValue !== headerValue) {
+    return {
+      ok: false,
+      error: new FlareLobbyError("INVALID_PAYLOAD")
+    };
+  }
+
+  const value = queryValue ?? headerValue;
+
+  if (value === null) {
+    return { ok: true, value: null };
+  }
+
+  if (!/^\d+$/u.test(value)) {
+    return {
+      ok: false,
+      error: new FlareLobbyError("INVALID_PAYLOAD")
+    };
+  }
+
+  const revision = Number(value);
+
+  if (!Number.isSafeInteger(revision) || revision < 0) {
+    return {
+      ok: false,
+      error: new FlareLobbyError("INVALID_PAYLOAD")
+    };
+  }
+
+  return { ok: true, value: revision };
 }
 
 function scopeWebSocketRequestId(
@@ -2905,6 +3665,28 @@ async function normalizeInitialization(
           options.finishedRoomRetentionMs,
           "finishedRoomRetentionMs"
         );
+  const resumeTokenTtlMs =
+    options.resumeTokenTtlMs === undefined
+      ? DEFAULT_RESUME_TOKEN_TTL_MS
+      : normalizePositiveInteger(options.resumeTokenTtlMs, "resumeTokenTtlMs");
+  const disconnectGracePeriodMs =
+    options.disconnectGracePeriodMs === undefined
+      ? DEFAULT_DISCONNECT_GRACE_PERIOD_MS
+      : normalizeNonNegativeInteger(
+          options.disconnectGracePeriodMs,
+          "disconnectGracePeriodMs"
+        );
+  const eventHistoryLimit =
+    options.eventHistoryLimit === undefined
+      ? DEFAULT_EVENT_HISTORY_LIMIT
+      : normalizePositiveInteger(options.eventHistoryLimit, "eventHistoryLimit");
+  const processedCommandRetentionMs =
+    options.processedCommandRetentionMs === undefined
+      ? DEFAULT_PROCESSED_COMMAND_RETENTION_MS
+      : normalizePositiveInteger(
+          options.processedCommandRetentionMs,
+          "processedCommandRetentionMs"
+        );
 
   if (room.kind === "custom") {
     if (
@@ -2954,6 +3736,10 @@ async function normalizeInitialization(
       joinPasswordSalt: passwordRecord?.salt ?? null,
       joinPasswordHash: passwordRecord?.hash ?? null,
       finishedRoomRetentionMs,
+      resumeTokenTtlMs,
+      disconnectGracePeriodMs,
+      eventHistoryLimit,
+      processedCommandRetentionMs,
       participants,
       teams
     };
@@ -2988,6 +3774,10 @@ async function normalizeInitialization(
     joinPasswordSalt: null,
     joinPasswordHash: null,
     finishedRoomRetentionMs,
+    resumeTokenTtlMs,
+    disconnectGracePeriodMs,
+    eventHistoryLimit,
+    processedCommandRetentionMs,
     participants,
     teams
   };
@@ -3041,6 +3831,7 @@ interface NormalizedParticipantLeave {
 interface NormalizedParticipantDisconnect {
   readonly participantId: string;
   readonly role: RoomParticipantRole | null;
+  readonly at: Timestamp;
 }
 
 interface NormalizedOperationRequest {
@@ -3127,7 +3918,8 @@ function normalizeParticipantDisconnectOptions(
   return {
     participantId: options.participantId,
     role:
-      options.role === undefined ? null : normalizeParticipantRole(options.role)
+      options.role === undefined ? null : normalizeParticipantRole(options.role),
+    at: normalizeOperationTimestamp(options.at)
   };
 }
 
