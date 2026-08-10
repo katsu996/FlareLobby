@@ -20,7 +20,9 @@ import {
 import { DEFAULT_FINISHED_ROOM_RETENTION_MS } from "./room-constants.js";
 import {
   authenticateGatewayRequest,
-  createErrorResponse
+  createErrorResponse,
+  readWebSocketJoinToken,
+  verifyWebSocketJoinToken
 } from "./security.js";
 import type {
   AuthenticatedGatewayRequest,
@@ -208,6 +210,20 @@ export function createGatewayWorker<
         return Response.json({ status: "ready" });
       }
 
+      const websocketRoomId = getCustomRoomWebSocketRoute(pathname);
+
+      if (
+        request.method === "GET" &&
+        websocketRoomId !== null
+      ) {
+        return upgradeCustomRoomWebSocket(
+          request,
+          env,
+          normalizedConfiguration,
+          websocketRoomId
+        );
+      }
+
       const authenticatedRequest = await authenticateGatewayRequest(
         request,
         normalizedConfiguration.authenticate,
@@ -279,6 +295,73 @@ function isCustomRoomOperationPath(
     pathname === `/v1/custom-rooms/${operation}` ||
     new RegExp(`^/v1/custom-rooms/[^/]+/${operation}$`, "u").test(pathname)
   );
+}
+
+function getCustomRoomWebSocketRoute(pathname: string): string | null {
+  const match = /^\/v1\/custom-rooms\/([^/]+)\/ws$/u.exec(pathname);
+
+  if (match?.[1] === undefined) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+async function upgradeCustomRoomWebSocket<
+  TEnv extends FlareLobbyBindings,
+  TApp extends AnyFlareLobbyApp,
+>(
+  request: Request,
+  env: TEnv,
+  configuration: FlareLobbyConfiguration<TApp>,
+  roomId: string
+): Promise<Response> {
+  if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+    return createErrorResponse(new FlareLobbyError("INVALID_MESSAGE"));
+  }
+
+  const token = readWebSocketJoinToken(request);
+
+  if (!token.ok) {
+    return createErrorResponse(token.error);
+  }
+
+  const claims = await verifyWebSocketJoinToken(
+    env.FLARE_LOBBY_TOKEN_SECRET,
+    token.value,
+    { roomId }
+  );
+
+  if (!claims.ok) {
+    return createErrorResponse(claims.error);
+  }
+
+  if (claims.value.participantId === undefined) {
+    return createErrorResponse(new FlareLobbyError("UNAUTHENTICATED"));
+  }
+
+  try {
+    const headers = new Headers(request.headers);
+    // Hibernation 後の Handler でも設定値を復元できるよう、接続 attachment
+    // へ保存する小さい数値だけを Gateway から DO へ渡します。
+    headers.set(
+      "x-flarelobby-websocket-message-bytes",
+      String(configuration.inputLimits.maxWebSocketMessageBytes)
+    );
+    headers.set(
+      "x-flarelobby-websocket-message-limit",
+      String(configuration.inputLimits.maxMessagesPerMinute)
+    );
+
+    const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
+    return await room.fetch(new Request(request, { headers }));
+  } catch {
+    return createErrorResponse(new FlareLobbyError("CONNECTION_FAILED"));
+  }
 }
 
 /**

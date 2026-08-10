@@ -45,7 +45,14 @@ export {
   RateLimitDurableObject,
   RoomDurableObject
 } from "./durable-objects.js";
-export { DEFAULT_FINISHED_ROOM_RETENTION_MS } from "./room.js";
+export {
+  DEFAULT_FINISHED_ROOM_RETENTION_MS,
+  getParticipantWebSocketTag,
+  getPrincipalWebSocketTag,
+  getResumeWebSocketTag,
+  getRoleWebSocketTag,
+  getRoomWebSocketTag
+} from "./room.js";
 export type {
   RoomInitializationOptions,
   RoomStartConditions,
@@ -75,10 +82,13 @@ export type {
   RoomJoinOptions,
   RoomJoinResult,
   RoomLeaveOptions,
-  RoomLeaveResult
+  RoomLeaveResult,
+  RoomWebSocketAttachment
 } from "./room.js";
 export {
   FLARE_LOBBY_RATE_LIMIT_SCOPES,
+  FLARE_LOBBY_WEBSOCKET_AUTH_PROTOCOL_PREFIX,
+  FLARE_LOBBY_WEBSOCKET_PROTOCOL,
   authenticateGatewayRequest,
   authenticateRequest,
   authorizeGatewayOperation,
@@ -88,11 +98,13 @@ export {
   issueResumeToken,
   normalizePrincipal,
   readValidatedJsonBody,
+  readWebSocketJoinToken,
   validateQuery,
   validateWebSocketCommand,
   verifyGatewayPrincipalEnvelope,
   verifyJoinToken,
-  verifyResumeToken
+  verifyResumeToken,
+  verifyWebSocketJoinToken
 } from "./security.js";
 export type {
   AuthenticatedGatewayRequest,
@@ -111,6 +123,7 @@ export type {
   FlareLobbyRoomTokenIssueOptions,
   FlareLobbyRoomTokenPurpose,
   FlareLobbyRoomTokenVerificationOptions,
+  FlareLobbyWebSocketJoinTokenVerificationOptions,
   GatewayPrincipalEnvelope
 } from "./security.js";
 
