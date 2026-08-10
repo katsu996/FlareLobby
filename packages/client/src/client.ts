@@ -17,6 +17,18 @@ import type {
   ServerEventEnvelope,
   ServerMessage
 } from "@flarelobby/core";
+import { createCustomRoomApi } from "./custom-room.js";
+import type {
+  CustomRoomClientApi,
+  CustomRoomCreationOptions,
+  CustomRoomJoinOptions,
+  CustomRoomListPage,
+  CustomRoomListQuery,
+  HostRoom,
+  PlayerRoom,
+  Room,
+  SpectatorRoom
+} from "./custom-room.js";
 
 const WEBSOCKET_OPEN = 1;
 const WEBSOCKET_CLOSED = 3;
@@ -121,6 +133,22 @@ export interface FlareLobbyClient<
     path: string | URL,
     options?: ClientWebSocketOptions
   ): Promise<FlareLobbyWebSocketConnection<TApp>>;
+  createCustomRoom(
+    options?: CustomRoomCreationOptions<TApp>
+  ): Promise<HostRoom<TApp>>;
+  joinCustomRoom(code: string): Promise<PlayerRoom<TApp>>;
+  joinCustomRoom(
+    options: CustomRoomJoinOptions & { readonly role: "spectator" }
+  ): Promise<SpectatorRoom<TApp>>;
+  joinCustomRoom(
+    options: CustomRoomJoinOptions & { readonly role?: "player" }
+  ): Promise<PlayerRoom<TApp>>;
+  joinCustomRoom(
+    options: CustomRoomJoinOptions
+  ): Promise<Room<TApp>>;
+  listCustomRooms(
+    query?: CustomRoomListQuery
+  ): Promise<CustomRoomListPage<TApp>>;
   dispose(): void;
   /** `dispose()` の説明的な別名です。 */
   destroy(): void;
@@ -146,6 +174,7 @@ class FlareLobbyClientImpl<
   private readonly webSocketConstructor: WebSocketConstructor | undefined;
   private readonly webSocketFactory: WebSocketFactory | undefined;
   private readonly requestIdFactory: () => RequestId;
+  private readonly customRoomApi: CustomRoomClientApi<TApp>;
   private readonly connections = new Set<FlareLobbyWebSocketConnectionImpl>();
   private disposedState = false;
 
@@ -163,6 +192,12 @@ class FlareLobbyClientImpl<
     this.webSocketConstructor = options.webSocket ?? options.WebSocket;
     this.webSocketFactory = options.webSocketFactory;
     this.requestIdFactory = options.requestIdFactory ?? createRequestId;
+    this.customRoomApi = createCustomRoomApi<TApp>({
+      request: this.request.bind(this),
+      connect: this.connect.bind(this),
+      connectWithToken: (path, options, token) =>
+        this.connectWithToken(path, options, token)
+    });
   }
 
   public get disposed(): boolean {
@@ -248,14 +283,26 @@ class FlareLobbyClientImpl<
     path: string | URL,
     options: ClientWebSocketOptions = {}
   ): Promise<FlareLobbyWebSocketConnection<TApp>> {
+    return this.connectWithToken(path, options);
+  }
+
+  private async connectWithToken(
+    path: string | URL,
+    options: ClientWebSocketOptions = {},
+    token?: string
+  ): Promise<FlareLobbyWebSocketConnection<TApp>> {
     this.assertActive();
     throwIfAborted(options.signal);
 
     const url = resolveWebSocketUrl(this.endpointUrl, path);
-    const token = await this.readAccessToken();
+    const authenticationToken =
+      token === undefined ? await this.readAccessToken() : token;
     throwIfAborted(options.signal);
 
-    const protocols = createWebSocketProtocols(options.protocols, token);
+    const protocols = createWebSocketProtocols(
+      options.protocols,
+      authenticationToken
+    );
     const socket = this.createWebSocket(url, protocols);
     const connection = new FlareLobbyWebSocketConnectionImpl(
       socket,
@@ -280,6 +327,34 @@ class FlareLobbyClientImpl<
     options: ClientWebSocketOptions = {}
   ): Promise<FlareLobbyWebSocketConnection<TApp>> {
     return this.connect(path, options);
+  }
+
+  public createCustomRoom(
+    options: CustomRoomCreationOptions<TApp> = {}
+  ): Promise<HostRoom<TApp>> {
+    return this.customRoomApi.createCustomRoom(options);
+  }
+
+  public joinCustomRoom(code: string): Promise<PlayerRoom<TApp>>;
+  public joinCustomRoom(
+    options: CustomRoomJoinOptions & { readonly role: "spectator" }
+  ): Promise<SpectatorRoom<TApp>>;
+  public joinCustomRoom(
+    options: CustomRoomJoinOptions & { readonly role?: "player" }
+  ): Promise<PlayerRoom<TApp>>;
+  public joinCustomRoom(
+    options: CustomRoomJoinOptions
+  ): Promise<Room<TApp>>;
+  public joinCustomRoom(
+    codeOrOptions: string | CustomRoomJoinOptions
+  ): Promise<Room<TApp>> {
+    return this.customRoomApi.joinCustomRoom(codeOrOptions);
+  }
+
+  public listCustomRooms(
+    query: CustomRoomListQuery = {}
+  ): Promise<CustomRoomListPage<TApp>> {
+    return this.customRoomApi.listCustomRooms(query);
   }
 
   public dispose(): void {
