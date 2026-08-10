@@ -369,3 +369,5 @@ export type GameMessage<TApp extends AnyFlareLobbyApp = FlareLobbyApp> = {
 /** 公開型に結び付いた FlareLobby アプリケーション定義を取り出します。 */
 export type InferFlareLobbyApp<TPublicType> =
   TPublicType extends AppBound<infer TApp> ? TApp : never;
+
+export * from "./protocol.js";

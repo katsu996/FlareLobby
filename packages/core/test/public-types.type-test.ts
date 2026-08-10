@@ -1,12 +1,16 @@
 import type {
+  ClientCommandEnvelope,
   FlareLobbyApp,
+  FlareLobbyErrorCode,
   GameMessage,
   InferFlareLobbyApp,
   MatchmakingPool,
   MatchmakingTicket,
   RoomSnapshot,
   RoomState,
-  RoomStatus
+  RoomStatus,
+  ServerEventEnvelope,
+  ServerFailureEnvelope
 } from "../src/index.js";
 
 type Equal<TLeft, TRight> = (<TValue>() => TValue extends TLeft ? 1 : 2) extends <
@@ -202,7 +206,62 @@ const invalidMessagePayload: GameMessage<ExampleApp> = {
   }
 };
 
+const protocolCommand: ClientCommandEnvelope<
+  "room.set_ready",
+  { ready: boolean }
+> = {
+  protocolVersion: 1,
+  kind: "command",
+  requestId: "request-1",
+  command: "room.set_ready",
+  payload: {
+    ready: true
+  }
+};
+
+const protocolEvent: ServerEventEnvelope<
+  "room.snapshot",
+  { roomId: string }
+> = {
+  protocolVersion: 1,
+  kind: "event",
+  event: "room.snapshot",
+  revision: 4,
+  payload: {
+    roomId: "room-1"
+  }
+};
+
+const protocolFailure: ServerFailureEnvelope = {
+  protocolVersion: 1,
+  kind: "failure",
+  requestId: "request-1",
+  error: {
+    code: "ROOM_FULL",
+    message: "ルームは満員です。"
+  }
+};
+
+const knownErrorCode: FlareLobbyErrorCode = "CANCELLED";
+
+// @ts-expect-error イベントには状態変化後の revision が必要です。
+const invalidProtocolEvent: ServerEventEnvelope = {
+  protocolVersion: 1,
+  kind: "event",
+  event: "room.snapshot",
+  payload: null
+};
+
+// @ts-expect-error 公開エラーコード以外は指定できません。
+const invalidErrorCode: FlareLobbyErrorCode = "INTERNAL_ERROR";
+
 void message;
 void invalidMatchedTicket;
 void invalidMessageName;
 void invalidMessagePayload;
+void protocolCommand;
+void protocolEvent;
+void protocolFailure;
+void knownErrorCode;
+void invalidProtocolEvent;
+void invalidErrorCode;
