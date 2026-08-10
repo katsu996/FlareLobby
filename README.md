@@ -4,7 +4,7 @@ Cloudflare Workers と Durable Objects を利用するゲーム向けロビー�
 
 この変更では、今後の機能実装に共通して使う開発基盤と、`@flarelobby/core` の公開ドメイン型を用意しています。カスタムルーム、マッチメイキング、通信を実行する公開 API はまだ実装していません。
 
-公開ドメイン型の用語、状態、型指定方法は [公開ドメイン型](./docs/domain-model.md) を参照してください。
+公開ドメイン型の用語、状態、型指定方法は [公開ドメイン型](./docs/domain-model.md) を、HTTP と WebSocket で共通に使う通信契約は [JSON 通信プロトコル v1](./docs/protocol.md) を参照してください。
 
 ## パッケージ構成
 
