@@ -17,6 +17,7 @@ import {
   joinCustomRoom,
   leaveCustomRoom
 } from "./custom-room.js";
+import { listCustomRooms } from "./custom-room-list.js";
 import {
   DEFAULT_DISCONNECT_GRACE_PERIOD_MS,
   DEFAULT_EVENT_HISTORY_LIMIT,
@@ -222,6 +223,21 @@ export function createGatewayWorker<
 
       if (request.method === "GET" && pathname === "/") {
         return Response.json({ status: "ready" });
+      }
+
+      if (
+        request.method === "GET" &&
+        pathname === "/v1/custom-rooms"
+      ) {
+        const result = await listCustomRooms(
+          request,
+          env,
+          normalizedConfiguration
+        );
+
+        return result.ok
+          ? Response.json(result.value)
+          : createErrorResponse(result.error);
       }
 
       const websocketRoomId = getCustomRoomWebSocketRoute(pathname);
