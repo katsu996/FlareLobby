@@ -1,5 +1,6 @@
 import {
-  FlareLobbyError
+  FlareLobbyError,
+  isFlareLobbyErrorCode
 } from "@flarelobby/core";
 import type {
   AnyFlareLobbyApp,
@@ -14,32 +15,51 @@ import type {
 } from "@flarelobby/core";
 
 import { consumeRoomCreationRateLimit } from "./config.js";
+import {
+  registerCustomRoomInvitation,
+  resolveCustomRoomInvitation
+} from "./custom-room-index.js";
 import type {
   FlareLobbyBindings,
   FlareLobbyConfiguration
 } from "./config.js";
 import {
+  authorizeGatewayOperation,
   issueJoinToken,
-  readValidatedJsonBody
+  readValidatedJsonBody,
+  verifyJoinToken
 } from "./security.js";
-import type { AuthenticatedGatewayRequest } from "./security.js";
+import type {
+  AuthenticatedGatewayRequest,
+  FlareLobbyRoomParticipantRole
+} from "./security.js";
 import type {
   RoomInitializationOptions,
   RoomJoinMethod,
+  RoomParticipantJoinResult,
+  RoomParticipantLeaveOptions,
+  RoomParticipantLeaveResult,
   RoomProcessedCommand,
-  RoomProcessedCommandOptions
+  RoomProcessedCommandOptions,
+  RoomParticipantRole
 } from "./room.js";
 
 const CUSTOM_ROOM_CREATE_COMMAND = "custom_room.create";
+const CUSTOM_ROOM_JOIN_COMMAND = "custom_room.join";
+const CUSTOM_ROOM_LEAVE_COMMAND = "custom_room.leave";
 const DEFAULT_ROOM_NAME = "ルーム";
 const DEFAULT_JOIN_TOKEN_TTL_MS = 10 * 60 * 1_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ROOM_NAME_LENGTH = 80;
+const MAX_PASSWORD_LENGTH = 128;
 const INVITATION_CODE_LENGTH = 6;
 const INVITATION_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 /** カスタムルーム作成要求で選択できる参加方式です。 */
 export type CustomRoomJoinMethod = RoomJoinMethod;
+
+/** カスタムルーム内の参加者役割です。 */
+export type CustomRoomParticipantRole = FlareLobbyRoomParticipantRole;
 
 /** Gateway のカスタムルーム作成入力です。省略項目は設定済みの既定値を使います。 */
 export interface CustomRoomCreationInput<
@@ -57,6 +77,8 @@ export interface CustomRoomCreationInput<
   readonly joinMode?: CustomRoomJoinMethod | "open" | "invite";
   readonly maxPlayers?: number;
   readonly maxSpectators?: number;
+  /** `joinMethod: "password"` のときだけ指定します。 */
+  readonly password?: string;
   readonly settings?: AppRoomSettings<TApp>;
 }
 
@@ -70,6 +92,10 @@ export interface CustomRoomCreationResult<
   TApp extends AnyFlareLobbyApp = FlareLobbyApp,
 > {
   readonly roomId: string;
+  /** 作成者へ割り当てられたホスト参加者の識別子です。 */
+  readonly participantId?: string;
+  /** 作成者の役割です。 */
+  readonly role?: CustomRoomParticipantRole;
   readonly joinMethod: CustomRoomJoinMethod;
   readonly invitationCode: string | null;
   readonly joinToken: string;
@@ -82,6 +108,62 @@ export type CustomRoomCreationResponse<
   TApp extends AnyFlareLobbyApp = FlareLobbyApp,
 > = CustomRoomCreationResult<TApp>;
 
+/** カスタムルーム参加要求です。 */
+export interface CustomRoomJoinInput {
+  readonly requestId?: RequestId;
+  readonly roomId?: string;
+  /** `roomId` の代わりに指定できる招待コードです。 */
+  readonly invitationCode?: string;
+  readonly role?: CustomRoomParticipantRole;
+  /** `role` の説明的な入力別名です。 */
+  readonly participantType?: CustomRoomParticipantRole;
+  readonly password?: string;
+}
+
+/** `CustomRoomJoinInput` の説明的な別名です。 */
+export type CustomRoomJoinOptions = CustomRoomJoinInput;
+
+/** カスタムルーム参加の成功結果です。 */
+export interface CustomRoomJoinResult<
+  TApp extends AnyFlareLobbyApp = FlareLobbyApp,
+> {
+  readonly roomId: string;
+  readonly participantId: string;
+  readonly role: CustomRoomParticipantRole;
+  readonly joinToken: string;
+  readonly websocketUrl: string;
+  readonly snapshot: RoomSnapshot<TApp>;
+}
+
+/** `CustomRoomJoinResult` の説明的な別名です。 */
+export type CustomRoomJoinResponse<
+  TApp extends AnyFlareLobbyApp = FlareLobbyApp,
+> = CustomRoomJoinResult<TApp>;
+
+/** カスタムルーム退出要求です。 */
+export interface CustomRoomLeaveInput {
+  readonly requestId?: RequestId;
+  readonly roomId: string;
+  readonly joinToken?: string;
+  /** `joinToken` の入力別名です。 */
+  readonly token?: string;
+  readonly participantId?: string;
+  readonly role?: CustomRoomParticipantRole;
+}
+
+/** `CustomRoomLeaveInput` の説明的な別名です。 */
+export type CustomRoomLeaveOptions = CustomRoomLeaveInput;
+
+/** カスタムルーム退出の成功結果です。 */
+export interface CustomRoomLeaveResult<
+  TApp extends AnyFlareLobbyApp = FlareLobbyApp,
+> {
+  readonly roomId: string;
+  readonly participantId: string;
+  readonly role: CustomRoomParticipantRole;
+  readonly snapshot: RoomSnapshot<TApp>;
+}
+
 interface NormalizedCustomRoomCreationInput {
   readonly requestId: RequestId;
   readonly name: string;
@@ -89,6 +171,8 @@ interface NormalizedCustomRoomCreationInput {
   readonly joinMethod: CustomRoomJoinMethod;
   readonly maxPlayers: number;
   readonly maxSpectators: number;
+  readonly password: string | null;
+  readonly passwordFingerprint: string | null;
   readonly settings: JsonObject;
   readonly payload: JsonObject;
 }
@@ -98,6 +182,15 @@ interface NormalizedCustomRoomCreationInput {
 interface CustomRoomGatewayStub {
   getProcessedCommand(requestId: string): Promise<RoomProcessedCommand | null>;
   initialize(options: RoomInitializationOptions): Promise<RoomSnapshot>;
+  join(
+    options: {
+      readonly gatewayPrincipal: AuthenticatedGatewayRequest["gatewayPrincipal"];
+      readonly role: RoomParticipantRole;
+      readonly invitationCode?: string;
+      readonly password?: string;
+    }
+  ): Promise<RoomParticipantJoinResult>;
+  leave(options: RoomParticipantLeaveOptions): Promise<RoomParticipantLeaveResult>;
   recordProcessedCommand(
     options: RoomProcessedCommandOptions
   ): Promise<RoomProcessedCommand>;
@@ -124,7 +217,7 @@ export async function createCustomRoom<
       return body;
     }
 
-    const input = normalizeCustomRoomCreationInput(
+    const input = await normalizeCustomRoomCreationInput(
       request,
       body.value,
       configuration
@@ -140,7 +233,17 @@ export async function createCustomRoom<
     const existing = await room.getProcessedCommand(input.requestId);
 
     if (existing !== null) {
-      return restoreExistingCreationResult<TApp>(existing, input);
+      const restored = restoreExistingCreationResult<TApp>(existing, input);
+
+      if (restored.ok && restored.value.invitationCode !== null) {
+        await registerCustomRoomInvitation(
+          env.FLARE_LOBBY_DB,
+          restored.value.invitationCode,
+          restored.value.roomId
+        );
+      }
+
+      return restored;
     }
 
     const rateLimit = await consumeRoomCreationRateLimit(
@@ -153,9 +256,12 @@ export async function createCustomRoom<
       return rateLimit;
     }
 
+    const participantId = `participant-${roomId}`;
     const joinToken = await issueJoinToken(env.FLARE_LOBBY_TOKEN_SECRET, {
       principal: authenticatedRequest.principal,
       roomId,
+      role: "player",
+      participantId,
       expiresAt: Date.now() + DEFAULT_JOIN_TOKEN_TTL_MS
     });
 
@@ -164,7 +270,6 @@ export async function createCustomRoom<
     }
 
     const invitationCode = createInvitationCode();
-    const participantId = `participant-${roomId}`;
     const snapshot = await room.initialize({
       room: {
         id: roomId,
@@ -190,19 +295,32 @@ export async function createCustomRoom<
       maxPlayers: input.maxPlayers,
       maxSpectators: input.maxSpectators,
       joinMethod: input.joinMethod,
+      ...(input.password === null ? {} : { password: input.password }),
       ...(configuration.customRooms.finishedRoomRetentionMs === undefined
         ? {}
         : {
             finishedRoomRetentionMs:
               configuration.customRooms.finishedRoomRetentionMs
-          })
+      })
     });
+    const snapshotInvitationCode = getSnapshotInvitationCode(snapshot);
+
+    if (input.joinMethod === "invitation") {
+      await registerCustomRoomInvitation(
+        env.FLARE_LOBBY_DB,
+        snapshotInvitationCode,
+        roomId
+      );
+    }
+
     const result: CustomRoomCreationResult<TApp> = {
       roomId,
+      participantId,
+      role: "player",
       joinMethod: input.joinMethod,
       invitationCode:
         input.joinMethod === "invitation"
-          ? getSnapshotInvitationCode(snapshot)
+          ? snapshotInvitationCode
           : null,
       joinToken: joinToken.value,
       websocketUrl: createWebSocketUrl(request, roomId),
@@ -217,22 +335,589 @@ export async function createCustomRoom<
 
     return parseCreationResult<TApp>(stored.result);
   } catch (error) {
-    if (error instanceof FlareLobbyError) {
-      return { ok: false, error };
+    return {
+      ok: false,
+      error: normalizeGatewayError(error)
+    };
+  }
+}
+
+/** `POST /v1/custom-rooms/join` を処理します。 */
+export async function joinCustomRoom<
+  TEnv extends FlareLobbyBindings,
+  TApp extends AnyFlareLobbyApp = FlareLobbyApp,
+>(
+  request: Request,
+  env: TEnv,
+  configuration: FlareLobbyConfiguration<TApp>,
+  authenticatedRequest: AuthenticatedGatewayRequest
+): Promise<ProtocolResult<CustomRoomJoinResult<TApp>>> {
+  try {
+    const body = await readValidatedJsonBody(
+      request,
+      configuration.inputLimits.maxHttpRequestBytes,
+      isJsonObject
+    );
+
+    if (!body.ok) {
+      return body;
     }
 
+    const input = await normalizeCustomRoomJoinInput(request, body.value);
+    const roomId = await resolveRoomIdentifier(
+      env.FLARE_LOBBY_DB,
+      input.roomId,
+      input.invitationCode
+    );
+    const payload = { ...input.payload, roomId };
+    const authorization = await authorizeGatewayOperation(
+      authenticatedRequest,
+      configuration.authorization,
+      {
+        operation: input.role === "spectator" ? "spectate" : "join",
+        roomId
+      }
+    );
+
+    if (!authorization.ok) {
+      return authorization;
+    }
+
+    const room = env.FLARE_LOBBY_ROOMS.getByName(
+      roomId
+    ) as unknown as CustomRoomGatewayStub;
+    const requestId = scopeRoomRequestId(
+      authenticatedRequest.principal.id,
+      roomId,
+      input.requestId
+    );
+    const existing = await room.getProcessedCommand(requestId);
+
+    if (existing !== null) {
+      return restoreExistingJoinResult<TApp>(existing, roomId, payload);
+    }
+
+    const joined = await room.join({
+      gatewayPrincipal: authenticatedRequest.gatewayPrincipal,
+      role: input.role,
+      ...(input.invitationCode === null
+        ? {}
+        : { invitationCode: input.invitationCode }),
+      ...(input.password === null ? {} : { password: input.password })
+    });
+    const joinToken = await issueJoinToken(env.FLARE_LOBBY_TOKEN_SECRET, {
+      principal: authenticatedRequest.principal,
+      roomId,
+      role: joined.role,
+      participantId: joined.participantId,
+      expiresAt: Date.now() + DEFAULT_JOIN_TOKEN_TTL_MS
+    });
+
+    if (!joinToken.ok) {
+      return joinToken;
+    }
+
+    const result: CustomRoomJoinResult<TApp> = {
+      roomId,
+      participantId: joined.participantId,
+      role: joined.role,
+      joinToken: joinToken.value,
+      websocketUrl: createWebSocketUrl(request, roomId),
+      snapshot: joined.snapshot as RoomSnapshot<TApp>
+    };
+    const stored = await room.recordProcessedCommand({
+      requestId,
+      command: CUSTOM_ROOM_JOIN_COMMAND,
+      payload,
+      result: toJsonObject(result)
+    });
+
+    return parseJoinResult<TApp>(stored.result);
+  } catch (error) {
+    return {
+      ok: false,
+      error: normalizeGatewayError(error)
+    };
+  }
+}
+
+/** `POST /v1/custom-rooms/leave` を処理します。 */
+export async function leaveCustomRoom<
+  TEnv extends FlareLobbyBindings,
+  TApp extends AnyFlareLobbyApp = FlareLobbyApp,
+>(
+  request: Request,
+  env: TEnv,
+  configuration: FlareLobbyConfiguration<TApp>,
+  authenticatedRequest: AuthenticatedGatewayRequest
+): Promise<ProtocolResult<CustomRoomLeaveResult<TApp>>> {
+  try {
+    const body = await readValidatedJsonBody(
+      request,
+      configuration.inputLimits.maxHttpRequestBytes,
+      isJsonObject
+    );
+
+    if (!body.ok) {
+      return body;
+    }
+
+    const input = normalizeCustomRoomLeaveInput(request, body.value);
+    const token = input.joinToken;
+    const claims = await verifyJoinToken(env.FLARE_LOBBY_TOKEN_SECRET, token, {
+      principal: authenticatedRequest.principal,
+      roomId: input.roomId,
+      ...(input.role === null ? {} : { role: input.role }),
+      ...(input.participantId === null
+        ? {}
+        : { participantId: input.participantId })
+    });
+
+    if (!claims.ok || claims.value.participantId === undefined) {
+      return {
+        ok: false,
+        error: claims.ok
+          ? new FlareLobbyError("UNAUTHENTICATED")
+          : claims.error
+      };
+    }
+
+    const authorization = await authorizeGatewayOperation(
+      authenticatedRequest,
+      configuration.authorization,
+      {
+        operation: claims.value.role === "spectator" ? "spectate" : "join",
+        roomId: input.roomId
+      }
+    );
+
+    if (!authorization.ok) {
+      return authorization;
+    }
+
+    const room = env.FLARE_LOBBY_ROOMS.getByName(
+      input.roomId
+    ) as unknown as CustomRoomGatewayStub;
+    const requestId = scopeRoomRequestId(
+      authenticatedRequest.principal.id,
+      input.roomId,
+      input.requestId
+    );
+    const payload = {
+      ...input.payload,
+      participantId: claims.value.participantId,
+      role: claims.value.role
+    };
+    const existing = await room.getProcessedCommand(requestId);
+
+    if (existing !== null) {
+      return restoreExistingLeaveResult<TApp>(
+        existing,
+        input.roomId,
+        payload
+      );
+    }
+
+    const left = await room.leave({
+      gatewayPrincipal: authenticatedRequest.gatewayPrincipal,
+      participantId: claims.value.participantId,
+      role: claims.value.role,
+      requestId,
+      requestPayload: payload
+    });
+
+    return {
+      ok: true,
+      value: {
+        roomId: input.roomId,
+        participantId: left.participantId,
+        role: left.role,
+        snapshot: left.snapshot as RoomSnapshot<TApp>
+      }
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: normalizeGatewayError(error)
+    };
+  }
+}
+
+interface NormalizedCustomRoomJoinInput {
+  readonly requestId: RequestId;
+  readonly roomId: string | null;
+  readonly invitationCode: string | null;
+  readonly role: CustomRoomParticipantRole;
+  readonly password: string | null;
+  readonly payload: JsonObject;
+}
+
+interface NormalizedCustomRoomLeaveInput {
+  readonly requestId: RequestId;
+  readonly roomId: string;
+  readonly joinToken: string;
+  readonly participantId: string | null;
+  readonly role: CustomRoomParticipantRole | null;
+  readonly payload: JsonObject;
+}
+
+async function normalizeCustomRoomJoinInput(
+  request: Request,
+  value: JsonObject
+): Promise<NormalizedCustomRoomJoinInput> {
+  const requestId = normalizeRequestId(request, value);
+  let roomId = normalizeOptionalIdentifier(value["roomId"]);
+  let invitationCode = normalizeOptionalInvitationCode(
+    value["invitationCode"]
+  );
+  const routeIdentifier = getRoomRouteIdentifier(request, "join");
+
+  if (roomId === null && invitationCode === null && routeIdentifier !== null) {
+    if (routeIdentifier.startsWith("room_")) {
+      roomId = routeIdentifier;
+    } else {
+      invitationCode = normalizeInvitationCode(routeIdentifier);
+    }
+  }
+
+  if (roomId === null && invitationCode === null) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: "roomId または invitationCode を指定してください。"
+    });
+  }
+
+  const bodyRole = value["role"];
+  const aliasRole = value["participantType"];
+
+  if (
+    bodyRole !== undefined &&
+    aliasRole !== undefined &&
+    bodyRole !== aliasRole
+  ) {
+    throw new FlareLobbyError("CONFLICT", {
+      message: "role と participantType が一致しません。"
+    });
+  }
+
+  const role = normalizeParticipantRole(bodyRole ?? aliasRole ?? "player");
+  const password =
+    value["password"] === undefined
+      ? null
+      : normalizeRoomPassword(value["password"]);
+  const passwordFingerprint =
+    password === null ? null : await createPasswordFingerprint(password);
+
+  return {
+    requestId,
+    roomId,
+    invitationCode,
+    role,
+    password,
+    payload: {
+      requestId,
+      roomId,
+      invitationCode,
+      role,
+      passwordFingerprint
+    }
+  };
+}
+
+function normalizeCustomRoomLeaveInput(
+  request: Request,
+  value: JsonObject
+): NormalizedCustomRoomLeaveInput {
+  const requestId = normalizeRequestId(request, value);
+  const routeRoomId = getRoomRouteIdentifier(request, "leave");
+  const roomId = normalizeOptionalIdentifier(value["roomId"]) ?? routeRoomId;
+
+  if (roomId === null) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: "退出には roomId が必要です。"
+    });
+  }
+
+  const tokenValue =
+    value["joinToken"] === undefined ? value["token"] : value["joinToken"];
+  const authorization = request.headers.get("authorization");
+  const bearerToken =
+    tokenValue === undefined && authorization?.startsWith("Bearer ")
+      ? authorization.slice("Bearer ".length)
+      : tokenValue;
+
+  if (!isNonEmptyString(bearerToken)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: "退出には joinToken が必要です。"
+    });
+  }
+
+  const participantId = normalizeOptionalIdentifier(value["participantId"]);
+  const roleValue = value["role"];
+  const role = roleValue === undefined ? null : normalizeParticipantRole(roleValue);
+
+  return {
+    requestId,
+    roomId,
+    joinToken: bearerToken,
+    participantId,
+    role,
+    payload: {
+      requestId,
+      roomId,
+      participantId,
+      role
+    }
+  };
+}
+
+function normalizeRequestId(request: Request, value: JsonObject): RequestId {
+  const bodyRequestId = value["requestId"];
+  const headerRequestId = request.headers.get("Idempotency-Key");
+
+  if (
+    bodyRequestId !== undefined &&
+    (!isNonEmptyString(bodyRequestId) ||
+      bodyRequestId.length > MAX_REQUEST_ID_LENGTH)
+  ) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: `requestId は 1 文字以上 ${MAX_REQUEST_ID_LENGTH} 文字以下の文字列で指定してください。`
+    });
+  }
+
+  if (
+    headerRequestId !== null &&
+    (!isNonEmptyString(headerRequestId) ||
+      headerRequestId.length > MAX_REQUEST_ID_LENGTH)
+  ) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: `Idempotency-Key は 1 文字以上 ${MAX_REQUEST_ID_LENGTH} 文字以下の文字列で指定してください。`
+    });
+  }
+
+  if (
+    bodyRequestId !== undefined &&
+    headerRequestId !== null &&
+    bodyRequestId !== headerRequestId
+  ) {
+    throw new FlareLobbyError("CONFLICT", {
+      message: "requestId と Idempotency-Key が一致しません。"
+    });
+  }
+
+  return bodyRequestId ?? headerRequestId ?? crypto.randomUUID();
+}
+
+function normalizeOptionalIdentifier(value: unknown): string | null {
+  if (value === undefined) {
+    return null;
+  }
+
+  if (!isNonEmptyString(value) || value.length > 256) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return value.trim();
+}
+
+function normalizeOptionalInvitationCode(value: unknown): string | null {
+  if (value === undefined) {
+    return null;
+  }
+
+  return normalizeInvitationCode(value);
+}
+
+function normalizeInvitationCode(value: unknown): string {
+  if (!isNonEmptyString(value) || value.length > 128) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return value.trim().toUpperCase();
+}
+
+function normalizeParticipantRole(
+  value: unknown
+): CustomRoomParticipantRole {
+  if (value !== "player" && value !== "spectator") {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: "role は player または spectator で指定してください。"
+    });
+  }
+
+  return value;
+}
+
+function getRoomRouteIdentifier(
+  request: Request,
+  operation: "join" | "leave"
+): string | null {
+  const match = new RegExp(
+    `^/v1/custom-rooms/([^/]+)/${operation}$`,
+    "u"
+  ).exec(new URL(request.url).pathname);
+
+  if (match?.[1] === undefined) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+}
+
+async function resolveRoomIdentifier(
+  database: D1Database,
+  roomId: string | null,
+  invitationCode: string | null
+): Promise<string> {
+  if (roomId !== null) {
+    return roomId;
+  }
+
+  if (invitationCode === null) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  const resolved = await resolveCustomRoomInvitation(database, invitationCode);
+
+  if (resolved === null) {
+    throw new FlareLobbyError("FORBIDDEN", {
+      message: "招待コードが正しくありません。"
+    });
+  }
+
+  return resolved;
+}
+
+function scopeRoomRequestId(
+  principalId: string,
+  roomId: string,
+  requestId: RequestId
+): string {
+  return `custom-room:${principalId}:${roomId}:${requestId}`;
+}
+
+function restoreExistingJoinResult<TApp extends AnyFlareLobbyApp>(
+  existing: RoomProcessedCommand,
+  roomId: string,
+  payload: JsonObject
+): ProtocolResult<CustomRoomJoinResult<TApp>> {
+  if (
+    existing.command !== CUSTOM_ROOM_JOIN_COMMAND ||
+    JSON.stringify(existing.payload) !== JSON.stringify(payload)
+  ) {
+    return {
+      ok: false,
+      error: new FlareLobbyError("CONFLICT", {
+        message: "同じ requestId に異なる参加条件を指定できません。"
+      })
+    };
+  }
+
+  const result = parseJoinResult<TApp>(existing.result);
+
+  if (result.ok && result.value.roomId !== roomId) {
+    return {
+      ok: false,
+      error: new FlareLobbyError("CONFLICT")
+    };
+  }
+
+  return result;
+}
+
+function restoreExistingLeaveResult<TApp extends AnyFlareLobbyApp>(
+  existing: RoomProcessedCommand,
+  roomId: string,
+  payload: JsonObject
+): ProtocolResult<CustomRoomLeaveResult<TApp>> {
+  if (
+    existing.command !== CUSTOM_ROOM_LEAVE_COMMAND ||
+    JSON.stringify(existing.payload) !== JSON.stringify(payload)
+  ) {
+    return {
+      ok: false,
+      error: new FlareLobbyError("CONFLICT", {
+        message: "同じ requestId に異なる退出条件を指定できません。"
+      })
+    };
+  }
+
+  const left = parseRoomParticipantLeaveResult(existing.result);
+
+  if (!left.ok) {
+    return left;
+  }
+
+  return {
+    ok: true,
+    value: {
+      roomId,
+      participantId: left.value.participantId,
+      role: left.value.role,
+      snapshot: left.value.snapshot as RoomSnapshot<TApp>
+    }
+  };
+}
+
+function parseJoinResult<TApp extends AnyFlareLobbyApp>(
+  value: JsonValue
+): ProtocolResult<CustomRoomJoinResult<TApp>> {
+  if (
+    !isJsonObject(value) ||
+    !isNonEmptyString(value["roomId"]) ||
+    !isNonEmptyString(value["participantId"]) ||
+    !isNonEmptyString(value["joinToken"]) ||
+    !isNonEmptyString(value["websocketUrl"]) ||
+    !isRoomParticipantRoleValue(value["role"]) ||
+    !isJsonObject(value["snapshot"])
+  ) {
     return {
       ok: false,
       error: new FlareLobbyError("CONNECTION_FAILED")
     };
   }
+
+  return {
+    ok: true,
+    value: value as unknown as CustomRoomJoinResult<TApp>
+  };
 }
 
-function normalizeCustomRoomCreationInput<TApp extends AnyFlareLobbyApp>(
+function parseRoomParticipantLeaveResult(
+  value: JsonValue
+): ProtocolResult<RoomParticipantLeaveResult> {
+  if (
+    !isJsonObject(value) ||
+    !isNonEmptyString(value["participantId"]) ||
+    !isRoomParticipantRoleValue(value["role"]) ||
+    !isJsonObject(value["snapshot"])
+  ) {
+    return {
+      ok: false,
+      error: new FlareLobbyError("CONNECTION_FAILED")
+    };
+  }
+
+  return {
+    ok: true,
+    value: value as unknown as RoomParticipantLeaveResult
+  };
+}
+
+function isRoomParticipantRoleValue(
+  value: unknown
+): value is CustomRoomParticipantRole {
+  return value === "player" || value === "spectator";
+}
+
+async function normalizeCustomRoomCreationInput<TApp extends AnyFlareLobbyApp>(
   request: Request,
   value: JsonObject,
   configuration: FlareLobbyConfiguration<TApp>
-): NormalizedCustomRoomCreationInput {
+): Promise<NormalizedCustomRoomCreationInput> {
   const bodyRequestId = value["requestId"];
   const headerRequestId = request.headers.get("Idempotency-Key");
 
@@ -284,6 +969,22 @@ function normalizeCustomRoomCreationInput<TApp extends AnyFlareLobbyApp>(
       ? value["joinMode"]
       : value["joinMethod"];
   const joinMethod = normalizeJoinMethod(rawJoinMethod);
+  const password =
+    value["password"] === undefined
+      ? null
+      : normalizeRoomPassword(value["password"]);
+
+  if (
+    (joinMethod === "password" && password === null) ||
+    (joinMethod !== "password" && password !== null)
+  ) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: "パスワード方式ではパスワードが必要です。"
+    });
+  }
+
+  const passwordFingerprint =
+    password === null ? null : await createPasswordFingerprint(password);
   const maxPlayers = normalizeMaxPlayers(
     value["maxPlayers"],
     configuration.customRooms.maxPlayers
@@ -306,6 +1007,8 @@ function normalizeCustomRoomCreationInput<TApp extends AnyFlareLobbyApp>(
     joinMethod,
     maxPlayers,
     maxSpectators,
+    password,
+    passwordFingerprint,
     settings,
     payload: {
       requestId,
@@ -314,6 +1017,7 @@ function normalizeCustomRoomCreationInput<TApp extends AnyFlareLobbyApp>(
       joinMethod,
       maxPlayers,
       maxSpectators,
+      passwordFingerprint,
       settings
     }
   };
@@ -360,9 +1064,27 @@ function normalizeJoinMethod(value: unknown): CustomRoomJoinMethod {
     return "invitation";
   }
 
+  if (value === "password") {
+    return "password";
+  }
+
   throw new FlareLobbyError("INVALID_PAYLOAD", {
-    message: "joinMethod は public または invitation で指定してください。"
+    message: "joinMethod は public、invitation、password のいずれかで指定してください。"
   });
+}
+
+function normalizeRoomPassword(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > MAX_PASSWORD_LENGTH
+  ) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: `password は 1 文字以上 ${MAX_PASSWORD_LENGTH} 文字以下の文字列で指定してください。`
+    });
+  }
+
+  return value;
 }
 
 function normalizeMaxPlayers(value: unknown, configuredMaximum: number): number {
@@ -442,6 +1164,15 @@ async function deriveRoomId(
   return `room_${encodeBase64Url(new Uint8Array(digest))}`;
 }
 
+async function createPasswordFingerprint(password: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(password)
+  );
+
+  return encodeBase64Url(new Uint8Array(digest));
+}
+
 function createInvitationCode(): string {
   const bytes = new Uint8Array(INVITATION_CODE_LENGTH);
   crypto.getRandomValues(bytes);
@@ -504,7 +1235,8 @@ function parseCreationResult<TApp extends AnyFlareLobbyApp>(
     !isNonEmptyString(value["joinToken"]) ||
     !isNonEmptyString(value["websocketUrl"]) ||
     (value["joinMethod"] !== "public" &&
-      value["joinMethod"] !== "invitation") ||
+      value["joinMethod"] !== "invitation" &&
+      value["joinMethod"] !== "password") ||
     (value["invitationCode"] !== null &&
       !isNonEmptyString(value["invitationCode"])) ||
     !isJsonObject(value["snapshot"])
@@ -600,6 +1332,28 @@ function isJsonValue(
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function normalizeGatewayError(error: unknown): FlareLobbyError {
+  if (error instanceof FlareLobbyError) {
+    return error;
+  }
+
+  const remoteError =
+    typeof error === "object" && error !== null
+      ? (error as { code?: unknown; message?: unknown })
+      : null;
+
+  if (remoteError !== null && isFlareLobbyErrorCode(remoteError.code)) {
+    return new FlareLobbyError(
+      remoteError.code,
+      isNonEmptyString(remoteError.message)
+        ? { message: remoteError.message }
+        : undefined
+    );
+  }
+
+  return new FlareLobbyError("CONNECTION_FAILED");
 }
 
 function isPositiveSafeInteger(value: unknown): value is number {

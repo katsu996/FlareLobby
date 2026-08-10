@@ -10,7 +10,11 @@ export {
   createGatewayWorker,
   defineFlareLobby
 } from "./config.js";
-export { createCustomRoom } from "./custom-room.js";
+export {
+  createCustomRoom,
+  joinCustomRoom,
+  leaveCustomRoom
+} from "./custom-room.js";
 export type {
   CustomRoomConfiguration,
   DefinedFlareLobby,
@@ -26,7 +30,15 @@ export type {
   CustomRoomCreationOptions,
   CustomRoomCreationResponse,
   CustomRoomCreationResult,
-  CustomRoomJoinMethod
+  CustomRoomJoinMethod,
+  CustomRoomJoinInput,
+  CustomRoomJoinOptions,
+  CustomRoomJoinResponse,
+  CustomRoomJoinResult,
+  CustomRoomLeaveInput,
+  CustomRoomLeaveOptions,
+  CustomRoomLeaveResult,
+  CustomRoomParticipantRole
 } from "./custom-room.js";
 export {
   MatchPoolDurableObject,
@@ -42,7 +54,17 @@ export type {
   RoomScheduledOperationKind,
   RoomScheduledOperationOptions,
   RoomStateTransitionOptions,
-  RoomJoinMethod
+  RoomJoinMethod,
+  RoomParticipantRole,
+  RoomParticipantJoinOptions,
+  RoomParticipantJoinResult,
+  RoomParticipantLeaveOptions,
+  RoomParticipantLeaveResult,
+  RoomParticipantDisconnectOptions,
+  RoomJoinOptions,
+  RoomJoinResult,
+  RoomLeaveOptions,
+  RoomLeaveResult
 } from "./room.js";
 export {
   FLARE_LOBBY_RATE_LIMIT_SCOPES,
@@ -74,6 +96,7 @@ export type {
   FlareLobbyRateLimitDecision,
   FlareLobbyRateLimitScope,
   FlareLobbyRoomTokenClaims,
+  FlareLobbyRoomParticipantRole,
   FlareLobbyRoomTokenIssueOptions,
   FlareLobbyRoomTokenPurpose,
   FlareLobbyRoomTokenVerificationOptions,

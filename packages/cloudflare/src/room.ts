@@ -22,13 +22,18 @@ import type {
 import {
   verifyGatewayPrincipalEnvelope
 } from "./security.js";
-import type { GatewayPrincipalEnvelope } from "./security.js";
-
-/** 終了済みルームを削除するまでの既定保持期間です。 */
-export const DEFAULT_FINISHED_ROOM_RETENTION_MS = 24 * 60 * 60 * 1_000;
+import type {
+  FlareLobbyRoomParticipantRole,
+  GatewayPrincipalEnvelope
+} from "./security.js";
+import { DEFAULT_FINISHED_ROOM_RETENTION_MS } from "./room-constants.js";
+export { DEFAULT_FINISHED_ROOM_RETENTION_MS } from "./room-constants.js";
 
 /** カスタムルームで選択できる参加方式です。 */
-export type RoomJoinMethod = "public" | "invitation";
+export type RoomJoinMethod = "public" | "invitation" | "password";
+
+/** Room 内で参加者へ割り当てる役割です。 */
+export type RoomParticipantRole = FlareLobbyRoomParticipantRole;
 
 const ROOM_RETENTION_OPERATION_ID = "__flarelobby_room_retention__";
 
@@ -50,9 +55,56 @@ export interface RoomInitializationOptions<
   readonly maxSpectators?: number;
   /** カスタムルームの参加方式です。 */
   readonly joinMethod?: RoomJoinMethod;
+  /** パスワード方式でのみ使用する参加パスワードです。永続化しません。 */
+  readonly password?: string;
   /** 終了済み状態を保持する期間です。0 の場合は即時削除対象になります。 */
   readonly finishedRoomRetentionMs?: number;
 }
+
+/** Room Durable Object へ参加を要求する入力です。 */
+export interface RoomParticipantJoinOptions {
+  readonly gatewayPrincipal: GatewayPrincipalEnvelope;
+  readonly role: RoomParticipantRole;
+  readonly invitationCode?: string;
+  readonly password?: string;
+}
+
+/** Room Durable Object の参加結果です。 */
+export interface RoomParticipantJoinResult {
+  readonly participantId: string;
+  readonly role: RoomParticipantRole;
+  readonly snapshot: RoomSnapshot;
+}
+
+/** Room Durable Object から退出を要求する入力です。 */
+export interface RoomParticipantLeaveOptions {
+  readonly gatewayPrincipal: GatewayPrincipalEnvelope;
+  readonly participantId: string;
+  readonly role?: RoomParticipantRole;
+  /** Gateway 側の要求重複排除を Room 内でも原子的に行う識別子です。 */
+  readonly requestId?: string;
+  readonly requestPayload?: JsonValue;
+}
+
+/** Room Durable Object の退出結果です。 */
+export interface RoomParticipantLeaveResult {
+  readonly participantId: string;
+  readonly role: RoomParticipantRole;
+  readonly snapshot: RoomSnapshot;
+}
+
+/** 通信切断時に参加状態を維持するための入力です。 */
+export interface RoomParticipantDisconnectOptions {
+  readonly gatewayPrincipal: GatewayPrincipalEnvelope;
+  readonly participantId: string;
+  readonly role?: RoomParticipantRole;
+}
+
+/** 後続実装が利用しやすい説明的な別名です。 */
+export type RoomJoinOptions = RoomParticipantJoinOptions;
+export type RoomJoinResult = RoomParticipantJoinResult;
+export type RoomLeaveOptions = RoomParticipantLeaveOptions;
+export type RoomLeaveResult = RoomParticipantLeaveResult;
 
 /** Room の状態遷移を要求する入力です。 */
 export interface RoomStateTransitionOptions {
@@ -119,6 +171,8 @@ interface RoomRow extends Record<string, SqlStorageValue> {
   maxPlayers: number | null;
   maxSpectators: number | null;
   joinMethod: RoomJoinMethod | null;
+  joinPasswordSalt: string | null;
+  joinPasswordHash: string | null;
   finishedRoomRetentionMs: number;
 }
 
@@ -175,6 +229,8 @@ interface NormalizedInitialization {
   readonly maxPlayers: number | null;
   readonly maxSpectators: number | null;
   readonly joinMethod: RoomJoinMethod | null;
+  readonly joinPasswordSalt: string | null;
+  readonly joinPasswordHash: string | null;
   readonly finishedRoomRetentionMs: number;
   readonly participants: readonly NormalizedParticipant[];
   readonly teams: readonly string[];
@@ -217,7 +273,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   public async initialize(
     options: RoomInitializationOptions
   ): Promise<RoomSnapshot> {
-    const normalized = normalizeInitialization(options);
+    const normalized = await normalizeInitialization(options);
     const existing = this.readRoomRow();
 
     if (existing !== undefined) {
@@ -256,9 +312,11 @@ export class RoomDurableObject extends DurableObject<Env> {
           max_players,
           max_spectators,
           join_method,
+          join_password_salt,
+          join_password_hash,
           finished_room_retention_ms,
           created_at
-        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', NULL, 0, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', NULL, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         normalized.roomId,
         normalized.kind,
         normalized.invitationCode,
@@ -272,6 +330,8 @@ export class RoomDurableObject extends DurableObject<Env> {
         normalized.maxPlayers,
         normalized.maxSpectators,
         normalized.joinMethod,
+        normalized.joinPasswordSalt,
+        normalized.joinPasswordHash,
         normalized.finishedRoomRetentionMs,
         Date.now()
       );
@@ -337,6 +397,257 @@ export class RoomDurableObject extends DurableObject<Env> {
   /** 後続の Gateway 実装からも意味が明確になるスナップショット別名です。 */
   public async getRoomSnapshot(): Promise<RoomSnapshot | null> {
     return this.readSnapshot();
+  }
+
+  /**
+   * 認証済み主体を Room のプレイヤーまたは観戦者として参加させます。
+   *
+   * Durable Object の入力ゲート内で既存参加者、役割別定員、INSERT を
+   * 連続して処理するため、同時要求でも定員を超えません。同じ主体の同じ
+   * 役割による再送は既存参加者を返し、参加者を増やしません。
+   */
+  public async join(
+    options: RoomParticipantJoinOptions
+  ): Promise<RoomParticipantJoinResult> {
+    const principal = await this.resolveGatewayPrincipal(
+      options.gatewayPrincipal
+    );
+
+    if (principal === null) {
+      throw new FlareLobbyError("UNAUTHENTICATED");
+    }
+
+    const normalized = normalizeParticipantJoinOptions(options);
+    const room = this.readRoomRow();
+
+    if (room === undefined) {
+      throw new FlareLobbyError("CONFLICT", {
+        message: "初期化されていない Room へ参加できません。"
+      });
+    }
+
+    if (room.kind !== "custom" || room.joinMethod === null) {
+      throw new FlareLobbyError("CONFLICT", {
+        message: "カスタムルーム以外へ参加できません。"
+      });
+    }
+
+    if (room.state === "finished") {
+      throw new FlareLobbyError("ROOM_FINISHED");
+    }
+
+    if (room.state !== "waiting") {
+      throw new FlareLobbyError("CONFLICT", {
+        message: "待機中ではない Room へ参加できません。"
+      });
+    }
+
+    await assertJoinCredentials(room, normalized);
+
+    const existing = this.readParticipantByPlayerId(principal.playerId);
+
+    if (existing !== undefined) {
+      if (existing.kind !== normalized.role) {
+        throw new FlareLobbyError("CONFLICT", {
+          message: "同じ主体を別の役割で重複参加させることはできません。"
+        });
+      }
+
+      const snapshot = this.readSnapshot();
+
+      if (snapshot === null) {
+        throw new FlareLobbyError("CONNECTION_FAILED");
+      }
+
+      return {
+        participantId: existing.participantId,
+        role: existing.kind,
+        snapshot
+      };
+    }
+
+    const limit =
+      normalized.role === "player" ? room.maxPlayers : room.maxSpectators;
+    const count = this.ctx.storage.sql
+      .exec<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM flarelobby_room_participants WHERE kind = ?",
+        normalized.role
+      )
+      .one().count;
+
+    if (limit === null || count >= limit) {
+      throw new FlareLobbyError("ROOM_FULL");
+    }
+
+    const participantId = `participant-${crypto.randomUUID()}`;
+
+    this.ctx.storage.sql.exec(
+      `INSERT INTO flarelobby_room_participants (
+        participant_id,
+        kind,
+        player_id,
+        team_id,
+        ready,
+        joined_at
+      ) VALUES (?, ?, ?, NULL, 0, ?)`,
+      participantId,
+      normalized.role,
+      principal.playerId,
+      Date.now()
+    );
+    this.incrementRevision(room.revision);
+
+    const snapshot = this.readSnapshot();
+
+    if (snapshot === null) {
+      throw new FlareLobbyError("CONNECTION_FAILED");
+    }
+
+    return {
+      participantId,
+      role: normalized.role,
+      snapshot
+    };
+  }
+
+  /** `join()` の意味を明示する別名です。 */
+  public async joinParticipant(
+    options: RoomParticipantJoinOptions
+  ): Promise<RoomParticipantJoinResult> {
+    return this.join(options);
+  }
+
+  /**
+   * 指定された参加者を明示的に退出させます。
+   *
+   * 退出では参加者行を削除するため、準備状態とチーム所属も同時に失われます。
+   * 通信切断はこの RPC を呼ばない限り退出になりません。ホスト移譲は #10 の
+   * 責務なので、現段階ではホストの明示退出を拒否します。
+   */
+  public async leave(
+    options: RoomParticipantLeaveOptions
+  ): Promise<RoomParticipantLeaveResult> {
+    const principal = await this.resolveGatewayPrincipal(
+      options.gatewayPrincipal
+    );
+
+    if (principal === null) {
+      throw new FlareLobbyError("UNAUTHENTICATED");
+    }
+
+    const normalized = normalizeParticipantLeaveOptions(options);
+
+    if (normalized.requestId !== null) {
+      const existing = this.readProcessedCommand(normalized.requestId);
+
+      if (existing !== null) {
+        if (
+          existing.value.command !== "custom_room.leave" ||
+          existing.payloadJson !== normalized.requestPayloadJson
+        ) {
+          throw new FlareLobbyError("CONFLICT", {
+            message: "同じ requestId に異なる退出条件を指定できません。"
+          });
+        }
+
+        return parseParticipantLeaveResult(existing.value.result);
+      }
+    }
+
+    const room = this.readRoomRow();
+
+    if (room === undefined) {
+      throw new FlareLobbyError("CONFLICT", {
+        message: "初期化されていない Room から退出できません。"
+      });
+    }
+
+    const participant = this.readParticipantById(normalized.participantId);
+
+    if (
+      participant === undefined ||
+      participant.playerId !== principal.playerId ||
+      (normalized.role !== null && normalized.role !== participant.kind)
+    ) {
+      throw new FlareLobbyError("FORBIDDEN");
+    }
+
+    if (room.hostParticipantId === participant.participantId) {
+      throw new FlareLobbyError("CONFLICT", {
+        message: "ホストの退出はホスト移譲後に実行してください。"
+      });
+    }
+
+    this.ctx.storage.sql.exec(
+      "DELETE FROM flarelobby_room_participants WHERE participant_id = ?",
+      participant.participantId
+    );
+    this.incrementRevision(room.revision);
+
+    const snapshot = this.readSnapshot();
+
+    if (snapshot === null) {
+      throw new FlareLobbyError("CONNECTION_FAILED");
+    }
+
+    const result: RoomParticipantLeaveResult = {
+      participantId: participant.participantId,
+      role: participant.kind,
+      snapshot
+    };
+
+    if (normalized.requestId !== null) {
+      await this.recordProcessedCommand({
+        requestId: normalized.requestId,
+        command: "custom_room.leave",
+        payload: parseJsonValue(normalized.requestPayloadJson),
+        result: result as unknown as JsonValue
+      });
+    }
+
+    return result;
+  }
+
+  /** `leave()` の意味を明示する別名です。 */
+  public async leaveParticipant(
+    options: RoomParticipantLeaveOptions
+  ): Promise<RoomParticipantLeaveResult> {
+    return this.leave(options);
+  }
+
+  /**
+   * 通信切断を参加状態の変更として扱わず、現在のスナップショットを返します。
+   * 実際の WebSocket 接続管理は後続 Issue がこの契約を利用します。
+   */
+  public async disconnect(
+    options: RoomParticipantDisconnectOptions
+  ): Promise<RoomSnapshot> {
+    const principal = await this.resolveGatewayPrincipal(
+      options.gatewayPrincipal
+    );
+
+    if (principal === null) {
+      throw new FlareLobbyError("UNAUTHENTICATED");
+    }
+
+    const normalized = normalizeParticipantDisconnectOptions(options);
+    const participant = this.readParticipantById(normalized.participantId);
+
+    if (
+      participant === undefined ||
+      participant.playerId !== principal.playerId ||
+      (normalized.role !== null && normalized.role !== participant.kind)
+    ) {
+      throw new FlareLobbyError("FORBIDDEN");
+    }
+
+    const snapshot = this.readSnapshot();
+
+    if (snapshot === null) {
+      throw new FlareLobbyError("CONNECTION_FAILED");
+    }
+
+    return snapshot;
   }
 
   /**
@@ -658,11 +969,58 @@ export class RoomDurableObject extends DurableObject<Env> {
           max_players AS maxPlayers,
           max_spectators AS maxSpectators,
           join_method AS joinMethod,
+          join_password_salt AS joinPasswordSalt,
+          join_password_hash AS joinPasswordHash,
           finished_room_retention_ms AS finishedRoomRetentionMs
          FROM flarelobby_rooms
          WHERE singleton_id = 1`
       )
       .toArray()[0];
+  }
+
+  private readParticipantById(
+    participantId: string
+  ): ParticipantRow | undefined {
+    return this.ctx.storage.sql
+      .exec<ParticipantRow>(
+        `SELECT
+          participant_id AS participantId,
+          kind,
+          player_id AS playerId,
+          team_id AS teamId,
+          ready
+         FROM flarelobby_room_participants
+         WHERE participant_id = ?`,
+        participantId
+      )
+      .toArray()[0];
+  }
+
+  private readParticipantByPlayerId(
+    playerId: string
+  ): ParticipantRow | undefined {
+    return this.ctx.storage.sql
+      .exec<ParticipantRow>(
+        `SELECT
+          participant_id AS participantId,
+          kind,
+          player_id AS playerId,
+          team_id AS teamId,
+          ready
+         FROM flarelobby_room_participants
+         WHERE player_id = ?`,
+        playerId
+      )
+      .toArray()[0];
+  }
+
+  private incrementRevision(currentRevision: number): void {
+    this.ctx.storage.sql.exec(
+      `UPDATE flarelobby_rooms
+       SET revision = ?
+       WHERE singleton_id = 1`,
+      currentRevision + 1
+    );
   }
 
   private readSnapshot(): RoomSnapshot | null {
@@ -938,6 +1296,22 @@ function migrateRoomSchema(sql: SqlStorage): void {
       VALUES (3, ?)
     `, Date.now());
   }
+
+  if (currentVersion < 4) {
+    sql.exec(`
+      ALTER TABLE flarelobby_rooms
+        ADD COLUMN join_password_salt TEXT;
+      ALTER TABLE flarelobby_rooms
+        ADD COLUMN join_password_hash TEXT;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS
+        idx_flarelobby_room_participants_player_id
+        ON flarelobby_room_participants (player_id);
+
+      INSERT INTO flarelobby_room_schema_migrations (version, applied_at)
+      VALUES (4, ?)
+    `, Date.now());
+  }
 }
 
 function deleteRoomState(sql: SqlStorage): void {
@@ -951,9 +1325,9 @@ function deleteRoomState(sql: SqlStorage): void {
   `);
 }
 
-function normalizeInitialization(
+async function normalizeInitialization(
   options: RoomInitializationOptions
-): NormalizedInitialization {
+): Promise<NormalizedInitialization> {
   if (!isRecord(options) || !isRecord(options.room)) {
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }
@@ -971,6 +1345,7 @@ function normalizeInitialization(
   const host = normalizeHost(options.host);
   const participants = normalizeParticipants(options.participants);
   const teams = normalizeTeams(options.teams);
+  const password = normalizeOptionalPassword(options.password);
   const maxPlayers = normalizeOptionalPositiveInteger(
     options.maxPlayers,
     "maxPlayers"
@@ -993,13 +1368,28 @@ function normalizeInitialization(
       (room.visibility !== "public" && room.visibility !== "unlisted") ||
       (options.joinMethod !== undefined &&
         options.joinMethod !== "public" &&
-        options.joinMethod !== "invitation") ||
+        options.joinMethod !== "invitation" &&
+        options.joinMethod !== "password") ||
       host === null
     ) {
       throw new FlareLobbyError("INVALID_PAYLOAD", {
         message: "カスタムルームには招待コード、可視性、ホストが必要です。"
       });
     }
+
+    const joinMethod = options.joinMethod ?? "public";
+
+    if (
+      (joinMethod === "password" && password === null) ||
+      (joinMethod !== "password" && password !== null)
+    ) {
+      throw new FlareLobbyError("INVALID_PAYLOAD", {
+        message: "パスワード方式ではパスワードが必要です。"
+      });
+    }
+
+    const passwordRecord =
+      password === null ? null : await hashRoomPassword(password);
 
     return {
       roomId: room.id,
@@ -1014,7 +1404,9 @@ function normalizeInitialization(
       hostPlayerId: host.playerId,
       maxPlayers,
       maxSpectators,
-      joinMethod: options.joinMethod ?? "public",
+      joinMethod,
+      joinPasswordSalt: passwordRecord?.salt ?? null,
+      joinPasswordHash: passwordRecord?.hash ?? null,
       finishedRoomRetentionMs,
       participants,
       teams
@@ -1045,10 +1437,299 @@ function normalizeInitialization(
     maxPlayers,
     maxSpectators: null,
     joinMethod: null,
+    joinPasswordSalt: null,
+    joinPasswordHash: null,
     finishedRoomRetentionMs,
     participants,
     teams
   };
+}
+
+interface NormalizedParticipantJoin {
+  readonly role: RoomParticipantRole;
+  readonly invitationCode: string | null;
+  readonly password: string | null;
+}
+
+interface NormalizedParticipantLeave {
+  readonly participantId: string;
+  readonly role: RoomParticipantRole | null;
+  readonly requestId: string | null;
+  readonly requestPayloadJson: string;
+}
+
+interface NormalizedParticipantDisconnect {
+  readonly participantId: string;
+  readonly role: RoomParticipantRole | null;
+}
+
+function normalizeParticipantJoinOptions(
+  options: RoomParticipantJoinOptions
+): NormalizedParticipantJoin {
+  if (!isRecord(options)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  const role = options.role;
+
+  if (!isRoomParticipantRole(role)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  const invitationCode =
+    options.invitationCode === undefined
+      ? null
+      : normalizeInvitationCode(options.invitationCode);
+  const password =
+    options.password === undefined
+      ? null
+      : normalizeParticipantPassword(options.password);
+
+  return { role, invitationCode, password };
+}
+
+function normalizeParticipantLeaveOptions(
+  options: RoomParticipantLeaveOptions
+): NormalizedParticipantLeave {
+  if (!isRecord(options) || !isNonEmptyString(options.participantId)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  const role =
+    options.role === undefined ? null : normalizeParticipantRole(options.role);
+  const requestId =
+    options.requestId === undefined
+      ? null
+      : normalizeRequestIdentifier(options.requestId);
+  const requestPayload =
+    options.requestPayload === undefined
+      ? {
+          participantId: options.participantId,
+          ...(role === null ? {} : { role })
+        }
+      : options.requestPayload;
+
+  if (!isJsonValue(requestPayload)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return {
+    participantId: options.participantId,
+    role,
+    requestId,
+    requestPayloadJson: JSON.stringify(requestPayload)
+  };
+}
+
+function normalizeParticipantDisconnectOptions(
+  options: RoomParticipantDisconnectOptions
+): NormalizedParticipantDisconnect {
+  if (!isRecord(options) || !isNonEmptyString(options.participantId)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return {
+    participantId: options.participantId,
+    role:
+      options.role === undefined ? null : normalizeParticipantRole(options.role)
+  };
+}
+
+function normalizeParticipantRole(value: unknown): RoomParticipantRole {
+  if (!isRoomParticipantRole(value)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return value;
+}
+
+function normalizeRequestIdentifier(value: unknown): string {
+  if (!isNonEmptyString(value) || value.length > 1_024) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return value;
+}
+
+function normalizeInvitationCode(value: unknown): string {
+  if (!isNonEmptyString(value) || value.length > 128) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return value.trim().toUpperCase();
+}
+
+function normalizeParticipantPassword(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > 128
+  ) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return value;
+}
+
+function normalizeOptionalPassword(value: unknown): string | null {
+  if (value === undefined) {
+    return null;
+  }
+
+  return normalizeParticipantPassword(value);
+}
+
+function isRoomParticipantRole(
+  value: unknown
+): value is RoomParticipantRole {
+  return value === "player" || value === "spectator";
+}
+
+async function assertJoinCredentials(
+  room: RoomRow,
+  options: NormalizedParticipantJoin
+): Promise<void> {
+  if (room.joinMethod === "invitation") {
+    if (
+      room.invitationCode === null ||
+      options.invitationCode !== room.invitationCode.toUpperCase()
+    ) {
+      throw new FlareLobbyError("FORBIDDEN", {
+        message: "招待コードが正しくありません。"
+      });
+    }
+
+    return;
+  }
+
+  if (room.joinMethod === "password") {
+    if (
+      options.password === null ||
+      room.joinPasswordSalt === null ||
+      room.joinPasswordHash === null ||
+      !(await verifyRoomPassword(
+        options.password,
+        room.joinPasswordSalt,
+        room.joinPasswordHash
+      ))
+    ) {
+      throw new FlareLobbyError("FORBIDDEN", {
+        message: "パスワードが正しくありません。"
+      });
+    }
+  }
+}
+
+function parseParticipantLeaveResult(
+  value: JsonValue
+): RoomParticipantLeaveResult {
+  if (
+    !isJsonObject(value) ||
+    !isNonEmptyString(value["participantId"]) ||
+    !isRoomParticipantRole(value["role"]) ||
+    !isJsonObject(value["snapshot"])
+  ) {
+    throw new FlareLobbyError("CONNECTION_FAILED");
+  }
+
+  return value as unknown as RoomParticipantLeaveResult;
+}
+
+interface RoomPasswordRecord {
+  readonly salt: string;
+  readonly hash: string;
+}
+
+async function hashRoomPassword(password: string): Promise<RoomPasswordRecord> {
+  const salt = new Uint8Array(16);
+  crypto.getRandomValues(salt);
+  const hash = await digestPassword(password, salt);
+
+  return {
+    salt: encodeBase64Url(salt),
+    hash: encodeBase64Url(hash)
+  };
+}
+
+async function verifyRoomPassword(
+  password: string,
+  encodedSalt: string,
+  expectedHash: string
+): Promise<boolean> {
+  const salt = decodeBase64Url(encodedSalt);
+  const hash = decodeBase64Url(expectedHash);
+
+  if (salt === null || hash === null) {
+    return false;
+  }
+
+  const actual = await digestPassword(password, salt);
+
+  if (actual.byteLength !== hash.byteLength) {
+    return false;
+  }
+
+  let difference = 0;
+
+  for (let index = 0; index < actual.byteLength; index += 1) {
+    difference |= actual[index]! ^ hash[index]!;
+  }
+
+  return difference === 0;
+}
+
+async function digestPassword(
+  password: string,
+  salt: Uint8Array
+): Promise<Uint8Array> {
+  const passwordBytes = new TextEncoder().encode(password);
+  const input = new Uint8Array(salt.byteLength + passwordBytes.byteLength);
+  input.set(salt, 0);
+  input.set(passwordBytes, salt.byteLength);
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", input));
+}
+
+function encodeBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
+}
+
+function decodeBase64Url(value: string): Uint8Array | null {
+  if (!/^[A-Za-z0-9_-]+$/u.test(value)) {
+    return null;
+  }
+
+  const padded = value
+    .replaceAll("-", "+")
+    .replaceAll("_", "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
+
+  try {
+    const binary = atob(padded);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let index = 0; index < binary.length; index += 1) {
+      const character = binary.codePointAt(index);
+
+      if (character === undefined) {
+        return null;
+      }
+
+      bytes[index] = character;
+    }
+
+    return bytes;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeTransition(
