@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+export { RoomDurableObject } from "./room.js";
 import {
   FLARE_LOBBY_RATE_LIMIT_SCOPES,
   verifyGatewayPrincipalEnvelope
@@ -19,24 +20,6 @@ interface RateLimitRow extends Record<string, SqlStorageValue> {
 
 interface RateLimitOwnerRow extends Record<string, SqlStorageValue> {
   principalId: string;
-}
-
-/**
- * 1 ルーム単位の強整合な状態を保持する Durable Object です。
- *
- * 具体的なルーム業務ロジックは後続 Issue で実装します。このクラスは Wrangler が
- * 静的に認識できる公開 Export と SQLite-backed Durable Object の起点を提供します。
- */
-export class RoomDurableObject extends DurableObject<Env> {
-  /** Gateway の署名済み主体だけを受け入れます。 */
-  public async resolveGatewayPrincipal(
-    gatewayPrincipal: GatewayPrincipalEnvelope
-  ): Promise<Principal | null> {
-    return verifyGatewayPrincipalEnvelope(
-      this.env.FLARE_LOBBY_TOKEN_SECRET,
-      gatewayPrincipal
-    );
-  }
 }
 
 /**
