@@ -15,6 +15,7 @@ export {
   joinCustomRoom,
   leaveCustomRoom
 } from "./custom-room.js";
+export { listCustomRooms } from "./custom-room-list.js";
 export type {
   CustomRoomConfiguration,
   DefinedFlareLobby,
@@ -40,6 +41,15 @@ export type {
   CustomRoomLeaveResult,
   CustomRoomParticipantRole
 } from "./custom-room.js";
+export type {
+  CustomRoomListQuery,
+  CustomRoomListResult,
+  RoomSummary
+} from "./custom-room-list.js";
+export type {
+  CustomRoomIndexJoinMethod,
+  CustomRoomIndexRecord
+} from "./custom-room-index.js";
 export {
   MatchPoolDurableObject,
   RateLimitDurableObject,

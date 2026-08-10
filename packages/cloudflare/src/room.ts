@@ -41,6 +41,13 @@ import type {
   FlareLobbyRoomParticipantRole,
   GatewayPrincipalEnvelope
 } from "./security.js";
+import {
+  CUSTOM_ROOM_INDEX_RETRY_DELAY_MS,
+  CUSTOM_ROOM_INDEX_SYNC_OPERATION_ID,
+  deleteCustomRoomIndex,
+  upsertCustomRoomIndex
+} from "./custom-room-index.js";
+import type { CustomRoomIndexRecord } from "./custom-room-index.js";
 import { DEFAULT_FINISHED_ROOM_RETENTION_MS } from "./room-constants.js";
 export { DEFAULT_FINISHED_ROOM_RETENTION_MS } from "./room-constants.js";
 
@@ -51,6 +58,8 @@ export type RoomJoinMethod = "public" | "invitation" | "password";
 export type RoomParticipantRole = FlareLobbyRoomParticipantRole;
 
 const ROOM_RETENTION_OPERATION_ID = "__flarelobby_room_retention__";
+const ROOM_INDEX_UPSERT_OPERATION_KIND = "custom_room_index_upsert" as const;
+const ROOM_INDEX_DELETE_OPERATION_KIND = "custom_room_index_delete" as const;
 const ROOM_SET_READY_COMMAND = "room.set_ready";
 const ROOM_SELECT_TEAM_COMMAND = "room.select_team";
 const ROOM_UPDATE_SETTINGS_COMMAND = "room.update_settings";
@@ -261,7 +270,11 @@ export interface RoomStateTransitionOptions {
 }
 
 /** Room 内で単一 Alarm により処理する期限処理の種別です。 */
-export type RoomScheduledOperationKind = "noop" | "room_retention";
+export type RoomScheduledOperationKind =
+  | "noop"
+  | "room_retention"
+  | "custom_room_index_upsert"
+  | "custom_room_index_delete";
 
 /** 期限処理を登録する入力です。 */
 export interface RoomScheduledOperationOptions {
@@ -323,6 +336,7 @@ interface RoomRow extends Record<string, SqlStorageValue> {
   joinPasswordSalt: string | null;
   joinPasswordHash: string | null;
   finishedRoomRetentionMs: number;
+  createdAt: number;
 }
 
 interface ParticipantRow extends Record<string, SqlStorageValue> {
@@ -611,6 +625,8 @@ export class RoomDurableObject extends DurableObject<Env> {
         throw new FlareLobbyError("CONNECTION_FAILED");
       }
 
+      await this.enqueueCustomRoomIndexSync();
+
       return snapshot;
     }
 
@@ -693,6 +709,8 @@ export class RoomDurableObject extends DurableObject<Env> {
       if (snapshot === null) {
         throw new FlareLobbyError("CONNECTION_FAILED");
       }
+
+      await this.enqueueCustomRoomIndexSync();
 
       return snapshot;
     } catch (error) {
@@ -830,6 +848,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     this.broadcastRoomSnapshot(snapshot);
+    await this.enqueueCustomRoomIndexSync();
 
     return {
       participantId,
@@ -978,6 +997,8 @@ export class RoomDurableObject extends DurableObject<Env> {
         result: result as unknown as JsonValue
       });
     }
+
+    await this.enqueueCustomRoomIndexSync();
 
     if (shouldSynchronizeAlarm) {
       await this.synchronizeAlarm();
@@ -1162,12 +1183,13 @@ export class RoomDurableObject extends DurableObject<Env> {
 
     const snapshot = this.readRequiredSnapshot();
     this.broadcastRoomSnapshot(snapshot);
-
-    return this.storeOperationResult(
+    const result = await this.storeOperationResult(
       request,
       ROOM_UPDATE_SETTINGS_COMMAND,
       snapshot
     );
+    await this.enqueueCustomRoomIndexSync();
+    return result;
   }
 
   /** ホストを別のプレイヤーへ明示的に移譲します。 */
@@ -1271,12 +1293,13 @@ export class RoomDurableObject extends DurableObject<Env> {
 
     const snapshot = this.readRequiredSnapshot();
     this.broadcastRoomSnapshot(snapshot);
-
-    return this.storeOperationResult(
+    const result = await this.storeOperationResult(
       request,
       ROOM_KICK_COMMAND,
       snapshot
     );
+    await this.enqueueCustomRoomIndexSync();
+    return result;
   }
 
   /** 開始条件を検証し、Room を対戦中へ進めます。 */
@@ -1342,12 +1365,13 @@ export class RoomDurableObject extends DurableObject<Env> {
 
     const snapshot = this.readRequiredSnapshot();
     this.broadcastRoomSnapshot(snapshot);
-
-    return this.storeOperationResult(
+    const result = await this.storeOperationResult(
       request,
       ROOM_START_MATCH_COMMAND,
       snapshot
     );
+    await this.enqueueCustomRoomIndexSync();
+    return result;
   }
 
   /** ホストが Room を終了済みにします。 */
@@ -1404,6 +1428,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       ROOM_CLOSE_COMMAND,
       snapshot
     );
+    await this.enqueueCustomRoomIndexSync();
     await this.synchronizeAlarm();
     return result;
   }
@@ -1511,6 +1536,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     this.broadcastRoomSnapshot(snapshot);
+    await this.enqueueCustomRoomIndexSync();
 
     return snapshot;
   }
@@ -1661,6 +1687,192 @@ export class RoomDurableObject extends DurableObject<Env> {
     return this.readProcessedCommand(requestId)?.value ?? null;
   }
 
+  /** 公開ルームの派生一覧を D1 へ反映し、失敗時は Room 内の Alarm へ残します。 */
+  private async enqueueCustomRoomIndexSync(): Promise<void> {
+    try {
+      const room = this.readRoomRow();
+
+      if (
+        room === undefined ||
+        room.kind !== "custom" ||
+        room.visibility !== "public"
+      ) {
+        return;
+      }
+
+      const record = this.createCustomRoomIndexRecord(room);
+
+      if (record === null) {
+        return;
+      }
+
+      const kind = ROOM_INDEX_UPSERT_OPERATION_KIND;
+      const payload: JsonValue = record;
+      const payloadJson = JSON.stringify(payload);
+      const now = Date.now();
+
+      this.ctx.storage.sql.exec(
+        `INSERT INTO flarelobby_room_scheduled_operations (
+          operation_id,
+          due_at,
+          kind,
+          payload_json
+        ) VALUES (?, ?, ?, ?)
+        ON CONFLICT(operation_id) DO UPDATE SET
+          due_at = excluded.due_at,
+          kind = excluded.kind,
+          payload_json = excluded.payload_json`,
+        CUSTOM_ROOM_INDEX_SYNC_OPERATION_ID,
+        now,
+        kind,
+        payloadJson
+      );
+
+      await this.processCustomRoomIndexOperation({
+        operationId: CUSTOM_ROOM_INDEX_SYNC_OPERATION_ID,
+        dueAt: now,
+        kind,
+        payloadJson
+      });
+      await this.synchronizeAlarm();
+    } catch {
+      // 一覧は Room の強整合な状態より弱い派生データです。同期失敗で
+      // Room 操作を失敗させず、保存済みの期限処理を次回 Alarm へ残します。
+      try {
+        await this.synchronizeAlarm();
+      } catch {
+        // Alarm の設定失敗も次回の Room 入力時に再同期を試みます。
+      }
+    }
+  }
+
+  /** 保存済み一覧同期を一度試し、失敗時は再試行時刻を更新します。 */
+  private async processCustomRoomIndexOperation(
+    operation: ScheduledOperationRow
+  ): Promise<boolean> {
+    try {
+      if (operation.kind === ROOM_INDEX_UPSERT_OPERATION_KIND) {
+        const record = parseCustomRoomIndexRecord(
+          parseJsonValue(operation.payloadJson)
+        );
+        await upsertCustomRoomIndex(this.env.FLARE_LOBBY_DB, record);
+      } else if (operation.kind === ROOM_INDEX_DELETE_OPERATION_KIND) {
+        const payload = parseJsonValue(operation.payloadJson);
+
+        if (!isJsonObject(payload) || !isNonEmptyString(payload["roomId"])) {
+          throw new FlareLobbyError("INVALID_PAYLOAD");
+        }
+
+        await deleteCustomRoomIndex(
+          this.env.FLARE_LOBBY_DB,
+          payload["roomId"]
+        );
+      } else {
+        return false;
+      }
+
+      this.ctx.storage.sql.exec(
+        `DELETE FROM flarelobby_room_scheduled_operations
+         WHERE operation_id = ?
+           AND due_at = ?
+           AND kind = ?
+           AND payload_json = ?`,
+        operation.operationId,
+        operation.dueAt,
+        operation.kind,
+        operation.payloadJson
+      );
+      return true;
+    } catch {
+      this.rescheduleCustomRoomIndexOperation(operation);
+      return false;
+    }
+  }
+
+  /** D1 の一時障害を表す pending 状態を Room SQLite に保持します。 */
+  private rescheduleCustomRoomIndexOperation(
+    operation: ScheduledOperationRow
+  ): void {
+    const dueAt = Math.max(
+      Date.now() + CUSTOM_ROOM_INDEX_RETRY_DELAY_MS,
+      operation.dueAt + CUSTOM_ROOM_INDEX_RETRY_DELAY_MS
+    );
+
+    this.ctx.storage.sql.exec(
+      `UPDATE flarelobby_room_scheduled_operations
+       SET due_at = ?
+       WHERE operation_id = ?
+         AND due_at = ?
+         AND kind = ?
+         AND payload_json = ?`,
+      dueAt,
+      operation.operationId,
+      operation.dueAt,
+      operation.kind,
+      operation.payloadJson
+    );
+  }
+
+  /** Room SQLite の正本から、公開可能な一覧レコードだけを組み立てます。 */
+  private createCustomRoomIndexRecord(
+    room: RoomRow
+  ): CustomRoomIndexRecord | null {
+    if (
+      room.kind !== "custom" ||
+      room.visibility === null ||
+      room.joinMethod === null ||
+      room.maxPlayers === null
+    ) {
+      return null;
+    }
+
+    const metadata = parseJsonObject(room.metadataJson);
+    const settings = parseJsonObject(room.settingsJson);
+    const counts = this.readParticipantCounts();
+    const maxSpectators = room.maxSpectators ?? 0;
+
+    return {
+      roomId: room.roomId,
+      name: readIndexString(metadata["name"]) ?? "ルーム",
+      mode: readIndexString(settings["mode"]),
+      region: readIndexString(settings["region"]),
+      state: room.state,
+      joinMethod: room.joinMethod,
+      maxPlayers: room.maxPlayers,
+      playerCount: counts.playerCount,
+      availableSlots: Math.max(0, room.maxPlayers - counts.playerCount),
+      maxSpectators,
+      spectatorCount: counts.spectatorCount,
+      availableSpectatorSlots: Math.max(
+        0,
+        maxSpectators - counts.spectatorCount
+      ),
+      revision: room.revision,
+      createdAt: room.createdAt,
+      updatedAt: Date.now()
+    };
+  }
+
+  private readParticipantCounts(): {
+    readonly playerCount: number;
+    readonly spectatorCount: number;
+  } {
+    const rows = this.ctx.storage.sql
+      .exec<{ kind: RoomParticipantRole; count: number }>(
+        `SELECT kind, COUNT(*) AS count
+         FROM flarelobby_room_participants
+         GROUP BY kind`
+      )
+      .toArray();
+
+    return {
+      playerCount:
+        rows.find((row) => row.kind === "player")?.count ?? 0,
+      spectatorCount:
+        rows.find((row) => row.kind === "spectator")?.count ?? 0
+    };
+  }
+
   /** Alarm が期限到来した処理を冪等に実行し、次の期限へ再設定します。 */
   public override async alarm(): Promise<void> {
     const now = Date.now();
@@ -1682,11 +1894,27 @@ export class RoomDurableObject extends DurableObject<Env> {
     const room = this.readRoomRow();
 
     for (const operation of dueOperations) {
+      if (
+        operation.kind === ROOM_INDEX_UPSERT_OPERATION_KIND ||
+        operation.kind === ROOM_INDEX_DELETE_OPERATION_KIND
+      ) {
+        await this.processCustomRoomIndexOperation(operation);
+        continue;
+      }
+
       if (operation.kind === "room_retention") {
         if (room?.state === "finished") {
-          deleteRoomState(this.ctx.storage.sql);
-          roomDeleted = true;
-          break;
+          try {
+            if (room.kind === "custom" && room.visibility === "public") {
+              await deleteCustomRoomIndex(this.env.FLARE_LOBBY_DB, room.roomId);
+            }
+            deleteRoomState(this.ctx.storage.sql);
+            roomDeleted = true;
+            break;
+          } catch {
+            this.rescheduleCustomRoomIndexOperation(operation);
+            continue;
+          }
         }
 
         // 状態が戻ることは通常ありませんが、古い予約が残っていても
@@ -2280,7 +2508,8 @@ export class RoomDurableObject extends DurableObject<Env> {
           join_method AS joinMethod,
           join_password_salt AS joinPasswordSalt,
           join_password_hash AS joinPasswordHash,
-          finished_room_retention_ms AS finishedRoomRetentionMs
+          finished_room_retention_ms AS finishedRoomRetentionMs,
+          created_at AS createdAt
          FROM flarelobby_rooms
          WHERE singleton_id = 1`
       )
@@ -2602,7 +2831,12 @@ function migrateRoomSchema(sql: SqlStorage): void {
       CREATE TABLE IF NOT EXISTS flarelobby_room_scheduled_operations (
         operation_id TEXT PRIMARY KEY,
         due_at INTEGER NOT NULL,
-        kind TEXT NOT NULL CHECK (kind IN ('noop', 'room_retention')),
+        kind TEXT NOT NULL CHECK (kind IN (
+          'noop',
+          'room_retention',
+          'custom_room_index_upsert',
+          'custom_room_index_delete'
+        )),
         payload_json TEXT NOT NULL
       );
 
@@ -2675,6 +2909,38 @@ function migrateRoomSchema(sql: SqlStorage): void {
 
       INSERT INTO flarelobby_room_schema_migrations (version, applied_at)
       VALUES (6, ?)
+    `, Date.now());
+  }
+
+  if (currentVersion < 7) {
+    sql.exec(`
+      ALTER TABLE flarelobby_room_scheduled_operations
+        RENAME TO flarelobby_room_scheduled_operations_legacy;
+
+      CREATE TABLE flarelobby_room_scheduled_operations (
+        operation_id TEXT PRIMARY KEY,
+        due_at INTEGER NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN (
+          'noop',
+          'room_retention',
+          'custom_room_index_upsert',
+          'custom_room_index_delete'
+        )),
+        payload_json TEXT NOT NULL
+      );
+
+      INSERT INTO flarelobby_room_scheduled_operations
+        (operation_id, due_at, kind, payload_json)
+      SELECT operation_id, due_at, kind, payload_json
+      FROM flarelobby_room_scheduled_operations_legacy;
+
+      DROP TABLE flarelobby_room_scheduled_operations_legacy;
+
+      CREATE INDEX IF NOT EXISTS idx_flarelobby_room_scheduled_operations_due_at
+        ON flarelobby_room_scheduled_operations (due_at, operation_id);
+
+      INSERT INTO flarelobby_room_schema_migrations (version, applied_at)
+      VALUES (7, ?)
     `, Date.now());
   }
 }
@@ -3562,7 +3828,12 @@ function normalizeScheduledOperation(
 
   const kind = options.kind ?? "noop";
 
-  if (kind !== "noop" && kind !== "room_retention") {
+  if (
+    kind !== "noop" &&
+    kind !== "room_retention" &&
+    kind !== ROOM_INDEX_UPSERT_OPERATION_KIND &&
+    kind !== ROOM_INDEX_DELETE_OPERATION_KIND
+  ) {
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }
 
@@ -3810,6 +4081,52 @@ function parseJsonObject(value: string): JsonObject {
   }
 
   return parsed;
+}
+
+function parseCustomRoomIndexRecord(value: JsonValue): CustomRoomIndexRecord {
+  if (
+    !isJsonObject(value) ||
+    !isNonEmptyString(value["roomId"]) ||
+    !isNonEmptyString(value["name"]) ||
+    !isNullableIndexString(value["mode"]) ||
+    !isNullableIndexString(value["region"]) ||
+    !isRoomStatus(value["state"]) ||
+    !isRoomJoinMethod(value["joinMethod"]) ||
+    !isPositiveSafeInteger(value["maxPlayers"]) ||
+    !isNonNegativeSafeInteger(value["playerCount"]) ||
+    !isNonNegativeSafeInteger(value["availableSlots"]) ||
+    !isNonNegativeSafeInteger(value["maxSpectators"]) ||
+    !isNonNegativeSafeInteger(value["spectatorCount"]) ||
+    !isNonNegativeSafeInteger(value["availableSpectatorSlots"]) ||
+    !isSafeTimestamp(value["revision"]) ||
+    !isSafeTimestamp(value["createdAt"]) ||
+    !isSafeTimestamp(value["updatedAt"])
+  ) {
+    throw new FlareLobbyError("CONNECTION_FAILED");
+  }
+
+  return value as CustomRoomIndexRecord;
+}
+
+function readIndexString(value: unknown): string | null {
+  if (!isNonEmptyString(value)) {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized.length <= 64 ? normalized : normalized.slice(0, 64);
+}
+
+function isNullableIndexString(value: unknown): value is string | null {
+  return value === null || (isNonEmptyString(value) && value.length <= 64);
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isRoomJoinMethod(value: unknown): value is RoomJoinMethod {
+  return value === "public" || value === "invitation" || value === "password";
 }
 
 function parseMatchmakingPool(value: JsonObject): MatchmakingPool {
