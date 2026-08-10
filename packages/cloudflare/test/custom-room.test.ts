@@ -2,6 +2,7 @@ import { SELF, env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
 import {
+  authenticateGatewayRequest,
   defineFlareLobby,
   RoomDurableObject
 } from "../src/index.js";
@@ -21,6 +22,10 @@ const testLobby = defineFlareLobby({
       id,
       playerId: `${id}-player`
     };
+  },
+  authorization: {
+    authorizeJoin: () => true,
+    authorizeSpectate: () => true
   },
   inputLimits: {
     maxHttpRequestBytes: 16 * 1024,
@@ -46,6 +51,21 @@ function createRequest(
   });
 }
 
+function operationRequest(
+  path: string,
+  body: unknown,
+  principalId: string
+): Request {
+  return new Request(`https://example.test${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-test-principal": principalId
+    },
+    body: JSON.stringify(body)
+  });
+}
+
 async function createRoom(
   body: unknown,
   principalId?: string,
@@ -59,6 +79,34 @@ async function createRoom(
   return testWorker.fetch(
     request,
     customEnv,
+    {} as ExecutionContext
+  );
+}
+
+async function joinRoom(
+  body: unknown,
+  principalId: string,
+  path = "/v1/custom-rooms/join"
+): Promise<Response> {
+  return testWorker.fetch(
+    operationRequest(path, body, principalId) as unknown as Parameters<
+      typeof testWorker.fetch
+    >[0],
+    env,
+    {} as ExecutionContext
+  );
+}
+
+async function leaveRoom(
+  body: unknown,
+  principalId: string,
+  path = "/v1/custom-rooms/leave"
+): Promise<Response> {
+  return testWorker.fetch(
+    operationRequest(path, body, principalId) as unknown as Parameters<
+      typeof testWorker.fetch
+    >[0],
+    env,
     {} as ExecutionContext
   );
 }
@@ -256,6 +304,378 @@ describe("カスタムルーム作成 Gateway", () => {
     await expect(response.json()).resolves.toMatchObject({
       code: "CONFLICT"
     });
+  });
+
+  it("公開参加と観戦参加を別枠で判定する", async () => {
+    const ownerId = `principal-capacity-owner-${crypto.randomUUID()}`;
+    const createdResponse = await createRoom(
+      {
+        requestId: `request-capacity-${crypto.randomUUID()}`,
+        maxPlayers: 2,
+        maxSpectators: 2
+      },
+      ownerId
+    );
+    const created = await createdResponse.json<{ roomId: string }>();
+
+    const spectatorResponses = await Promise.all([
+      joinRoom(
+        {
+          requestId: `request-spectator-1-${crypto.randomUUID()}`,
+          roomId: created.roomId,
+          role: "spectator"
+        },
+        `principal-spectator-1-${crypto.randomUUID()}`
+      ),
+      joinRoom(
+        {
+          requestId: `request-spectator-2-${crypto.randomUUID()}`,
+          roomId: created.roomId,
+          role: "spectator"
+        },
+        `principal-spectator-2-${crypto.randomUUID()}`
+      )
+    ]);
+
+    expect(spectatorResponses.map((response) => response.status)).toEqual([
+      200,
+      200
+    ]);
+
+    const playerResponse = await joinRoom(
+      {
+        requestId: `request-player-${crypto.randomUUID()}`,
+        roomId: created.roomId,
+        role: "player"
+      },
+      `principal-player-${crypto.randomUUID()}`
+    );
+    expect(playerResponse.status).toBe(200);
+
+    const fullSpectatorResponse = await joinRoom(
+      {
+        requestId: `request-spectator-full-${crypto.randomUUID()}`,
+        roomId: created.roomId,
+        role: "spectator"
+      },
+      `principal-spectator-full-${crypto.randomUUID()}`
+    );
+    expect(fullSpectatorResponse.status).toBe(400);
+    await expect(fullSpectatorResponse.json()).resolves.toMatchObject({
+      code: "ROOM_FULL"
+    });
+
+    const fullPlayerResponse = await joinRoom(
+      {
+        requestId: `request-player-full-${crypto.randomUUID()}`,
+        roomId: created.roomId,
+        role: "player"
+      },
+      `principal-player-full-${crypto.randomUUID()}`
+    );
+    expect(fullPlayerResponse.status).toBe(400);
+    await expect(fullPlayerResponse.json()).resolves.toMatchObject({
+      code: "ROOM_FULL"
+    });
+  });
+
+  it("同時参加でもプレイヤー定員を超えず、同じ参加要求は冪等になる", async () => {
+    const createdResponse = await createRoom({
+      requestId: `request-concurrent-join-room-${crypto.randomUUID()}`,
+      maxPlayers: 3
+    });
+    const created = await createdResponse.json<{ roomId: string }>();
+    const concurrentResponses = await Promise.all(
+      Array.from({ length: 4 }, (_, index) =>
+        joinRoom(
+          {
+            requestId: `request-capacity-${index}-${crypto.randomUUID()}`,
+            roomId: created.roomId,
+            role: "player"
+          },
+          `principal-capacity-${index}-${crypto.randomUUID()}`
+        )
+      )
+    );
+
+    expect(
+      concurrentResponses.filter((response) => response.status === 200)
+    ).toHaveLength(2);
+    expect(
+      concurrentResponses.filter((response) => response.status === 400)
+    ).toHaveLength(2);
+    for (const response of concurrentResponses.filter(
+      (candidate) => candidate.status === 400
+    )) {
+      await expect(response.json()).resolves.toMatchObject({
+        code: "ROOM_FULL"
+      });
+    }
+
+    const duplicateRoomResponse = await createRoom({
+      requestId: `request-duplicate-join-room-${crypto.randomUUID()}`,
+      maxPlayers: 3
+    });
+    const duplicateRoom = await duplicateRoomResponse.json<{ roomId: string }>();
+    const duplicatePrincipal = `principal-duplicate-join-${crypto.randomUUID()}`;
+    const duplicateRequestId = `request-duplicate-join-${crypto.randomUUID()}`;
+    const duplicateResponses = await Promise.all(
+      Array.from({ length: 3 }, () =>
+        joinRoom(
+          {
+            requestId: duplicateRequestId,
+            roomId: duplicateRoom.roomId,
+            role: "player"
+          },
+          duplicatePrincipal
+        )
+      )
+    );
+    const duplicateResults = await Promise.all(
+      duplicateResponses.map((response) =>
+        response.json<{ participantId: string; joinToken: string }>()
+      )
+    );
+
+    expect(duplicateResponses.map((response) => response.status)).toEqual([
+      200,
+      200,
+      200
+    ]);
+    expect(new Set(duplicateResults.map((result) => result.participantId))).toHaveLength(1);
+    expect(new Set(duplicateResults.map((result) => result.joinToken))).toHaveLength(1);
+
+    await runInDurableObject(
+      env.FLARE_LOBBY_ROOMS.getByName(created.roomId),
+      (_instance: RoomDurableObject, state) => {
+        const playerCount = state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM flarelobby_room_participants WHERE kind = 'player'"
+          )
+          .one().count;
+        expect(playerCount).toBe(3);
+      }
+    );
+  });
+
+  it("不正な役割を参加処理へ渡さない", async () => {
+    const createdResponse = await createRoom({
+      requestId: `request-invalid-role-room-${crypto.randomUUID()}`
+    });
+    const created = await createdResponse.json<{ roomId: string }>();
+    const response = await joinRoom(
+      {
+        requestId: `request-invalid-role-${crypto.randomUUID()}`,
+        roomId: created.roomId,
+        role: "admin"
+      },
+      `principal-invalid-role-${crypto.randomUUID()}`
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "INVALID_PAYLOAD"
+    });
+  });
+
+  it("招待コードから解決し、パスワードはハッシュだけを保存して検証する", async () => {
+    const invitationResponse = await createRoom({
+      requestId: `request-invitation-join-${crypto.randomUUID()}`,
+      joinMethod: "invitation",
+      maxPlayers: 2
+    });
+    const invitationRoom = await invitationResponse.json<{
+      roomId: string;
+      invitationCode: string;
+    }>();
+
+    const invited = await joinRoom(
+      {
+        requestId: `request-invited-${crypto.randomUUID()}`,
+        invitationCode: invitationRoom.invitationCode
+      },
+      `principal-invited-${crypto.randomUUID()}`
+    );
+    expect(invited.status).toBe(200);
+
+    const invalidInvitation = await joinRoom(
+      {
+        requestId: `request-invalid-invitation-${crypto.randomUUID()}`,
+        invitationCode: "AAAAAA"
+      },
+      `principal-invalid-invitation-${crypto.randomUUID()}`
+    );
+    expect(invalidInvitation.status).toBe(403);
+
+    const password = `pw-${crypto.randomUUID()}`;
+    const passwordResponse = await createRoom({
+      requestId: `request-password-join-${crypto.randomUUID()}`,
+      joinMethod: "password",
+      password,
+      maxPlayers: 2
+    });
+    const passwordRoom = await passwordResponse.json<{ roomId: string }>();
+
+    const wrongPassword = await joinRoom(
+      {
+        requestId: `request-wrong-password-${crypto.randomUUID()}`,
+        roomId: passwordRoom.roomId,
+        password: "wrong-password"
+      },
+      `principal-wrong-password-${crypto.randomUUID()}`
+    );
+    expect(wrongPassword.status).toBe(403);
+
+    const correctPassword = await joinRoom(
+      {
+        requestId: `request-correct-password-${crypto.randomUUID()}`,
+        roomId: passwordRoom.roomId,
+        password
+      },
+      `principal-correct-password-${crypto.randomUUID()}`
+    );
+    expect(correctPassword.status).toBe(200);
+
+    await runInDurableObject(
+      env.FLARE_LOBBY_ROOMS.getByName(passwordRoom.roomId),
+      (_instance: RoomDurableObject, state) => {
+        const row = state.storage.sql
+          .exec<{
+            salt: string | null;
+            hash: string | null;
+          }>(
+            "SELECT join_password_salt AS salt, join_password_hash AS hash FROM flarelobby_rooms"
+          )
+          .one();
+        expect(row.salt).toBeTruthy();
+        expect(row.hash).toBeTruthy();
+        expect(JSON.stringify(row)).not.toContain(password);
+      }
+    );
+  });
+
+  it("明示退出で準備状態を破棄し、通信切断だけでは参加者を削除しない", async () => {
+    const ownerId = `principal-leave-owner-${crypto.randomUUID()}`;
+    const guestId = `principal-leave-guest-${crypto.randomUUID()}`;
+    const createdResponse = await createRoom(
+      {
+        requestId: `request-leave-room-${crypto.randomUUID()}`,
+        maxPlayers: 3
+      },
+      ownerId
+    );
+    const created = await createdResponse.json<{ roomId: string }>();
+    const joinedResponse = await joinRoom(
+      {
+        requestId: `request-leave-join-${crypto.randomUUID()}`,
+        roomId: created.roomId
+      },
+      guestId
+    );
+    const joined = await joinedResponse.json<{
+      participantId: string;
+      role: "player";
+      joinToken: string;
+      snapshot: { revision: number };
+    }>();
+
+    await runInDurableObject(
+      env.FLARE_LOBBY_ROOMS.getByName(created.roomId),
+      (_instance: RoomDurableObject, state) => {
+        state.storage.sql.exec(
+          "UPDATE flarelobby_room_participants SET team_id = 'red', ready = 1 WHERE participant_id = ?",
+          joined.participantId
+        );
+      }
+    );
+
+    const authenticated = await authenticateGatewayRequest(
+      new Request("https://example.test/rooms"),
+      () => ({ id: guestId, playerId: `${guestId}-player` }),
+      env.FLARE_LOBBY_TOKEN_SECRET
+    );
+    if (!authenticated.ok) {
+      throw authenticated.error;
+    }
+    const disconnected = await runInDurableObject(
+      env.FLARE_LOBBY_ROOMS.getByName(created.roomId),
+      (instance: RoomDurableObject) =>
+        instance.disconnect({
+          gatewayPrincipal: authenticated.value.gatewayPrincipal,
+          participantId: joined.participantId,
+          role: "player"
+        })
+    );
+    expect(
+      disconnected.participants.some(
+        (participant) => participant.id === joined.participantId
+      )
+    ).toBe(true);
+
+    const leaveBody = {
+      requestId: `request-leave-${crypto.randomUUID()}`,
+      roomId: created.roomId,
+      participantId: joined.participantId,
+      role: "player",
+      joinToken: joined.joinToken
+    } as const;
+    const leaveResponse = await leaveRoom(leaveBody, guestId);
+    const left = await leaveResponse.json<{
+      participantId: string;
+      snapshot: {
+        revision: number;
+        participants: readonly { id: string }[];
+      };
+    }>();
+    expect(leaveResponse.status).toBe(200);
+    expect(left.participantId).toBe(joined.participantId);
+    expect(left.snapshot.revision).toBe(joined.snapshot.revision + 1);
+    expect(
+      left.snapshot.participants.some(
+        (participant) => participant.id === joined.participantId
+      )
+    ).toBe(false);
+
+    const duplicateLeaveResponse = await leaveRoom(leaveBody, guestId);
+    expect(duplicateLeaveResponse.status).toBe(200);
+    await expect(duplicateLeaveResponse.json()).resolves.toEqual(left);
+
+    const rejoinedResponse = await joinRoom(
+      {
+        requestId: `request-rejoin-${crypto.randomUUID()}`,
+        roomId: created.roomId
+      },
+      guestId
+    );
+    const rejoined = await rejoinedResponse.json<{
+      participantId: string;
+      snapshot: {
+        participants: readonly {
+          id: string;
+          teamId: string | null;
+          ready: boolean;
+        }[];
+      };
+    }>();
+    expect(rejoinedResponse.status).toBe(200);
+    expect(rejoined.participantId).not.toBe(joined.participantId);
+    expect(
+      rejoined.snapshot.participants.find(
+        (participant) => participant.id === rejoined.participantId
+      )
+    ).toMatchObject({ teamId: null, ready: false });
+
+    const oldTokenResponse = await leaveRoom(
+      {
+        requestId: `request-old-token-${crypto.randomUUID()}`,
+        roomId: created.roomId,
+        participantId: joined.participantId,
+        role: "player",
+        joinToken: joined.joinToken
+      },
+      guestId
+    );
+    expect(oldTokenResponse.status).toBe(403);
   });
 
   it.each([

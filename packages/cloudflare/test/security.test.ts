@@ -279,6 +279,47 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
       "UNAUTHENTICATED"
     );
 
+    const spectatorToken = expectProtocolValue(
+      await issueJoinToken(TOKEN_SECRET, {
+        principal,
+        roomId: "room-token",
+        role: "spectator",
+        participantId: "participant-token",
+        expiresAt: 2_000,
+        now: 1_000
+      })
+    );
+
+    expectProtocolValue(
+      await verifyJoinToken(TOKEN_SECRET, spectatorToken, {
+        principal,
+        roomId: "room-token",
+        role: "spectator",
+        participantId: "participant-token",
+        now: 1_500
+      })
+    );
+    expectProtocolError(
+      await verifyJoinToken(TOKEN_SECRET, spectatorToken, {
+        principal,
+        roomId: "room-token",
+        role: "player",
+        participantId: "participant-token",
+        now: 1_500
+      }),
+      "UNAUTHENTICATED"
+    );
+    expectProtocolError(
+      await verifyJoinToken(TOKEN_SECRET, spectatorToken, {
+        principal,
+        roomId: "room-token",
+        role: "spectator",
+        participantId: "different-participant",
+        now: 1_500
+      }),
+      "UNAUTHENTICATED"
+    );
+
     const tampered = `${token.slice(0, -1)}${token.endsWith("A") ? "B" : "A"}`;
 
     expectProtocolError(

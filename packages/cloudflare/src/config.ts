@@ -12,8 +12,12 @@ import type {
   RateLimitDurableObject,
   RoomDurableObject
 } from "./durable-objects.js";
-import { createCustomRoom } from "./custom-room.js";
-import { DEFAULT_FINISHED_ROOM_RETENTION_MS } from "./room.js";
+import {
+  createCustomRoom,
+  joinCustomRoom,
+  leaveCustomRoom
+} from "./custom-room.js";
+import { DEFAULT_FINISHED_ROOM_RETENTION_MS } from "./room-constants.js";
 import {
   authenticateGatewayRequest,
   createErrorResponse
@@ -198,7 +202,9 @@ export function createGatewayWorker<
         throw error;
       }
 
-      if (request.method === "GET" && new URL(request.url).pathname === "/") {
+      const pathname = new URL(request.url).pathname;
+
+      if (request.method === "GET" && pathname === "/") {
         return Response.json({ status: "ready" });
       }
 
@@ -214,7 +220,7 @@ export function createGatewayWorker<
 
       if (
         request.method === "POST" &&
-        new URL(request.url).pathname === "/v1/custom-rooms"
+        pathname === "/v1/custom-rooms"
       ) {
         const result = await createCustomRoom(
           request,
@@ -228,9 +234,51 @@ export function createGatewayWorker<
           : createErrorResponse(result.error);
       }
 
+      if (
+        request.method === "POST" &&
+        isCustomRoomOperationPath(pathname, "join")
+      ) {
+        const result = await joinCustomRoom(
+          request,
+          env,
+          normalizedConfiguration,
+          authenticatedRequest.value
+        );
+
+        return result.ok
+          ? Response.json(result.value)
+          : createErrorResponse(result.error);
+      }
+
+      if (
+        request.method === "POST" &&
+        isCustomRoomOperationPath(pathname, "leave")
+      ) {
+        const result = await leaveCustomRoom(
+          request,
+          env,
+          normalizedConfiguration,
+          authenticatedRequest.value
+        );
+
+        return result.ok
+          ? Response.json(result.value)
+          : createErrorResponse(result.error);
+      }
+
       return new Response("Not Found", { status: 404 });
     }
   };
+}
+
+function isCustomRoomOperationPath(
+  pathname: string,
+  operation: "join" | "leave"
+): boolean {
+  return (
+    pathname === `/v1/custom-rooms/${operation}` ||
+    new RegExp(`^/v1/custom-rooms/[^/]+/${operation}$`, "u").test(pathname)
+  );
 }
 
 /**

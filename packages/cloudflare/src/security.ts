@@ -64,10 +64,17 @@ export type FlareLobbyInputValidator<TValue> = (
 /** 参加用と再開用の用途を区別するトークンの種別です。 */
 export type FlareLobbyRoomTokenPurpose = "join" | "resume";
 
+/** 参加トークンへ束縛する Room 内の役割です。 */
+export type FlareLobbyRoomParticipantRole = "player" | "spectator";
+
 /** 参加用または再開用トークンを発行するときの情報です。 */
 export interface FlareLobbyRoomTokenIssueOptions {
   readonly principal: Principal;
   readonly roomId: RoomId;
+  /** 参加者へ紐付ける役割。省略時は player です。 */
+  readonly role?: FlareLobbyRoomParticipantRole;
+  /** 参加者へ紐付けるサーバー発行の識別子です。 */
+  readonly participantId?: string;
   /** Unix epoch milliseconds。現在より後の時刻を指定します。 */
   readonly expiresAt: number;
   /** テストなどで現在時刻を固定するときだけ指定します。 */
@@ -78,6 +85,10 @@ export interface FlareLobbyRoomTokenIssueOptions {
 export interface FlareLobbyRoomTokenVerificationOptions {
   readonly principal: Principal;
   readonly roomId: RoomId;
+  /** 指定時、トークンの役割も照合します。 */
+  readonly role?: FlareLobbyRoomParticipantRole;
+  /** 指定時、トークンの参加者識別子も照合します。 */
+  readonly participantId?: string;
   /** テストなどで現在時刻を固定するときだけ指定します。 */
   readonly now?: number;
 }
@@ -85,9 +96,11 @@ export interface FlareLobbyRoomTokenVerificationOptions {
 /** トークン検証に成功したときだけ公開する安全なクレームです。 */
 export interface FlareLobbyRoomTokenClaims {
   readonly purpose: FlareLobbyRoomTokenPurpose;
+  readonly role: FlareLobbyRoomParticipantRole;
   readonly principalId: string;
   readonly roomId: RoomId;
   readonly expiresAt: number;
+  readonly participantId?: string;
 }
 
 /** Gateway から Durable Object へ渡す、署名済み主体の内部証明です。 */
@@ -126,10 +139,12 @@ interface RoomTokenPayload {
   readonly version: typeof TOKEN_VERSION;
   readonly kind: "room";
   readonly purpose: FlareLobbyRoomTokenPurpose;
+  readonly role: FlareLobbyRoomParticipantRole;
   readonly principalId: string;
   readonly roomId: RoomId;
   readonly expiresAt: number;
   readonly nonce: string;
+  readonly participantId?: string;
 }
 
 interface GatewayTokenPayload {
@@ -409,6 +424,9 @@ async function issueRoomToken(
   if (
     principal === null ||
     !isNonEmptyString(options.roomId) ||
+    (options.role !== undefined && !isRoomParticipantRole(options.role)) ||
+    (options.participantId !== undefined &&
+      !isNonEmptyString(options.participantId)) ||
     !isSafeTimestamp(now) ||
     !isSafeTimestamp(options.expiresAt) ||
     options.expiresAt <= now ||
@@ -421,10 +439,14 @@ async function issueRoomToken(
     version: TOKEN_VERSION,
     kind: "room",
     purpose,
+    role: options.role ?? "player",
     principalId: principal.id,
     roomId: options.roomId,
     expiresAt: options.expiresAt,
-    nonce: createTokenNonce()
+    nonce: createTokenNonce(),
+    ...(options.participantId === undefined
+      ? {}
+      : { participantId: options.participantId })
   };
 
   return protocolSuccess(await createSignedToken(tokenSecret, payload));
@@ -442,6 +464,9 @@ async function verifyRoomToken(
   if (
     principal === null ||
     !isNonEmptyString(options.roomId) ||
+    (options.role !== undefined && !isRoomParticipantRole(options.role)) ||
+    (options.participantId !== undefined &&
+      !isNonEmptyString(options.participantId)) ||
     !isSafeTimestamp(now) ||
     !isUsableSecret(tokenSecret)
   ) {
@@ -456,7 +481,10 @@ async function verifyRoomToken(
     payload.purpose !== purpose ||
     payload.expiresAt <= now ||
     payload.principalId !== principal.id ||
-    payload.roomId !== options.roomId
+    payload.roomId !== options.roomId ||
+    (options.role !== undefined && payload.role !== options.role) ||
+    (options.participantId !== undefined &&
+      payload.participantId !== options.participantId)
   ) {
     return protocolFailure("UNAUTHENTICATED");
   }
@@ -464,9 +492,13 @@ async function verifyRoomToken(
   return protocolSuccess(
     Object.freeze({
       purpose: payload.purpose,
+      role: payload.role,
       principalId: payload.principalId,
       roomId: payload.roomId,
-      expiresAt: payload.expiresAt
+      expiresAt: payload.expiresAt,
+      ...(payload.participantId === undefined
+        ? {}
+        : { participantId: payload.participantId })
     })
   );
 }
@@ -649,7 +681,10 @@ async function verifySignedToken(
 
   const signature = decodeBase64Url(encodedSignature);
 
-  if (signature === null) {
+  if (
+    signature === null ||
+    encodeBase64Url(signature) !== encodedSignature
+  ) {
     return null;
   }
 
@@ -717,14 +752,18 @@ function parseSignedTokenPayload(value: unknown): SignedTokenPayload | null {
   }
 
   const kind = value["kind"];
+  const role = value["role"] ?? "player";
   const principalId = value["principalId"];
   const expiresAt = value["expiresAt"];
   const nonce = value["nonce"];
+  const participantId = value["participantId"];
 
   if (
+    !isRoomParticipantRole(role) ||
     !isNonEmptyString(principalId) ||
     !isSafeTimestamp(expiresAt) ||
-    !isNonEmptyString(nonce)
+    !isNonEmptyString(nonce) ||
+    (participantId !== undefined && !isNonEmptyString(participantId))
   ) {
     return null;
   }
@@ -744,10 +783,12 @@ function parseSignedTokenPayload(value: unknown): SignedTokenPayload | null {
       version: TOKEN_VERSION,
       kind,
       purpose,
+      role,
       principalId,
       roomId,
       expiresAt,
-      nonce
+      nonce,
+      ...(participantId === undefined ? {} : { participantId })
     };
   }
 
@@ -861,4 +902,10 @@ function isSafeTimestamp(value: unknown): value is number {
 
 function isUsableSecret(value: unknown): value is string {
   return isNonEmptyString(value);
+}
+
+function isRoomParticipantRole(
+  value: unknown
+): value is FlareLobbyRoomParticipantRole {
+  return value === "player" || value === "spectator";
 }
