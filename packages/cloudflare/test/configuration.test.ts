@@ -119,6 +119,28 @@ describe("defineFlareLobby", () => {
     );
   });
 
+  it("再接続関連の期間と履歴上限に不正な値を指定できない", () => {
+    const invalidConfigurations = [
+      { resumeTokenTtlMs: 0 },
+      { disconnectGracePeriodMs: -1 },
+      { eventHistoryLimit: 0 },
+      { processedCommandRetentionMs: 0 }
+    ] as const;
+
+    for (const customRooms of invalidConfigurations) {
+      const configuration = createValidConfiguration();
+      configuration.customRooms = {
+        ...configuration.customRooms,
+        ...customRooms
+      };
+
+      expectConfigurationError(
+        () => defineFlareLobby(configuration),
+        "INVALID_CUSTOM_ROOM_CONFIGURATION"
+      );
+    }
+  });
+
   it("必須 D1 Binding の不足を安全なエラー応答として検出する", async () => {
     const worker = createGatewayWorker<FlareLobbyBindings>(
       createValidConfiguration()

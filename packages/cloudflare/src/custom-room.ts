@@ -301,7 +301,25 @@ export async function createCustomRoom<
         : {
             finishedRoomRetentionMs:
               configuration.customRooms.finishedRoomRetentionMs
-      })
+          }),
+      ...(configuration.customRooms.resumeTokenTtlMs === undefined
+        ? {}
+        : { resumeTokenTtlMs: configuration.customRooms.resumeTokenTtlMs }),
+      ...(configuration.customRooms.disconnectGracePeriodMs === undefined
+        ? {}
+        : {
+            disconnectGracePeriodMs:
+              configuration.customRooms.disconnectGracePeriodMs
+          }),
+      ...(configuration.customRooms.eventHistoryLimit === undefined
+        ? {}
+        : { eventHistoryLimit: configuration.customRooms.eventHistoryLimit }),
+      ...(configuration.customRooms.processedCommandRetentionMs === undefined
+        ? {}
+        : {
+            processedCommandRetentionMs:
+              configuration.customRooms.processedCommandRetentionMs
+          })
     });
     const snapshotInvitationCode = getSnapshotInvitationCode(snapshot);
 
