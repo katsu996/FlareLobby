@@ -2,21 +2,35 @@ import type {
   AnyFlareLobbyApp,
   AppRoomSettings,
   FlareLobbyApp,
-  MatchmakingPool,
-  Principal
+  MatchmakingPool
 } from "@flarelobby/core";
+import { FlareLobbyError } from "@flarelobby/core";
+import type { ProtocolResult } from "@flarelobby/core";
 
 import type {
   MatchPoolDurableObject,
+  RateLimitDurableObject,
   RoomDurableObject
 } from "./durable-objects.js";
+import {
+  authenticateGatewayRequest,
+  createErrorResponse
+} from "./security.js";
+import type {
+  AuthenticatedGatewayRequest,
+  FlareLobbyAuthenticationHook,
+  FlareLobbyAuthorizationHooks,
+  FlareLobbyRateLimitScope
+} from "./security.js";
 
 /** Wrangler 設定と Worker 実装で共通に使う Binding 名です。 */
 export const FLARE_LOBBY_BINDINGS = {
   room: "FLARE_LOBBY_ROOMS",
   matchPool: "FLARE_LOBBY_MATCH_POOLS",
+  rateLimit: "FLARE_LOBBY_RATE_LIMITS",
   database: "FLARE_LOBBY_DB",
-  analytics: "FLARE_LOBBY_ANALYTICS"
+  analytics: "FLARE_LOBBY_ANALYTICS",
+  tokenSecret: "FLARE_LOBBY_TOKEN_SECRET"
 } as const;
 
 /**
@@ -29,8 +43,11 @@ export const FLARE_LOBBY_BINDINGS = {
 export interface FlareLobbyBindings {
   readonly FLARE_LOBBY_ROOMS: DurableObjectNamespace<RoomDurableObject>;
   readonly FLARE_LOBBY_MATCH_POOLS: DurableObjectNamespace<MatchPoolDurableObject>;
+  readonly FLARE_LOBBY_RATE_LIMITS: DurableObjectNamespace<RateLimitDurableObject>;
   readonly FLARE_LOBBY_DB: D1Database;
   readonly FLARE_LOBBY_ANALYTICS?: AnalyticsEngineDataset;
+  /** Wrangler Secret から注入する、トークン署名専用の秘密値です。 */
+  readonly FLARE_LOBBY_TOKEN_SECRET: string;
 }
 
 /** カスタムルームで利用する既定設定と収容人数です。 */
@@ -49,12 +66,8 @@ export interface FlareLobbyInputLimits {
   readonly maxHttpRequestBytes: number;
   readonly maxWebSocketMessageBytes: number;
   readonly maxMessagesPerMinute: number;
+  readonly maxRoomCreationsPerMinute: number;
 }
-
-/** Gateway Worker が利用者の認証済み主体を取得する Hook です。 */
-export type FlareLobbyAuthenticationHook = (
-  request: Request
-) => Principal | null | Promise<Principal | null>;
 
 /** `defineFlareLobby()` に渡す単一の型付き設定です。 */
 export interface FlareLobbyConfiguration<
@@ -63,6 +76,8 @@ export interface FlareLobbyConfiguration<
   readonly customRooms: CustomRoomConfiguration<TApp>;
   readonly matchmakingPools: readonly MatchmakingPoolConfiguration[];
   readonly authenticate: FlareLobbyAuthenticationHook;
+  /** 未設定時はすべての保護対象操作を拒否します。 */
+  readonly authorization?: FlareLobbyAuthorizationHooks;
   readonly inputLimits: FlareLobbyInputLimits;
 }
 
@@ -140,8 +155,8 @@ export interface DefinedFlareLobby<
  * 利用者の設定を検証し、共有する可変状態を持たない Gateway Worker 定義を作ります。
  *
  * `createGatewayWorker<Env>()` の `Env` には、Wrangler が生成したグローバルの
- * `Env` 型を指定してください。D1 と 2 種類の Durable Object Binding がない
- * 型はこの時点で拒否されます。
+ * `Env` 型を指定してください。D1、3 種類の Durable Object Binding、トークン用の
+ * Secret Binding がない型はこの時点で拒否されます。
  */
 export function defineFlareLobby<
   TApp extends AnyFlareLobbyApp = FlareLobbyApp,
@@ -177,13 +192,102 @@ export function createGatewayWorker<
         throw error;
       }
 
-      if (request.method !== "GET" || new URL(request.url).pathname !== "/") {
-        return new Response("Not Found", { status: 404 });
+      if (request.method === "GET" && new URL(request.url).pathname === "/") {
+        return Response.json({ status: "ready" });
       }
 
-      return Response.json({ status: "ready" });
+      const authenticatedRequest = await authenticateGatewayRequest(
+        request,
+        normalizedConfiguration.authenticate,
+        env.FLARE_LOBBY_TOKEN_SECRET
+      );
+
+      if (!authenticatedRequest.ok) {
+        return createErrorResponse(authenticatedRequest.error);
+      }
+
+      // 後続 Issue の HTTP / WebSocket ルートは、この時点で取得した
+      // authenticatedRequest.gatewayPrincipal だけを DO へ渡します。
+      // 未認証要求はここより先の操作ディスパッチへ到達できません。
+      return new Response("Not Found", { status: 404 });
     }
   };
+}
+
+/**
+ * 認証済み主体ごとの分散した利用制限を消費します。
+ *
+ * `principal.id` を Durable Object の分割キーにするため、全利用者を 1 個の
+ * Durable Object へ集約しません。上限超過は既存の安定した `CONFLICT` として
+ * 公開します。
+ */
+export async function consumeRateLimit(
+  env: Pick<
+    FlareLobbyBindings,
+    "FLARE_LOBBY_RATE_LIMITS" | "FLARE_LOBBY_TOKEN_SECRET"
+  >,
+  request: AuthenticatedGatewayRequest,
+  scope: FlareLobbyRateLimitScope,
+  limit: number
+): Promise<ProtocolResult<void>> {
+  try {
+    const rateLimit = env.FLARE_LOBBY_RATE_LIMITS.getByName(
+      request.principal.id
+    );
+    const result = await rateLimit.consume(
+      request.gatewayPrincipal,
+      scope,
+      limit
+    );
+
+    return result.allowed
+      ? { ok: true, value: undefined }
+      : {
+          ok: false,
+          error: new FlareLobbyError("CONFLICT", {
+            message: "要求が許可された頻度を超えています。"
+          })
+        };
+  } catch {
+    return {
+      ok: false,
+      error: new FlareLobbyError("CONNECTION_FAILED")
+    };
+  }
+}
+
+/** WebSocket メッセージの主体別頻度を制限します。 */
+export function consumeWebSocketMessageRateLimit(
+  env: Pick<
+    FlareLobbyBindings,
+    "FLARE_LOBBY_RATE_LIMITS" | "FLARE_LOBBY_TOKEN_SECRET"
+  >,
+  request: AuthenticatedGatewayRequest,
+  limits: FlareLobbyInputLimits
+): Promise<ProtocolResult<void>> {
+  return consumeRateLimit(
+    env,
+    request,
+    "websocket_message",
+    limits.maxMessagesPerMinute
+  );
+}
+
+/** ルーム作成の主体別頻度を制限します。 */
+export function consumeRoomCreationRateLimit(
+  env: Pick<
+    FlareLobbyBindings,
+    "FLARE_LOBBY_RATE_LIMITS" | "FLARE_LOBBY_TOKEN_SECRET"
+  >,
+  request: AuthenticatedGatewayRequest,
+  limits: FlareLobbyInputLimits
+): Promise<ProtocolResult<void>> {
+  return consumeRateLimit(
+    env,
+    request,
+    "room_creation",
+    limits.maxRoomCreationsPerMinute
+  );
 }
 
 function normalizeConfiguration<TApp extends AnyFlareLobbyApp>(
@@ -197,7 +301,7 @@ function normalizeConfiguration<TApp extends AnyFlareLobbyApp>(
     throw new FlareLobbyConfigurationError("INVALID_AUTHENTICATION_HOOK");
   }
 
-  return Object.freeze({
+  const normalizedConfiguration: FlareLobbyConfiguration<TApp> = {
     customRooms: Object.freeze({
       maxPlayers: configuration.customRooms.maxPlayers,
       defaultSettings: configuration.customRooms.defaultSettings
@@ -206,8 +310,13 @@ function normalizeConfiguration<TApp extends AnyFlareLobbyApp>(
       configuration.matchmakingPools.map((pool) => Object.freeze({ ...pool }))
     ),
     authenticate: configuration.authenticate,
-    inputLimits: Object.freeze({ ...configuration.inputLimits })
-  });
+    inputLimits: Object.freeze({ ...configuration.inputLimits }),
+    ...(configuration.authorization === undefined
+      ? {}
+      : { authorization: Object.freeze({ ...configuration.authorization }) })
+  };
+
+  return Object.freeze(normalizedConfiguration);
 }
 
 function assertCustomRoomConfiguration<TApp extends AnyFlareLobbyApp>(
@@ -259,7 +368,8 @@ function assertInputLimits(limits: FlareLobbyInputLimits): void {
   const fields: readonly [string, number][] = [
     ["maxHttpRequestBytes", limits.maxHttpRequestBytes],
     ["maxWebSocketMessageBytes", limits.maxWebSocketMessageBytes],
-    ["maxMessagesPerMinute", limits.maxMessagesPerMinute]
+    ["maxMessagesPerMinute", limits.maxMessagesPerMinute],
+    ["maxRoomCreationsPerMinute", limits.maxRoomCreationsPerMinute]
   ];
 
   for (const [fieldName, value] of fields) {

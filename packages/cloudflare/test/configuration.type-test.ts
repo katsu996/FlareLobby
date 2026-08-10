@@ -35,7 +35,8 @@ const minimumConfiguration = defineFlareLobby<ExampleApp>({
   inputLimits: {
     maxHttpRequestBytes: 4 * 1024,
     maxWebSocketMessageBytes: 2 * 1024,
-    maxMessagesPerMinute: 30
+    maxMessagesPerMinute: 30,
+    maxRoomCreationsPerMinute: 5
   }
 });
 
@@ -63,7 +64,8 @@ const fullConfiguration = defineFlareLobby<ExampleApp>({
   inputLimits: {
     maxHttpRequestBytes: 16 * 1024,
     maxWebSocketMessageBytes: 8 * 1024,
-    maxMessagesPerMinute: 60
+    maxMessagesPerMinute: 60,
+    maxRoomCreationsPerMinute: 10
   }
 });
 
@@ -93,7 +95,8 @@ const invalidSettings = defineFlareLobby<ExampleApp>({
   inputLimits: {
     maxHttpRequestBytes: 4 * 1024,
     maxWebSocketMessageBytes: 2 * 1024,
-    maxMessagesPerMinute: 30
+    maxMessagesPerMinute: 30,
+    maxRoomCreationsPerMinute: 5
   }
 });
 
