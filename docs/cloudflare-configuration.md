@@ -59,7 +59,7 @@ export {
 } from "@flarelobby/cloudflare";
 ```
 
-`matchmakingPools` にプールを追加する場合は、`id`、`gameId`、`seasonId`、`mode`、`region` をすべて空でない文字列にし、`id` を重複させないでください。
+`matchmakingPools` にプールを追加する場合は、`id`、`gameId`、`seasonId`、`mode`、`region` をすべて空でない文字列にし、`id` を重複させないでください。候補探索の `searchPolicy` は任意で、未指定時は待機開始時 `75`、20 秒後 `150`、60 秒後 `400` の検索幅を使用します。
 
 ## Wrangler 設定
 

@@ -1,15 +1,22 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   FlareLobbyError,
-  PROTOCOL_VERSION
+  PROTOCOL_VERSION,
+  getNextMatchmakingSearchAt,
+  normalizeMatchmakingSearchPolicy,
+  selectMatchCandidates
 } from "@flarelobby/core";
 import type {
   JsonObject,
   JsonPrimitive,
   JsonValue,
+  MatchmakingCandidateEvaluation,
   MatchCandidate,
   MatchmakingPool,
+  MatchmakingSearchPolicy,
+  MatchmakingSearchTicket,
   MatchmakingTicketStatus,
+  NormalizedMatchmakingSearchPolicy,
   Principal,
   Rating,
   Timestamp
@@ -57,6 +64,8 @@ export const getMatchPoolName = createMatchmakingPoolKey;
 /** Match Pool Durable Object を初期化する入力です。 */
 export interface MatchPoolInitializationOptions {
   readonly pool: MatchmakingPool;
+  /** 省略時は 75 → 150 → 400 の既定検索幅を使用します。 */
+  readonly searchPolicy?: MatchmakingSearchPolicy;
 }
 
 /** RPC 境界で使う、JSON 直列化可能な対戦ルーム情報です。 */
@@ -189,10 +198,27 @@ export interface MatchmakingTicketEvent {
 /** Match Pool の現在の待機状況です。 */
 export interface MatchPoolSnapshot {
   readonly pool: MatchmakingPool;
+  readonly searchPolicy: NormalizedMatchmakingSearchPolicy;
   readonly revision: number;
   readonly waitingCount: number;
   readonly activeCount: number;
   readonly ticketCount: number;
+}
+
+/** Match Pool の候補探索を診断・テストする入力です。 */
+export interface MatchmakingSearchOptions {
+  /** 省略時は Durable Object の現在時刻を使用します。 */
+  readonly now?: number | Timestamp;
+}
+
+/** 候補探索の評価結果です。`searchCandidates()` は状態を変更しません。 */
+export interface MatchmakingSearchResult {
+  readonly pool: MatchmakingPool;
+  readonly searchPolicy: NormalizedMatchmakingSearchPolicy;
+  readonly searchedAt: Timestamp;
+  readonly candidates: readonly MatchmakingCandidateEvaluation[];
+  readonly inspectedTicketCount: number;
+  readonly nextSearchAt: Timestamp | null;
 }
 
 interface SchemaMigrationRow extends Record<string, SqlStorageValue> {
@@ -206,6 +232,7 @@ interface PoolRow extends Record<string, SqlStorageValue> {
   seasonId: string;
   mode: string;
   region: string;
+  searchPolicyJson: string;
   revision: number;
 }
 
@@ -275,8 +302,8 @@ interface NormalizedCancellation {
 /**
  * 1 マッチングプールを 1 Durable Object として扱う SQLite-backed Durable Object です。
  *
- * 候補探索と対戦ルーム生成はこのクラスへ持ち込まず、チケットの状態遷移、
- * 冪等性、期限処理、状態通知だけを強整合に管理します。
+ * 候補評価は純粋関数へ委譲し、候補探索の起動、確保、チケットの状態遷移、
+ * 冪等性、期限処理、状態通知を強整合に管理します。対戦ルーム生成は呼び出し側の責務です。
  */
 export class MatchPoolDurableObject extends DurableObject<Env> {
   public constructor(ctx: DurableObjectState, env: Env) {
@@ -311,6 +338,20 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
         });
       }
 
+      if (
+        normalized.searchPolicyProvided &&
+        existing.searchPolicyJson !== normalized.searchPolicyJson
+      ) {
+        this.ctx.storage.sql.exec(
+          `UPDATE flarelobby_matchmaking_pools
+           SET search_policy_json = ?, revision = revision + 1
+           WHERE singleton_id = 1`,
+          normalized.searchPolicyJson
+        );
+        this.searchAndReserveCandidatesAt(Date.now());
+        await this.synchronizeAlarm();
+      }
+
       return toPool(existing);
     }
 
@@ -323,15 +364,17 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
         season_id,
         mode,
         region,
+        search_policy_json,
         revision,
         created_at
-      ) VALUES (1, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
       normalized.pool.id,
       normalized.poolKey,
       normalized.pool.gameId,
       normalized.pool.seasonId,
       normalized.pool.mode,
       normalized.pool.region,
+      normalized.searchPolicyJson,
       Date.now()
     );
 
@@ -357,6 +400,48 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
     return pool === undefined ? null : toPool(pool);
   }
 
+  /** 現在の候補探索設定を返します。 */
+  public async getSearchPolicy(): Promise<NormalizedMatchmakingSearchPolicy | null> {
+    const pool = this.readPoolRow();
+    return pool === undefined ? null : parseSearchPolicy(pool.searchPolicyJson);
+  }
+
+  /** 候補探索設定を永続化し、変更後の検索を直ちに起動します。 */
+  public async configureSearchPolicy(
+    searchPolicy: MatchmakingSearchPolicy
+  ): Promise<NormalizedMatchmakingSearchPolicy> {
+    this.requirePool();
+    const normalized = normalizeMatchmakingSearchPolicy(searchPolicy);
+    const searchPolicyJson = JSON.stringify(normalized);
+    const current = this.readPoolRow();
+
+    if (current === undefined) {
+      throw new FlareLobbyError("CONFLICT", {
+        message: "初期化されていない Match Pool は設定できません。"
+      });
+    }
+
+    if (current.searchPolicyJson !== searchPolicyJson) {
+      this.ctx.storage.sql.exec(
+        `UPDATE flarelobby_matchmaking_pools
+         SET search_policy_json = ?, revision = revision + 1
+         WHERE singleton_id = 1`,
+        searchPolicyJson
+      );
+      this.searchAndReserveCandidatesAt(Date.now());
+    }
+
+    await this.synchronizeAlarm();
+    return parseSearchPolicy(searchPolicyJson);
+  }
+
+  /** `configureSearchPolicy()` の意味を明示する別名です。 */
+  public async configureMatchmakingSearch(
+    searchPolicy: MatchmakingSearchPolicy
+  ): Promise<NormalizedMatchmakingSearchPolicy> {
+    return this.configureSearchPolicy(searchPolicy);
+  }
+
   /** 待機数と有効チケット数を返します。 */
   public async getSnapshot(): Promise<MatchPoolSnapshot | null> {
     const pool = this.readPoolRow();
@@ -369,11 +454,46 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
 
     return deepFreeze({
       pool: toPool(pool),
+      searchPolicy: parseSearchPolicy(pool.searchPolicyJson),
       revision: pool.revision,
       waitingCount: progress.waitingCount,
       activeCount: progress.activeCount,
       ticketCount: progress.ticketCount
     });
+  }
+
+  /** 待機チケットの候補と品質説明を返します。状態は変更しません。 */
+  public async searchCandidates(
+    options: MatchmakingSearchOptions = {}
+  ): Promise<MatchmakingSearchResult> {
+    const result = this.searchCandidatesAt(normalizeSearchNow(options?.now));
+    await this.synchronizeAlarm();
+    return result;
+  }
+
+  /** 候補を決定論的に選び、選択済みチケットを原子的に `reserved` へ進めます。 */
+  public async searchAndReserveCandidates(
+    options: MatchmakingSearchOptions = {}
+  ): Promise<MatchmakingSearchResult> {
+    const result = this.searchAndReserveCandidatesAt(
+      normalizeSearchNow(options?.now)
+    );
+    await this.synchronizeAlarm();
+    return result;
+  }
+
+  /** `searchCandidates()` の意味を明示する別名です。 */
+  public async findCandidates(
+    options: MatchmakingSearchOptions = {}
+  ): Promise<MatchmakingSearchResult> {
+    return this.searchCandidates(options);
+  }
+
+  /** `searchAndReserveCandidates()` の意味を明示する別名です。 */
+  public async findAndReserveCandidates(
+    options: MatchmakingSearchOptions = {}
+  ): Promise<MatchmakingSearchResult> {
+    return this.searchAndReserveCandidates(options);
   }
 
   /** マッチングチケットを作成し、待機状態へ遷移させます。 */
@@ -466,6 +586,11 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
     );
     this.incrementPoolRevision();
     this.appendTicketEvent(ticketId, "waiting", normalized.createdAtMs);
+
+    // チケット追加時は待機中の全体から決定論的な候補を探索します。
+    // この処理は await を挟まず SQLite 状態変更まで完了するため、候補の
+    // 重複確保が同じ Durable Object の入力ゲート内で起こりません。
+    this.searchAndReserveCandidatesAt(Date.now());
 
     const ticket = this.readTicket(ticketId);
 
@@ -655,23 +780,10 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       });
     }
 
-    const reservedAtMs = Date.now();
-    const reservedAt = new Date(reservedAtMs).toISOString();
-    const candidateJson = JSON.stringify(candidate);
-
-    for (const ticketId of [firstId, secondId]) {
-      this.ctx.storage.sql.exec(
-        `UPDATE flarelobby_matchmaking_tickets
-         SET status = 'reserved',
-             reserved_candidate_json = ?,
-             reserved_at = ?
-         WHERE ticket_id = ? AND status = 'waiting'`,
-        candidateJson,
-        reservedAt,
-        ticketId
-      );
-      this.incrementPoolRevision();
-      this.appendTicketEvent(ticketId, "reserved", reservedAtMs);
+    if (!this.reserveCandidateRows(candidate, Date.now())) {
+      throw new FlareLobbyError("CONFLICT", {
+        message: "待機中ではないチケットを候補として確保できません。"
+      });
     }
 
     await this.synchronizeAlarm();
@@ -843,51 +955,7 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
   /** 期限処理をまとめて実行します。Alarm とテストから再利用します。 */
   public async expireDueTickets(now = Date.now()): Promise<readonly MatchmakingTicketRecord[]> {
     const normalizedNow = normalizeNow(now);
-    const due = this.ctx.storage.sql
-      .exec<TicketRow>(
-        `SELECT
-          ticket_id AS ticketId,
-          pool_id AS poolId,
-          player_id AS playerId,
-          rating_value AS ratingValue,
-          created_at AS createdAt,
-          queued_at AS queuedAt,
-          region,
-          input_method AS inputMethod,
-          search_attributes_json AS searchAttributesJson,
-          status,
-          expires_at_ms AS expiresAtMs,
-          reserved_candidate_json AS reservedCandidateJson,
-          reserved_at AS reservedAt,
-          match_result_json AS matchResultJson,
-          matched_at AS matchedAt,
-          cancelled_at AS cancelledAt,
-          expired_at AS expiredAt
-         FROM flarelobby_matchmaking_tickets
-         WHERE status IN ('creating', 'waiting') AND expires_at_ms <= ?
-         ORDER BY expires_at_ms ASC, ticket_id ASC`,
-        normalizedNow
-      )
-      .toArray();
-    const expired: MatchmakingTicketRecord[] = [];
-
-    for (const row of due) {
-      this.ctx.storage.sql.exec(
-        `UPDATE flarelobby_matchmaking_tickets
-         SET status = 'expired', expired_at = ?
-         WHERE ticket_id = ? AND status IN ('creating', 'waiting')`,
-        new Date(normalizedNow).toISOString(),
-        row.ticketId
-      );
-      this.incrementPoolRevision();
-      this.appendTicketEvent(row.ticketId, "expired", normalizedNow);
-      const ticket = this.readTicket(row.ticketId);
-
-      if (ticket !== null) {
-        expired.push(ticket);
-      }
-    }
-
+    const expired = this.expireDueTicketsAt(normalizedNow);
     await this.synchronizeAlarm();
     return Object.freeze(expired);
   }
@@ -925,9 +993,12 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
     return this.getTicketEvents(options);
   }
 
-  /** Alarm は期限切れ遷移を永続化してから、最も近い期限へ再設定します。 */
+  /** Alarm は期限、検索幅拡大、次回 Alarm を同じ Pool の整合性境界で処理します。 */
   public override async alarm(): Promise<void> {
-    await this.expireDueTickets(Date.now());
+    const now = Date.now();
+    this.expireDueTicketsAt(now);
+    this.searchAndReserveCandidatesAt(now);
+    await this.synchronizeAlarm();
   }
 
   /** チケット状態通知の WebSocket 接続口です。 */
@@ -1027,6 +1098,193 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
     }
   }
 
+  private searchCandidatesAt(
+    nowMs: number
+  ): MatchmakingSearchResult {
+    const pool = this.requirePool();
+    const policy = parseSearchPolicy(pool.searchPolicyJson);
+    const rows = this.readWaitingTicketRows(policy.maxTicketsPerSearch, nowMs);
+    const candidates = selectMatchCandidates(
+      rows.map((row) => this.toSearchTicket(row)),
+      { now: nowMs, policy }
+    );
+
+    return this.createSearchResult(
+      pool,
+      policy,
+      nowMs,
+      candidates,
+      rows.length
+    );
+  }
+
+  private searchAndReserveCandidatesAt(
+    nowMs: number
+  ): MatchmakingSearchResult {
+    const pool = this.requirePool();
+    const policy = parseSearchPolicy(pool.searchPolicyJson);
+    const rows = this.readWaitingTicketRows(policy.maxTicketsPerSearch, nowMs);
+    const selected = selectMatchCandidates(
+      rows.map((row) => this.toSearchTicket(row)),
+      { now: nowMs, policy }
+    );
+    const reserved: MatchmakingCandidateEvaluation[] = [];
+
+    for (const evaluation of selected) {
+      if (this.reserveCandidateRows(evaluation.candidate, nowMs)) {
+        reserved.push(evaluation);
+      }
+    }
+
+    return this.createSearchResult(
+      pool,
+      policy,
+      nowMs,
+      reserved,
+      rows.length
+    );
+  }
+
+  private createSearchResult(
+    pool: PoolRow,
+    policy: NormalizedMatchmakingSearchPolicy,
+    nowMs: number,
+    candidates: readonly MatchmakingCandidateEvaluation[],
+    inspectedTicketCount: number
+  ): MatchmakingSearchResult {
+    const nextSearchAt = this.getNextSearchAtForWaitingTickets(nowMs, policy);
+
+    return deepFreeze({
+      pool: toPool(pool),
+      searchPolicy: policy,
+      searchedAt: new Date(nowMs).toISOString(),
+      candidates,
+      inspectedTicketCount,
+      nextSearchAt:
+        nextSearchAt === null ? null : new Date(nextSearchAt).toISOString()
+    });
+  }
+
+  private getNextSearchAtForWaitingTickets(
+    nowMs: number,
+    policy: NormalizedMatchmakingSearchPolicy
+  ): number | null {
+    const rows = this.readWaitingTicketRows(policy.maxTicketsPerSearch, nowMs);
+    let nextSearchAt: number | null = null;
+
+    for (const row of rows) {
+      if (row.queuedAt === null) {
+        continue;
+      }
+
+      const candidate = getNextMatchmakingSearchAt(
+        policy,
+        row.queuedAt,
+        nowMs
+      );
+
+      if (
+        candidate !== null &&
+        (nextSearchAt === null || candidate < nextSearchAt)
+      ) {
+        nextSearchAt = candidate;
+      }
+    }
+
+    return nextSearchAt;
+  }
+
+  private reserveCandidateRows(
+    candidate: MatchCandidate,
+    reservedAtMs: number
+  ): boolean {
+    const firstId = candidate.ticketIds[0];
+    const secondId = candidate.ticketIds[1];
+    const first = this.readTicketRow(firstId);
+    const second = this.readTicketRow(secondId);
+
+    if (
+      first === undefined ||
+      second === undefined ||
+      firstId === secondId ||
+      first.status !== "waiting" ||
+      second.status !== "waiting"
+    ) {
+      return false;
+    }
+
+    const reservedAt = new Date(reservedAtMs).toISOString();
+    const candidateJson = JSON.stringify(candidate);
+
+    for (const ticketId of [firstId, secondId]) {
+      this.ctx.storage.sql.exec(
+        `UPDATE flarelobby_matchmaking_tickets
+         SET status = 'reserved',
+             reserved_candidate_json = ?,
+             reserved_at = ?
+         WHERE ticket_id = ? AND status = 'waiting'`,
+        candidateJson,
+        reservedAt,
+        ticketId
+      );
+      this.incrementPoolRevision();
+      this.appendTicketEvent(ticketId, "reserved", reservedAtMs);
+    }
+
+    return true;
+  }
+
+  private expireDueTicketsAt(
+    normalizedNow: number
+  ): MatchmakingTicketRecord[] {
+    const due = this.ctx.storage.sql
+      .exec<TicketRow>(
+        `SELECT
+          ticket_id AS ticketId,
+          pool_id AS poolId,
+          player_id AS playerId,
+          rating_value AS ratingValue,
+          created_at AS createdAt,
+          queued_at AS queuedAt,
+          region,
+          input_method AS inputMethod,
+          search_attributes_json AS searchAttributesJson,
+          status,
+          expires_at_ms AS expiresAtMs,
+          reserved_candidate_json AS reservedCandidateJson,
+          reserved_at AS reservedAt,
+          match_result_json AS matchResultJson,
+          matched_at AS matchedAt,
+          cancelled_at AS cancelledAt,
+          expired_at AS expiredAt
+         FROM flarelobby_matchmaking_tickets
+         WHERE status IN ('creating', 'waiting') AND expires_at_ms <= ?
+         ORDER BY expires_at_ms ASC, ticket_id ASC`,
+        normalizedNow
+      )
+      .toArray();
+    const expired: MatchmakingTicketRecord[] = [];
+
+    for (const row of due) {
+      this.ctx.storage.sql.exec(
+        `UPDATE flarelobby_matchmaking_tickets
+         SET status = 'expired', expired_at = ?
+         WHERE ticket_id = ? AND status IN ('creating', 'waiting')`,
+        new Date(normalizedNow).toISOString(),
+        row.ticketId
+      );
+      this.incrementPoolRevision();
+      this.appendTicketEvent(row.ticketId, "expired", normalizedNow);
+      const ticket = this.readTicket(row.ticketId);
+
+      if (ticket !== null) {
+        expired.push(ticket);
+      }
+    }
+
+    return expired;
+  }
+
   private async requireGatewayPrincipal(
     options: { readonly gatewayPrincipal?: GatewayPrincipalEnvelope }
   ): Promise<Principal> {
@@ -1067,6 +1325,7 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
           season_id AS seasonId,
           mode,
           region,
+          search_policy_json AS searchPolicyJson,
           revision
          FROM flarelobby_matchmaking_pools
          WHERE singleton_id = 1`
@@ -1100,6 +1359,42 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
         ticketId
       )
       .toArray()[0];
+  }
+
+  private readWaitingTicketRows(
+    limit: number,
+    nowMs: number
+  ): readonly TicketRow[] {
+    return this.ctx.storage.sql
+      .exec<TicketRow>(
+        `SELECT
+          ticket_id AS ticketId,
+          pool_id AS poolId,
+          player_id AS playerId,
+          rating_value AS ratingValue,
+          created_at AS createdAt,
+          queued_at AS queuedAt,
+          region,
+          input_method AS inputMethod,
+          search_attributes_json AS searchAttributesJson,
+          status,
+          expires_at_ms AS expiresAtMs,
+          reserved_candidate_json AS reservedCandidateJson,
+          reserved_at AS reservedAt,
+          match_result_json AS matchResultJson,
+          matched_at AS matchedAt,
+          cancelled_at AS cancelledAt,
+          expired_at AS expiredAt
+         FROM flarelobby_matchmaking_tickets
+         WHERE status = 'waiting'
+           AND queued_at IS NOT NULL
+           AND expires_at_ms > ?
+         ORDER BY queued_at ASC, ticket_id ASC
+         LIMIT ?`,
+        nowMs,
+        limit
+      )
+      .toArray();
   }
 
   private readActiveTicketByPlayer(playerId: string): TicketRow | undefined {
@@ -1208,6 +1503,29 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       default:
         throw new FlareLobbyError("CONNECTION_FAILED");
     }
+  }
+
+  private toSearchTicket(row: TicketRow): MatchmakingSearchTicket {
+    const pool = this.readPoolRow();
+
+    if (pool === undefined || row.poolId !== pool.poolId || row.queuedAt === null) {
+      throw new FlareLobbyError("CONNECTION_FAILED");
+    }
+
+    return {
+      id: row.ticketId,
+      pool: toPool(pool),
+      player: { id: row.playerId },
+      rating: {
+        playerId: row.playerId,
+        poolId: pool.poolId,
+        value: row.ratingValue
+      },
+      queuedAt: row.queuedAt,
+      region: row.region,
+      inputMethod: row.inputMethod,
+      searchAttributes: parseJsonObject(row.searchAttributesJson)
+    };
   }
 
   private incrementPoolRevision(): number {
@@ -1383,21 +1701,34 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
   }
 
   private async synchronizeAlarm(): Promise<void> {
-    const next = this.ctx.storage.sql
+    const nextExpiry = this.ctx.storage.sql
       .exec<{ nextExpiresAt: number | null }>(
         `SELECT MIN(expires_at_ms) AS nextExpiresAt
          FROM flarelobby_matchmaking_tickets
          WHERE status IN ('creating', 'waiting')`
       )
       .one().nextExpiresAt;
+    const pool = this.readPoolRow();
+    const nextSearchAt =
+      pool === undefined
+        ? null
+        : this.getNextSearchAtForWaitingTickets(
+            Date.now(),
+            parseSearchPolicy(pool.searchPolicyJson)
+          );
+    const nextValues = [nextExpiry, nextSearchAt].filter(
+      (value): value is number => value !== null
+    );
     const current = await this.ctx.storage.getAlarm();
 
-    if (next === null) {
+    if (nextValues.length === 0) {
       if (current !== null) {
         await this.ctx.storage.deleteAlarm();
       }
       return;
     }
+
+    const next = Math.min(...nextValues);
 
     if (current === null || current !== next) {
       await this.ctx.storage.setAlarm(next);
@@ -1494,15 +1825,49 @@ function migrateMatchPoolSchema(sql: SqlStorage): void {
       Date.now()
     );
   }
+
+  if (currentVersion < 2) {
+    sql.exec(
+      `ALTER TABLE flarelobby_matchmaking_pools
+       ADD COLUMN search_policy_json TEXT`
+    );
+    sql.exec(
+      `UPDATE flarelobby_matchmaking_pools
+       SET search_policy_json = ?
+       WHERE search_policy_json IS NULL`,
+      JSON.stringify(normalizeMatchmakingSearchPolicy())
+    );
+    sql.exec(
+      `INSERT INTO flarelobby_matchmaking_schema_migrations (version, applied_at)
+       VALUES (2, ?)`,
+      Date.now()
+    );
+  }
 }
 
 function normalizePoolInput(
   input: MatchPoolInitializationOptions | MatchmakingPool
-): { readonly pool: MatchmakingPool; readonly poolKey: string } {
+): {
+  readonly pool: MatchmakingPool;
+  readonly poolKey: string;
+  readonly searchPolicyJson: string;
+  readonly searchPolicyProvided: boolean;
+} {
   const candidate =
     isRecord(input) && isRecord(input["pool"]) ? input["pool"] : input;
   const pool = normalizePool(candidate);
-  return { pool, poolKey: createMatchmakingPoolKey(pool) };
+  const searchPolicyValue =
+    isRecord(input) && Object.prototype.hasOwnProperty.call(input, "searchPolicy")
+      ? input["searchPolicy"]
+      : undefined;
+  const searchPolicy = normalizeMatchmakingSearchPolicy(searchPolicyValue);
+
+  return {
+    pool,
+    poolKey: createMatchmakingPoolKey(pool),
+    searchPolicyJson: JSON.stringify(searchPolicy),
+    searchPolicyProvided: searchPolicyValue !== undefined
+  };
 }
 
 function normalizePool(value: unknown): MatchmakingPool {
@@ -1548,6 +1913,17 @@ function toPool(row: PoolRow): MatchmakingPool {
     mode: row.mode,
     region: row.region
   });
+}
+
+function parseSearchPolicy(value: string): NormalizedMatchmakingSearchPolicy {
+  try {
+    return normalizeMatchmakingSearchPolicy(JSON.parse(value));
+  } catch (error) {
+    if (error instanceof FlareLobbyError) {
+      throw error;
+    }
+    throw new FlareLobbyError("CONNECTION_FAILED");
+  }
 }
 
 function normalizeCreation(
@@ -2229,6 +2605,23 @@ function normalizeNow(value: unknown): number {
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }
   return now;
+}
+
+function normalizeSearchNow(value: number | Timestamp | undefined): number {
+  if (value === undefined) {
+    return Date.now();
+  }
+
+  if (typeof value === "number") {
+    return normalizeNow(value);
+  }
+
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return normalizeNow(parsed);
 }
 
 function deepFreeze<TValue>(value: TValue): TValue {

@@ -16,6 +16,12 @@ export {
   leaveCustomRoom
 } from "./custom-room.js";
 export { listCustomRooms } from "./custom-room-list.js";
+export {
+  DEFAULT_MATCHMAKING_MAX_CANDIDATES_PER_SEARCH,
+  DEFAULT_MATCHMAKING_MAX_MATCHES_PER_SEARCH,
+  DEFAULT_MATCHMAKING_MAX_TICKETS_PER_SEARCH,
+  DEFAULT_MATCHMAKING_SEARCH_WIDTH_STAGES
+} from "@flarelobby/core";
 export type {
   CustomRoomConfiguration,
   DefinedFlareLobby,
@@ -76,12 +82,22 @@ export {
   getMatchPoolName
 } from "./match-pool.js";
 export type {
+  MatchmakingCandidateEvaluation,
+  MatchmakingCandidateQuality,
+  MatchmakingSearchPolicy,
+  MatchmakingSearchTicket,
+  MatchmakingSearchWidthStage,
+  NormalizedMatchmakingSearchPolicy
+} from "@flarelobby/core";
+export type {
   MatchmakingPoolKeyInput,
   MatchPoolInitializationOptions,
   MatchPoolSnapshot,
   MatchmakingAttributeObject,
   MatchmakingMatchRoomRecord,
   MatchmakingMatchResult,
+  MatchmakingSearchOptions,
+  MatchmakingSearchResult,
   MatchmakingTicketCancellationOptions,
   MatchmakingTicketCreationOptions,
   MatchmakingTicketEvent,
