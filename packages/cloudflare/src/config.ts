@@ -24,6 +24,11 @@ import {
 } from "./custom-room.js";
 import { listCustomRooms } from "./custom-room-list.js";
 import {
+  getMatchmakingTicketWebSocketRoute,
+  handleMatchmakingRequest,
+  upgradeMatchmakingTicketWebSocket
+} from "./matchmaking.js";
+import {
   DEFAULT_DISCONNECT_GRACE_PERIOD_MS,
   DEFAULT_EVENT_HISTORY_LIMIT,
   DEFAULT_FINISHED_ROOM_RETENTION_MS,
@@ -252,6 +257,18 @@ export function createGatewayWorker<
 
       const websocketRoomId = getCustomRoomWebSocketRoute(pathname);
 
+      const matchmakingWebSocketRoute =
+        getMatchmakingTicketWebSocketRoute(pathname);
+
+      if (matchmakingWebSocketRoute !== null) {
+        return upgradeMatchmakingTicketWebSocket(
+          request,
+          env,
+          normalizedConfiguration,
+          matchmakingWebSocketRoute
+        );
+      }
+
       if (
         request.method === "GET" &&
         websocketRoomId !== null
@@ -272,6 +289,17 @@ export function createGatewayWorker<
 
       if (!authenticatedRequest.ok) {
         return createErrorResponse(authenticatedRequest.error);
+      }
+
+      const matchmakingResponse = await handleMatchmakingRequest(
+        request,
+        env,
+        normalizedConfiguration,
+        authenticatedRequest.value
+      );
+
+      if (matchmakingResponse !== null) {
+        return matchmakingResponse;
       }
 
       if (

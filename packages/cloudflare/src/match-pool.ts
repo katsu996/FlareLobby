@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   FlareLobbyError,
   PROTOCOL_VERSION,
+  getMatchmakingSearchWidth,
   getNextMatchmakingSearchAt,
   isFlareLobbyErrorCode,
   normalizeMatchmakingSearchPolicy,
@@ -278,6 +279,8 @@ export interface MatchmakingTicketEvent {
   readonly ticket: MatchmakingTicketRecord;
   readonly waitingCount: number;
   readonly activeCount: number;
+  /** イベント発生時点でチケットへ適用される検索幅です。 */
+  readonly searchWidth: number;
   readonly occurredAt: Timestamp;
 }
 
@@ -2317,6 +2320,8 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
 
     const progress = this.readProgress();
     const occurredAt = new Date(occurredAtMs).toISOString();
+    const searchPolicy = parseSearchPolicy(pool.searchPolicyJson);
+    const searchWidth = getTicketSearchWidth(ticket, searchPolicy, occurredAtMs);
     const sequence = this.ctx.storage.sql
       .exec<{ sequence: number }>(
         `INSERT INTO flarelobby_matchmaking_events (
@@ -2347,6 +2352,7 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       ticket,
       waitingCount: progress.waitingCount,
       activeCount: progress.activeCount,
+      searchWidth,
       occurredAt
     });
 
@@ -2372,11 +2378,14 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       kind: "event",
       event: "matchmaking.ticket",
       revision: event.poolRevision,
-      payload: {
-        ticket: event.ticket,
-        waitingCount: event.waitingCount,
-        activeCount: event.activeCount
-      }
+        payload: {
+          ticket: event.ticket,
+          waitingCount: event.waitingCount,
+          activeCount: event.activeCount,
+          sequence: event.sequence,
+          occurredAt: event.occurredAt,
+          searchWidth: event.searchWidth
+        }
     });
 
     for (const webSocket of this.ctx.getWebSockets(ticketEventTag(event.ticketId))) {
@@ -2416,11 +2425,25 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       .toArray()
       .map((row) =>
         deepFreeze({
+          ...(() => {
+            const ticket = parseStoredTicketResult(row.ticketJson);
+            const pool = this.readPoolRow();
+            if (pool === undefined) {
+              throw new FlareLobbyError("CONNECTION_FAILED");
+            }
+            return {
+              ticket,
+              searchWidth: getTicketSearchWidth(
+                ticket,
+                parseSearchPolicy(pool.searchPolicyJson),
+                Date.parse(row.occurredAt)
+              )
+            };
+          })(),
           sequence: row.sequence,
           poolRevision: row.poolRevision,
           type: row.type,
           ticketId: row.ticketId,
-          ticket: parseStoredTicketResult(row.ticketJson),
           waitingCount: row.waitingCount,
           activeCount: row.activeCount,
           occurredAt: row.occurredAt
@@ -3569,6 +3592,25 @@ function ticketEventTag(ticketId: string): string {
   return `ticket:${ticketId}`;
 }
 
+function getTicketSearchWidth(
+  ticket: MatchmakingTicketRecord,
+  policy: NormalizedMatchmakingSearchPolicy,
+  atMs: number
+): number {
+  const queuedAt =
+    ticket.status === "waiting" ? ticket.queuedAt : ticket.createdAt;
+  const queuedAtMs = Date.parse(queuedAt);
+
+  if (!Number.isFinite(queuedAtMs)) {
+    return 0;
+  }
+
+  return getMatchmakingSearchWidth(
+    policy,
+    Math.max(0, atMs - queuedAtMs)
+  );
+}
+
 function sendTicketEvent(
   webSocket: WebSocket,
   event: MatchmakingTicketEvent
@@ -3582,7 +3624,10 @@ function sendTicketEvent(
       payload: {
         ticket: event.ticket,
         waitingCount: event.waitingCount,
-        activeCount: event.activeCount
+        activeCount: event.activeCount,
+        sequence: event.sequence,
+        occurredAt: event.occurredAt,
+        searchWidth: event.searchWidth
       }
     })
   );

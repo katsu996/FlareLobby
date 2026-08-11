@@ -104,4 +104,4 @@ await pool.initialize({
 
 Pool ごとに Alarm は 1 個だけ使い、最も近いチケット期限または次の検索幅切替時刻へ設定します。待機チケットがなく、期限処理も検索幅切替も不要になった場合は Alarm を削除します。期限処理は `waiting` または `creating` の行だけを `expired` へ遷移させるため、Alarm の再試行で同じイベントを重複生成しません。
 
-`getTicketEvents()` はチケット状態と待機数・有効数の永続イベントを返します。Durable Object の `fetch()` へ `/v1/matchmaking/tickets/{ticketId}/events` または `/ws` で WebSocket 接続すると、同じイベントを JSON プロトコル v1 の `matchmaking.ticket` イベントとして受信できます。接続には Gateway の署名済み主体トークンが必要です。
+`getTicketEvents()` はチケット状態、待機数・有効数、イベント発生時点の検索幅を含む永続イベントを返します。Durable Object の `fetch()` へ `/v1/matchmaking/tickets/{ticketId}/events` または `/ws` で WebSocket 接続すると、同じイベントを JSON プロトコル v1 の `matchmaking.ticket` イベントとして受信できます。イベントの `sequence` は Pool 全体で採番されるため、特定チケットの履歴には数値の飛びが含まれることがあります。接続には Gateway の署名済み主体トークンが必要です。
