@@ -73,6 +73,10 @@ matchmakingPools: [
       settings: { map: "forest" },
       metadata: { playlist: "ranked" },
       teamIds: ["blue", "red"]
+    },
+    rating: {
+      initialRating: 1_500,
+      kFactor: 24
     }
   }
 ]
