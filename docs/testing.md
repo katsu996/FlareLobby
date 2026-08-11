@@ -122,3 +122,28 @@ const rerun = replaySimulation(result.replay);
 `result.replay` には乱数種、乱数アルゴリズム、正規化済み設定が含まれます。
 失敗したシナリオの JSON を保存して `replaySimulation()` へ渡すことで、同じ
 プレイヤー生成、時刻、キャンセル、候補選択を再実行できます。
+
+## Workers 横断統合テスト
+
+`packages/cloudflare` の統合テストは `@cloudflare/vitest-pool-workers` で
+Workers Runtime、Durable Objects、D1 を同じテスト環境へ接続します。D1 は
+`migrations/` の SQL をテストファイル開始時に `applyD1Migrations()` で適用し、
+Durable Objects は `wrangler.jsonc` の SQLite migration と同じ Binding を使います。
+
+Client SDK からの実行経路は `test/client-integration.test.ts` に集約しています。
+テスト名と完了条件の対応は次のとおりです。
+
+| テスト名 | 検証内容 |
+| --- | --- |
+| `Client SDKからカスタムルームの作成、参加、準備、開始、退出を完了できる` | 2クライアントの主要導線と状態同期 |
+| `満員直前の同時参加で定員を超えず、同じチケット作成要求を重複処理しない` | 同時参加の定員競合とチケット冪等性 |
+| `WebSocket切断後に再接続し、切断中のSnapshotを復元できる` | 再開トークン、revision、切断猶予、復元 |
+| `2クライアントのランクキューを成立させ、対戦ルームへ接続できる` | Client SDKのキュー参加、成立、対戦Room接続 |
+| `同じ試合結果を同時登録してもELO更新を一度だけ適用する` | 結果識別子、D1、ELO、二重登録防止 |
+| `Alarm実行後とDurable Object再生成後も状態変更を継続できる` | 単一Alarm、SQLite復元、DO再生成 |
+
+各テストはテストファイル間で状態を共有せず、ルーム・プール・主体へ一意な
+識別子を使います。`pnpm test:integration` を複数回実行し、競合テストを含めて
+同じ結果が得られることを確認してください。意図的な不具合の検出確認では、
+定員判定、再接続のrevision適用、結果登録の重複排除のいずれかを一時的に壊し、
+対応テストが失敗することを確認します。

@@ -35,6 +35,10 @@ importers:
       '@flarelobby/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
+      '@flarelobby/client':
+        specifier: workspace:*
+        version: link:../client
 
   packages/core: {}
 

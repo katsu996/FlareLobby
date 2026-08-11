@@ -38,7 +38,8 @@
   "d1_databases": [
     {
       "binding": "FLARE_LOBBY_DB",
-      "database_name": "flarelobby-local"
+      "database_name": "flarelobby-local",
+      "migrations_dir": "migrations"
     }
   ],
   "env": {
@@ -66,7 +67,8 @@
       "d1_databases": [
         {
           "binding": "FLARE_LOBBY_DB",
-          "database_name": "flarelobby-staging"
+          "database_name": "flarelobby-staging",
+          "migrations_dir": "migrations"
         }
       ]
     },
@@ -94,7 +96,8 @@
       "d1_databases": [
         {
           "binding": "FLARE_LOBBY_DB",
-          "database_name": "flarelobby-production"
+          "database_name": "flarelobby-production",
+          "migrations_dir": "migrations"
         }
       ],
       "analytics_engine_datasets": [
