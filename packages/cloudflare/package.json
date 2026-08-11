@@ -16,6 +16,9 @@
   "dependencies": {
     "@flarelobby/core": "workspace:*"
   },
+  "devDependencies": {
+    "@flarelobby/client": "workspace:*"
+  },
   "scripts": {
     "build": "pnpm run generate:types && tsc -p tsconfig.json",
     "typecheck": "pnpm run generate:types && tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit",
