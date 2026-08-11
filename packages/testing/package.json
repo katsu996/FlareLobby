@@ -4,6 +4,9 @@
   "description": "FlareLobby のテスト補助",
   "type": "module",
   "sideEffects": false,
+  "dependencies": {
+    "@flarelobby/core": "workspace:*"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
