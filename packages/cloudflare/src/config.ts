@@ -21,6 +21,15 @@ import type {
 import type { MatchmakingMatchRoomOptions } from "./match-pool.js";
 import type { RatingConfiguration } from "./rating.js";
 import {
+  attachObservabilityHeaders,
+  createObservabilityContext,
+  createObservabilitySink,
+  getObservabilityOperationName,
+  FLARE_LOBBY_OPERATION_HEADER,
+  observeHttpOperation
+} from "./observability.js";
+import type { FlareLobbyObservabilityConfiguration } from "./observability.js";
+import {
   createCustomRoom,
   joinCustomRoom,
   leaveCustomRoom
@@ -126,6 +135,8 @@ export interface FlareLobbyConfiguration<
   /** 未設定時はすべての保護対象操作を拒否します。 */
   readonly authorization?: FlareLobbyAuthorizationHooks;
   readonly inputLimits: FlareLobbyInputLimits;
+  /** ログと Analytics Engine のサンプリング設定です。 */
+  readonly observability?: FlareLobbyObservabilityConfiguration;
 }
 
 /** 設定または必須 Binding の不備を判定する安定したコードです。 */
@@ -136,7 +147,8 @@ export const FLARE_LOBBY_CONFIGURATION_ERROR_CODES = [
   "INVALID_CUSTOM_ROOM_CONFIGURATION",
   "INVALID_MATCHMAKING_POOL",
   "INVALID_INPUT_LIMITS",
-  "INVALID_AUTHENTICATION_HOOK"
+  "INVALID_AUTHENTICATION_HOOK",
+  "INVALID_OBSERVABILITY_CONFIGURATION"
 ] as const;
 
 /** 設定または必須 Binding の不備を判定する安定したコードです。 */
@@ -156,7 +168,9 @@ const defaultConfigurationErrorMessages: Readonly<
     "カスタムルーム設定が正しくありません。",
   INVALID_MATCHMAKING_POOL: "マッチングプール設定が正しくありません。",
   INVALID_INPUT_LIMITS: "入力制限の設定が正しくありません。",
-  INVALID_AUTHENTICATION_HOOK: "認証 Hook の設定が正しくありません。"
+  INVALID_AUTHENTICATION_HOOK: "認証 Hook の設定が正しくありません。",
+  INVALID_OBSERVABILITY_CONFIGURATION:
+    "観測サンプリング設定が正しくありません。"
 };
 
 /** 利用者へ公開する設定エラーです。内部例外や Binding の実体は公開しません。 */
@@ -229,17 +243,37 @@ export function createGatewayWorker<
 
   return {
     async fetch(request, env): Promise<Response> {
-      try {
-        assertRequiredBindings(env);
-      } catch (error) {
-        if (error instanceof FlareLobbyConfigurationError) {
-          return Response.json(error.toJSON(), { status: 500 });
-        }
+      const context = createObservabilityContext(request, {
+        // 相関 ID はクライアント申告値を信頼せず、Gateway の入口で発行します。
+        correlationId: crypto.randomUUID(),
+        logSampleRate: normalizedConfiguration.observability?.logSampleRate ?? 1,
+        analyticsSampleRate:
+          normalizedConfiguration.observability?.analyticsSampleRate ?? 1
+      });
+      const observedRequest = attachObservabilityHeaders(request, context);
+      const sink = createObservabilitySink(
+        env.FLARE_LOBBY_ANALYTICS,
+        normalizedConfiguration.observability
+      );
 
-        throw error;
-      }
+      return observeHttpOperation(
+        sink,
+        context,
+        getObservabilityOperationName(observedRequest),
+        async () => {
+          try {
+            assertRequiredBindings(env);
+          } catch (error) {
+            if (error instanceof FlareLobbyConfigurationError) {
+              return Response.json(error.toJSON(), { status: 500 });
+            }
 
-      const pathname = new URL(request.url).pathname;
+            throw error;
+          }
+
+          request = observedRequest as typeof request;
+
+          const pathname = new URL(request.url).pathname;
 
       if (request.method === "GET" && pathname === "/") {
         return Response.json({ status: "ready" });
@@ -355,7 +389,9 @@ export function createGatewayWorker<
           : createErrorResponse(result.error);
       }
 
-      return new Response("Not Found", { status: 404 });
+          return new Response("Not Found", { status: 404 });
+        }
+      );
     }
   };
 }
@@ -428,6 +464,10 @@ async function upgradeCustomRoomWebSocket<
     headers.set(
       "x-flarelobby-websocket-message-limit",
       String(configuration.inputLimits.maxMessagesPerMinute)
+    );
+    headers.set(
+      FLARE_LOBBY_OPERATION_HEADER,
+      claims.value.purpose === "resume" ? "room.reconnect" : "room.connect"
     );
 
     const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
@@ -519,6 +559,7 @@ function normalizeConfiguration<TApp extends AnyFlareLobbyApp>(
   assertCustomRoomConfiguration(configuration.customRooms);
   assertMatchmakingPools(configuration.matchmakingPools);
   assertInputLimits(configuration.inputLimits);
+  assertObservabilityConfiguration(configuration.observability);
 
   if (typeof configuration.authenticate !== "function") {
     throw new FlareLobbyConfigurationError("INVALID_AUTHENTICATION_HOOK");
@@ -560,12 +601,35 @@ function normalizeConfiguration<TApp extends AnyFlareLobbyApp>(
     ),
     authenticate: configuration.authenticate,
     inputLimits: Object.freeze({ ...configuration.inputLimits }),
+    observability: Object.freeze({
+      logSampleRate: configuration.observability?.logSampleRate ?? 1,
+      analyticsSampleRate: configuration.observability?.analyticsSampleRate ?? 1
+    }),
     ...(configuration.authorization === undefined
       ? {}
       : { authorization: Object.freeze({ ...configuration.authorization }) })
   };
 
   return Object.freeze(normalizedConfiguration);
+}
+
+function assertObservabilityConfiguration(
+  configuration: FlareLobbyObservabilityConfiguration | undefined
+): void {
+  for (const [fieldName, value] of [
+    ["logSampleRate", configuration?.logSampleRate],
+    ["analyticsSampleRate", configuration?.analyticsSampleRate]
+  ] as const) {
+    if (
+      value !== undefined &&
+      (!Number.isFinite(value) || value < 0 || value > 1)
+    ) {
+      throw new FlareLobbyConfigurationError(
+        "INVALID_OBSERVABILITY_CONFIGURATION",
+        `observability.${fieldName} は 0 以上 1 以下で指定してください。`
+      );
+    }
+  }
 }
 
 function assertCustomRoomConfiguration<TApp extends AnyFlareLobbyApp>(

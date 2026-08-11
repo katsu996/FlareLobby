@@ -9,6 +9,8 @@ import type {
   ProtocolResult,
   RoomId
 } from "@flarelobby/core";
+import { readObservabilityContext } from "./observability.js";
+import type { FlareLobbyObservabilityContext } from "./observability.js";
 
 /** 利用者が実装する、サーバー側の認証結果です。 */
 export type FlareLobbyAuthenticationResult = Principal;
@@ -136,6 +138,8 @@ export interface GatewayPrincipalEnvelope {
 export interface AuthenticatedGatewayRequest {
   readonly principal: Principal;
   readonly gatewayPrincipal: GatewayPrincipalEnvelope;
+  /** Gateway から内部処理へ渡す相関情報です。旧来の直接 RPC 呼出しでは省略できます。 */
+  readonly observability?: FlareLobbyObservabilityContext;
 }
 
 /** 分散した利用制限 Durable Object に記録する操作の種別です。 */
@@ -242,7 +246,8 @@ export async function authenticateGatewayRequest(
   return protocolSuccess(
     Object.freeze({
       principal,
-      gatewayPrincipal: gatewayPrincipal.value
+      gatewayPrincipal: gatewayPrincipal.value,
+      observability: readObservabilityContext(request)
     })
   );
 }

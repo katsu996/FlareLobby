@@ -141,6 +141,18 @@ describe("defineFlareLobby", () => {
     }
   });
 
+  it("観測サンプリング率を 0 以上 1 以下に制限する", () => {
+    const configuration = {
+      ...createValidConfiguration(),
+      observability: { logSampleRate: 1.1 }
+    };
+
+    expectConfigurationError(
+      () => defineFlareLobby(configuration),
+      "INVALID_OBSERVABILITY_CONFIGURATION"
+    );
+  });
+
   it("必須 D1 Binding の不足を安全なエラー応答として検出する", async () => {
     const worker = createGatewayWorker<FlareLobbyBindings>(
       createValidConfiguration()

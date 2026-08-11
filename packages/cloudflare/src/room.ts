@@ -43,6 +43,15 @@ import type {
   GatewayPrincipalEnvelope
 } from "./security.js";
 import {
+  createObservabilityContext,
+  createObservabilitySink,
+  FLARE_LOBBY_OPERATION_HEADER,
+  observeOperation,
+  observeHttpOperation,
+  readObservabilityContext
+} from "./observability.js";
+import type { FlareLobbyObservabilityContext } from "./observability.js";
+import {
   CUSTOM_ROOM_INDEX_RETRY_DELAY_MS,
   CUSTOM_ROOM_INDEX_SYNC_OPERATION_ID,
   deleteCustomRoomIndex,
@@ -181,6 +190,8 @@ export interface RoomInitializationOptions<
   readonly eventHistoryLimit?: number;
   /** 処理済みコマンド結果の保持期間です。 */
   readonly processedCommandRetentionMs?: number;
+  /** Gateway から引き継ぐ観測相関情報です。永続化しません。 */
+  readonly observability?: FlareLobbyObservabilityContext;
 }
 
 /** Room の対戦開始条件です。 */
@@ -195,6 +206,7 @@ export interface RoomParticipantJoinOptions {
   readonly role: RoomParticipantRole;
   readonly invitationCode?: string;
   readonly password?: string;
+  readonly observability?: FlareLobbyObservabilityContext;
 }
 
 /** Room Durable Object の参加結果です。 */
@@ -212,6 +224,7 @@ export interface RoomParticipantLeaveOptions {
   /** Gateway 側の要求重複排除を Room 内でも原子的に行う識別子です。 */
   readonly requestId?: string;
   readonly requestPayload?: JsonValue;
+  readonly observability?: FlareLobbyObservabilityContext;
 }
 
 /** Room Durable Object の退出結果です。 */
@@ -228,6 +241,7 @@ export interface RoomParticipantDisconnectOptions {
   readonly role?: RoomParticipantRole;
   /** 切断時刻。省略時は Durable Object の現在時刻を使用します。 */
   readonly at?: Timestamp;
+  readonly observability?: FlareLobbyObservabilityContext;
 }
 
 /** 再開情報を含む初回または再接続時の `room.snapshot` Payload 拡張です。 */
@@ -247,6 +261,7 @@ export interface RoomParticipantOperationOptions {
   readonly requestId?: string;
   /** 要求の補足値です。実際の操作入力と一緒に冪等性判定へ利用します。 */
   readonly requestPayload?: JsonValue;
+  readonly observability?: FlareLobbyObservabilityContext;
 }
 
 /** 自身の準備状態を変更する入力です。 */
@@ -265,6 +280,7 @@ export interface RoomHostOperationOptions {
   readonly participantId: string;
   readonly requestId?: string;
   readonly requestPayload?: JsonValue;
+  readonly observability?: FlareLobbyObservabilityContext;
 }
 
 /** ルーム設定を更新する入力です。指定したキーを既存設定へ浅くマージします。 */
@@ -497,6 +513,12 @@ export class RoomDurableObject extends DurableObject<Env> {
 
   /** Gateway から転送された WebSocket Upgrade を Hibernation API へ渡します。 */
   public override async fetch(request: Request): Promise<Response> {
+    const context = readObservabilityContext(request);
+    const sink = createObservabilitySink(this.env.FLARE_LOBBY_ANALYTICS);
+    const operation =
+      request.headers.get(FLARE_LOBBY_OPERATION_HEADER) ?? "room.connect";
+
+    return observeHttpOperation(sink, context, operation, async () => {
     if (
       request.method !== "GET" ||
       request.headers.get("Upgrade")?.toLowerCase() !== "websocket"
@@ -729,6 +751,7 @@ export class RoomDurableObject extends DurableObject<Env> {
 
       return createErrorResponse(normalizeWebSocketError(error));
     }
+    });
   }
 
   /** Hibernation 後を含む WebSocket の受信 Handler です。 */
@@ -791,7 +814,16 @@ export class RoomDurableObject extends DurableObject<Env> {
   public async initialize(
     options: RoomInitializationOptions
   ): Promise<RoomSnapshot> {
-    const normalized = await normalizeInitialization(options);
+    const context =
+      options.observability ?? createObservabilityContext(undefined);
+    const sink = createObservabilitySink(this.env.FLARE_LOBBY_ANALYTICS);
+
+    return observeOperation(
+      sink,
+      context,
+      options.room.kind === "match" ? "room.match.initialize" : "room.initialize",
+      async () => {
+        const normalized = await normalizeInitialization(options);
     const existing = this.readRoomRow();
 
     if (existing !== undefined) {
@@ -920,7 +952,9 @@ export class RoomDurableObject extends DurableObject<Env> {
       }
 
       throw new FlareLobbyError("CONNECTION_FAILED");
-    }
+        }
+      }
+    );
   }
 
   /** 永続化された最新の読み取り専用スナップショットを返します。 */
@@ -943,9 +977,18 @@ export class RoomDurableObject extends DurableObject<Env> {
   public async join(
     options: RoomParticipantJoinOptions
   ): Promise<RoomParticipantJoinResult> {
-    const principal = await this.resolveGatewayPrincipal(
-      options.gatewayPrincipal
-    );
+    const context =
+      options.observability ?? createObservabilityContext(undefined);
+    const sink = createObservabilitySink(this.env.FLARE_LOBBY_ANALYTICS);
+
+    return observeOperation(
+      sink,
+      context,
+      "room.join",
+      async () => {
+        const principal = await this.resolveGatewayPrincipal(
+          options.gatewayPrincipal
+        );
 
     if (principal === null) {
       throw new FlareLobbyError("UNAUTHENTICATED");
@@ -1040,11 +1083,13 @@ export class RoomDurableObject extends DurableObject<Env> {
     this.broadcastRoomSnapshot(snapshot);
     await this.enqueueCustomRoomIndexSync();
 
-    return {
-      participantId,
-      role: normalized.role,
-      snapshot
-    };
+        return {
+          participantId,
+          role: normalized.role,
+          snapshot
+        };
+      }
+    );
   }
 
   /** `join()` の意味を明示する別名です。 */

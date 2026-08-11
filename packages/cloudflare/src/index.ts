@@ -202,6 +202,22 @@ export {
   verifyWebSocketResumeToken,
   verifyWebSocketRoomToken
 } from "./security.js";
+export {
+  FLARE_LOBBY_CORRELATION_ID_HEADER,
+  FLARE_LOBBY_OPERATION_HEADER,
+  FLARE_LOBBY_OBSERVABILITY_SCHEMA_VERSION,
+  FLARE_LOBBY_REQUEST_ID_HEADER,
+  attachObservabilityHeaders,
+  createObservabilityContext,
+  createObservabilitySink,
+  getObservabilityErrorCode,
+  getObservabilityOperationName,
+  observeHttpOperation,
+  observeOperation,
+  readObservabilityContext,
+  recordQualityMetric,
+  withObservabilityRequestId
+} from "./observability.js";
 export type {
   AuthenticatedGatewayRequest,
   FlareLobbyAuthenticationHook,
@@ -223,6 +239,18 @@ export type {
   FlareLobbyWebSocketRoomTokenVerificationOptions,
   GatewayPrincipalEnvelope
 } from "./security.js";
+export type {
+  FlareLobbyObservabilityAttributeValue,
+  FlareLobbyObservabilityConfiguration,
+  FlareLobbyObservabilityContext,
+  FlareLobbyObservabilityContextOptions,
+  FlareLobbyObservabilitySink,
+  FlareLobbyObservationResult,
+  FlareLobbyQualityMetric,
+  FlareLobbyQualityMetricName,
+  FlareLobbyStructuredLogRecord,
+  FlareLobbyStructuredLogger
+} from "./observability.js";
 
 /**
  * リポジトリの Miniflare 検証に使う最小構成です。

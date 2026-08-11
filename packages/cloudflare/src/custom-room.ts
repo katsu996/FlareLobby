@@ -33,6 +33,10 @@ import type {
   AuthenticatedGatewayRequest,
   FlareLobbyRoomParticipantRole
 } from "./security.js";
+import {
+  readObservabilityContext,
+  withObservabilityRequestId
+} from "./observability.js";
 import type {
   RoomInitializationOptions,
   RoomJoinMethod,
@@ -43,6 +47,7 @@ import type {
   RoomProcessedCommandOptions,
   RoomParticipantRole
 } from "./room.js";
+import type { FlareLobbyObservabilityContext } from "./observability.js";
 
 const CUSTOM_ROOM_CREATE_COMMAND = "custom_room.create";
 const CUSTOM_ROOM_JOIN_COMMAND = "custom_room.join";
@@ -188,6 +193,7 @@ interface CustomRoomGatewayStub {
       readonly role: RoomParticipantRole;
       readonly invitationCode?: string;
       readonly password?: string;
+      readonly observability?: FlareLobbyObservabilityContext;
     }
   ): Promise<RoomParticipantJoinResult>;
   leave(options: RoomParticipantLeaveOptions): Promise<RoomParticipantLeaveResult>;
@@ -221,6 +227,10 @@ export async function createCustomRoom<
       request,
       body.value,
       configuration
+    );
+    const observability = withObservabilityRequestId(
+      authenticatedRequest.observability ?? readObservabilityContext(request),
+      input.requestId
     );
     const roomId = await deriveRoomId(
       env.FLARE_LOBBY_TOKEN_SECRET,
@@ -319,7 +329,8 @@ export async function createCustomRoom<
         : {
             processedCommandRetentionMs:
               configuration.customRooms.processedCommandRetentionMs
-          })
+          }),
+      observability
     });
     const snapshotInvitationCode = getSnapshotInvitationCode(snapshot);
 
@@ -409,6 +420,10 @@ export async function joinCustomRoom<
       roomId,
       input.requestId
     );
+    const observability = withObservabilityRequestId(
+      authenticatedRequest.observability ?? readObservabilityContext(request),
+      input.requestId
+    );
     const existing = await room.getProcessedCommand(requestId);
 
     if (existing !== null) {
@@ -421,7 +436,8 @@ export async function joinCustomRoom<
       ...(input.invitationCode === null
         ? {}
         : { invitationCode: input.invitationCode }),
-      ...(input.password === null ? {} : { password: input.password })
+      ...(input.password === null ? {} : { password: input.password }),
+      observability
     });
     const joinToken = await issueJoinToken(env.FLARE_LOBBY_TOKEN_SECRET, {
       principal: authenticatedRequest.principal,
@@ -521,6 +537,10 @@ export async function leaveCustomRoom<
       input.roomId,
       input.requestId
     );
+    const observability = withObservabilityRequestId(
+      authenticatedRequest.observability ?? readObservabilityContext(request),
+      input.requestId
+    );
     const payload = {
       ...input.payload,
       participantId: claims.value.participantId,
@@ -541,7 +561,8 @@ export async function leaveCustomRoom<
       participantId: claims.value.participantId,
       role: claims.value.role,
       requestId,
-      requestPayload: payload
+      requestPayload: payload,
+      observability
     });
 
     return {
