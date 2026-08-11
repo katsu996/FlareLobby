@@ -2,7 +2,7 @@
 
 Cloudflare Workers と Durable Objects を利用するゲーム向けロビー機能のための TypeScript モノレポです。
 
-この変更では、今後の機能実装に共通して使う開発基盤、`@flarelobby/core` の公開ドメイン型、Cloudflare 向けの型付き設定、Room Durable Object の永続状態基盤と Gateway Worker の最小構成を用意しています。カスタムルームの作成・参加・退出・観戦の実装方針は [カスタムルームの参加・退出・観戦](./docs/custom-room-participation.md) を、公開ルームの検索と一覧の一貫性は [公開カスタムルーム一覧](./docs/custom-room-list.md) を、ブラウザ向けクライアントの利用方法は [クライアントSDK](./docs/client.md) を参照してください。
+この変更では、今後の機能実装に共通して使う開発基盤、`@flarelobby/core` の公開ドメイン型、Cloudflare 向けの型付き設定、Room Durable Object の永続状態基盤と Gateway Worker の最小構成を用意しています。カスタムルームの作成・参加・退出・観戦の実装方針は [カスタムルームの参加・退出・観戦](./docs/custom-room-participation.md) を、公開ルームの検索と一覧の一貫性は [公開カスタムルーム一覧](./docs/custom-room-list.md) を、ブラウザ向けクライアントの利用方法は [クライアントSDK](./docs/client.md) を、決定論的なマッチングシミュレーターの実行方法は [テスト補助とシミュレーター](./docs/testing.md) を参照してください。
 
 公開ドメイン型の用語、状態、型指定方法は [公開ドメイン型](./docs/domain-model.md) を、1 対 1 ELO の契約・計算式・丸め規則は [レーティングエンジン](./docs/rating.md) を、HTTP と WebSocket で共通に使う通信契約は [JSON 通信プロトコル v1](./docs/protocol.md) を、認証・認可・入力検証・利用制限の安全上の前提は [セキュリティ基盤](./docs/security.md) を、構造化ログ・品質メトリクス・秘匿方針は [観測基盤](./docs/observability.md) を、Cloudflare の Binding・環境・設定例は [Cloudflare 設定](./docs/cloudflare-configuration.md) を参照してください。
 
@@ -16,7 +16,7 @@ Cloudflare Workers と Durable Objects を利用するゲーム向けロビー�
 | `packages/testing` | `@flarelobby/testing` | 仮想時計、固定乱数、シミュレーターなどのテスト補助 |
 | `examples` | — | 最小サンプルを配置する場所 |
 
-すべてのパッケージは ES Modules です。公開 API は後続の設計・実装 Issue で追加します。
+すべてのパッケージは ES Modules です。各パッケージの公開 API と利用方法は対応する設計・実装 Issue とドキュメントで管理します。
 
 ## 必要な環境
 
