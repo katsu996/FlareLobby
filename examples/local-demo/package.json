@@ -1,0 +1,14 @@
+{
+  "name": "@flarelobby/example-local-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --config wrangler.jsonc",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@flarelobby/cloudflare": "workspace:*",
+    "@flarelobby/core": "workspace:*"
+  }
+}

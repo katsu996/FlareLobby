@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "paths": {
+      "@flarelobby/core": ["../../packages/core/dist/index.d.ts"],
+      "@flarelobby/cloudflare": ["../../packages/cloudflare/dist/index.d.ts"]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "../../packages/cloudflare/worker-configuration.d.ts"
+  ]
+}

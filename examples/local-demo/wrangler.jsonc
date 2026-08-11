@@ -1,0 +1,45 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "flarelobby-local-demo",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-08",
+  "secrets": {
+    "required": ["FLARE_LOBBY_TOKEN_SECRET"]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "FLARE_LOBBY_ROOMS",
+        "class_name": "RoomDurableObject"
+      },
+      {
+        "name": "FLARE_LOBBY_MATCH_POOLS",
+        "class_name": "MatchPoolDurableObject"
+      },
+      {
+        "name": "FLARE_LOBBY_RATE_LIMITS",
+        "class_name": "RateLimitDurableObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "RoomDurableObject",
+        "MatchPoolDurableObject"
+      ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["RateLimitDurableObject"]
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "FLARE_LOBBY_DB",
+      "database_name": "flarelobby-local-demo",
+      "migrations_dir": "../../packages/cloudflare/migrations"
+    }
+  ]
+}

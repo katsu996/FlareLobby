@@ -2,6 +2,11 @@
 
 `@flarelobby/cloudflare` は、1 つの `defineFlareLobby()` 設定から Gateway Worker を作成します。Room、Match Pool、利用制限はそれぞれ別の Durable Object Namespace を使い、D1 とトークン秘密値は必須、Analytics Engine は任意です。
 
+ローカルで最初から起動する手順は [導入とローカルサンプル](./getting-started.md)、
+全公開設定型と関数の引数・戻り値は [APIリファレンス](./api-reference.md) を参照
+してください。以下の `verifyApplicationAccessToken` は利用者の認証サービスを表す
+プレースホルダーであり、FlareLobby が実装する認証ではありません。
+
 ## 最小設定
 
 `Env` は手書きせず、Wrangler で生成します。次の例は `packages/cloudflare/test/configuration.type-test.ts` と同じ構成で型検査しています。
@@ -226,3 +231,31 @@ pnpm test:integration
 ```
 
 環境を指定して型を生成する場合は、`packages/cloudflare` で `wrangler types worker-configuration.d.ts --config wrangler.jsonc --env staging` のように実行します。
+
+## Migration とデプロイの順序
+
+既存環境へは、Migration を編集して過去のタグを書き換えるのではなく、新しいタグを
+追加して適用します。D1 と Durable Objects は別の Migration 境界です。
+
+```sh
+# D1 のローカル確認
+pnpm --filter @flarelobby/cloudflare exec wrangler d1 migrations apply FLARE_LOBBY_DB --local
+
+# staging の準備と公開
+pnpm --filter @flarelobby/cloudflare exec wrangler d1 migrations apply FLARE_LOBBY_DB --remote --env staging
+pnpm --filter @flarelobby/cloudflare exec wrangler secret put FLARE_LOBBY_TOKEN_SECRET --env staging
+pnpm generate:worker-types
+pnpm --filter @flarelobby/cloudflare exec wrangler deploy --env staging
+```
+
+`wrangler.jsonc` の staging/production では、D1 の `database_id` を実際の UUID へ
+置き換えます。`FLARE_LOBBY_TOKEN_SECRET` は環境ごとに独立した十分な長さの Secret
+を登録し、設定ファイル・ソース・ログへ書きません。production だけで利用する
+Analytics Engine Binding も、本番 Dataset の存在を確認してから Worker を公開します。
+
+デプロイ後は次を確認します。
+
+1. `GET /` が `{ "status": "ready" }` を返す。
+2. 認証 Hook がクライアント申告 ID ではなく、アプリケーションで検証済みの主体を返す。
+3. カスタムルームの作成・参加・退出、WebSocket 再接続、チケット成立、結果の冪等登録を staging で確認する。
+4. 構造化ログに token、パスワード、主体 ID、Room ID、ゲーム Payload が出ていないことを確認する。

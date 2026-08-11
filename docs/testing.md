@@ -147,3 +147,36 @@ Client SDK からの実行経路は `test/client-integration.test.ts` に集約�
 同じ結果が得られることを確認してください。意図的な不具合の検出確認では、
 定員判定、再接続のrevision適用、結果登録の重複排除のいずれかを一時的に壊し、
 対応テストが失敗することを確認します。
+
+## 文書コード例と公開契約の検証
+
+README、利用ガイド、API リファレンスのコード例は、動作説明だけの貼り付けに
+せず、次のファイルへ実行可能な TypeScript 例として集約しています。
+
+| 例 | 検証内容 |
+| --- | --- |
+| `docs/examples/core-api.ts` | 公開型、ELO、検索幅、Protocol の引数と戻り値 |
+| `docs/examples/client-api.ts` | Client、Room、購読、型付きゲームメッセージ |
+| `docs/examples/cloudflare-config.ts` | Gateway 設定、認証 Hook、Binding 契約 |
+| `examples/local-demo/src/index.ts` | ローカル Worker、Room/Pool/Rate Limit Binding |
+
+`pnpm check:docs` は `scripts/verify-docs.mjs` で次を確認した後、
+`docs/tsconfig.json` を TypeScript で検査します。
+
+- Issue #26 の必須文書、ADR、テンプレート、ローカルサンプルが存在する
+- 各パッケージの `src/index.ts` が公開する Export が API リファレンスへ掲載されている
+- core と Cloudflare のエラーコード、Room/Ticket の状態名が API リファレンスへ掲載されている
+- 文書内の相対リンクが存在する
+- コード例とローカルサンプルの型が現行ソースの型と一致する
+
+## Issue #26 完了条件と検証先
+
+| 完了条件 | 検証先 |
+| --- | --- |
+| 文書だけでサンプルを起動できる | `docs/getting-started.md`、`examples/local-demo/` |
+| 設計の正本の公開 API を説明する | `docs/api-reference.md`、`scripts/verify-docs.mjs` |
+| 全エラーコードと対処を説明する | `docs/api-reference.md#エラーコード` |
+| 状態遷移と再接続を図または表で理解できる | `docs/architecture.md`、`docs/custom-room-guide.md` |
+| コード例を型検査する | `docs/examples/`、`pnpm check:docs` |
+| Issue/PR Template が日本語である | `.github/ISSUE_TEMPLATE/`、`.github/pull_request_template.md` |
+| 未実装機能を利用可能と誤認させない | `README.md` の対象範囲、各ガイドの対象外記載 |
