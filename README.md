@@ -38,6 +38,7 @@ TypeScript の Client SDK から、認証済みのルーム作成・参加、1 �
 | Cloudflare Binding、Migration、デプロイを設定する | [Cloudflare 設定](./docs/cloudflare-configuration.md) |
 | 設計境界と状態遷移を確認する | [アーキテクチャ](./docs/architecture.md) |
 | テスト、シミュレーション、文書検証を実行する | [テストと検証](./docs/testing.md) |
+| v0.1.0 の既知の制限と公開前確認を読む | [v0.1.0 Release Note](./docs/releases/v0.1.0.md) |
 
 設計の正本は GitHub の [Issue #1](https://github.com/katsu996/FlareLobby/issues/1) です。
 公開 API の説明を変更するときは、実装・テスト・このリファレンスを同時に更新します。
@@ -81,11 +82,17 @@ pnpm test:unit
 pnpm test:integration
 pnpm check:docs
 pnpm check:esm
+pnpm release:check
 ```
 
 `pnpm test` は単体テストと Workers 統合テストを順に実行します。`check:docs` は
 必須文書、公開 Export と API リファレンス、エラーコード、状態名、コード例の
 型検査を確認します。
+
+`release:check` は上記を含む全 build・テストに加え、Workers 型、4 package の
+npm publish dry-run、サンプル Worker の `wrangler deploy --dry-run`、MIT License、
+公開対象ファイルを一括検証します。実際の npm publish や Cloudflare upload は
+行いません。
 
 ## Cloudflare Worker
 
@@ -114,3 +121,11 @@ pnpm version-packages
 ```
 
 このリポジトリの CI は公開やデプロイを自動実行しません。
+
+## 変更履歴、Release Note、ライセンス
+
+- [CHANGELOG](./CHANGELOG.md)
+- [v0.1.0 Release Note](./docs/releases/v0.1.0.md)
+- [MIT License](./LICENSE)
+
+npm publish と GitHub Release 作成は、所有者の明示的な最終承認後にのみ実行します。

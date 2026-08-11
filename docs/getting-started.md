@@ -113,6 +113,18 @@ pnpm check:docs
 Workers 統合テストは実際の Workers Runtime、Durable Objects、D1 を使います。テスト
 対象と完了条件の対応は [テストと検証](./testing.md) にあります。
 
+初回公開とデプロイ前には、クリーンな checkout で全検証、npm package dry-run、
+サンプル Worker のデプロイ Bundle 生成をまとめて実行します。
+
+```sh
+pnpm install --frozen-lockfile
+pnpm release:check
+```
+
+このコマンドの `wrangler deploy --dry-run` は設定、Binding、Assets、Worker bundle を
+検証して upload 前に終了します。実 Cloudflare 環境の D1 作成、Migration、Secret、
+upload は次の staging/production 手順で所有者の承認後に行います。
+
 ## staging/production への準備
 
 共有環境へ接続する場合は、次の順序で環境ごとに準備します。

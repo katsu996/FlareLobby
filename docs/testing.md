@@ -180,3 +180,38 @@ README、利用ガイド、API リファレンスのコード例は、動作説�
 | コード例を型検査する | `docs/examples/`、`pnpm check:docs` |
 | Issue/PR Template が日本語である | `.github/ISSUE_TEMPLATE/`、`.github/pull_request_template.md` |
 | 未実装機能を利用可能と誤認させない | `README.md` の対象範囲、各ガイドの対象外記載 |
+
+## v0.1.0 公開前チェック
+
+Issue #28 の公開前確認は、クリーンな checkout で次の 1 コマンドとして再実行できます。
+
+```sh
+pnpm install --frozen-lockfile
+pnpm release:check
+```
+
+`release:check` は次を順番に実行し、どれか 1 つでも失敗した場合は終了コード 1 を
+返します。
+
+1. 全 package とブラウザサンプルの build・型検査
+2. 純粋ロジックの単体テストと Workers・Durable Objects・D1 の統合テスト
+3. 公開 Export、API リファレンス、コード例、ES Modules、Workers 型の整合確認
+4. `scripts/verify-packages.mjs` による metadata、Entry Point、型定義、依存関係、
+   MIT License、tarball 許可リストと 4 package の npm publish dry-run
+5. `scripts/verify-cloudflare-deploy.mjs` による一時ディレクトリでのサンプル build と
+   `wrangler deploy --dry-run`
+
+npm dry-run には `--no-git-checks` を使いますが、version、public access、公開ファイル、
+秘密・内部ファイルの不在を別途検証します。Cloudflare dry-run は upload 前に終了し、
+一時的な bundle を検証後に削除します。CI も同じ個別コマンドを新規 checkout 上で
+実行するため、ローカルの未追跡成果物へ依存しません。
+
+| Issue #28 完了条件 | 検証先 |
+| --- | --- |
+| Milestone 内の必須 Issue | GitHub Milestone と `docs/releases/v0.1.0.md` |
+| 型検査、単体・統合テスト、build | `pnpm release:check`、Continuous Verification |
+| 公開 API と文書 | `scripts/verify-docs.mjs`、`docs/api-reference.md` |
+| npm package に必要なファイルだけを含む | `scripts/verify-packages.mjs` の許可リスト |
+| 既知の制限と対象外 | `docs/releases/v0.1.0.md` |
+| クリーンな Cloudflare 環境で deploy bundle を生成 | `scripts/verify-cloudflare-deploy.mjs`、CI |
+| 承認前に公開しない | npm/Cloudflare は dry-run のみ。GitHub Release は作成しない |
