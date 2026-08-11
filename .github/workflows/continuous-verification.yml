@@ -39,6 +39,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Verify documentation and examples
+        run: pnpm check:docs
+
       - name: Run unit tests
         run: pnpm test:unit
 
