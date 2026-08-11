@@ -4,12 +4,14 @@
     "composite": false,
     "noEmit": true,
     "paths": {
-      "@flarelobby/core": ["../../packages/core/dist/index.d.ts"],
-      "@flarelobby/cloudflare": ["../../packages/cloudflare/dist/index.d.ts"]
+      "@flarelobby/core": ["../../packages/core/src/index.ts"],
+      "@flarelobby/cloudflare": ["../../packages/cloudflare/src/index.ts"]
     }
   },
   "include": [
-    "src/**/*.ts",
+    "src/index.ts",
+    "src/rps.ts",
+    "src/rps-game.ts",
     "../../packages/cloudflare/worker-configuration.d.ts"
   ]
 }

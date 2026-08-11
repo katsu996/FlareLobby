@@ -28,13 +28,17 @@ pnpm check:docs
 `check:docs` は `docs/examples/` とローカルサンプルを TypeScript で検査します。
 そのため、README やガイドのコード例を API の型から切り離して管理しません。
 
-## 3. ローカル Worker を起動する
+## 3. ブラウザサンプルを起動する
 
 ```sh
+cp examples/local-demo/.dev.vars.example examples/local-demo/.dev.vars
+pnpm --filter @flarelobby/example-local-demo typecheck
+pnpm --filter @flarelobby/example-local-demo exec wrangler d1 migrations apply FLARE_LOBBY_DB --local --config wrangler.jsonc
 pnpm --filter @flarelobby/example-local-demo dev
 ```
 
-既定の URL は `http://localhost:8787` です。サンプルはローカル専用の認証として、
+既定の URL は `http://localhost:8787` です。トップページに最小じゃんけんゲームが表示され、
+招待ルームとランク戦の導線をブラウザから確認できます。サンプルはローカル専用の認証として、
 次のどちらかを受け付けます。
 
 - `x-demo-player: alice`
@@ -51,7 +55,7 @@ pnpm --filter @flarelobby/example-local-demo dev
 ```sh
 export FLARE_LOBBY_URL=http://localhost:8787
 
-curl "$FLARE_LOBBY_URL/"
+curl "$FLARE_LOBBY_URL/health"
 curl -X POST "$FLARE_LOBBY_URL/v1/custom-rooms" \
   -H 'content-type: application/json' \
   -H 'x-demo-player: alice' \
@@ -78,7 +82,8 @@ curl "$FLARE_LOBBY_URL/v1/custom-rooms?available=true&limit=20"
 
 Client SDK のブラウザ利用は [カスタムルーム利用ガイド](./custom-room-guide.md)、
 WebSocket の再接続と `revision` の扱いは [クライアントSDK](./client.md) を参照
-してください。
+してください。画面の導線、ランク戦の結果確定、デプロイ時の注意は
+[ローカルじゃんけんサンプル](./local-demo.md) にまとめています。
 
 ## 5. ローカル Migration
 
@@ -117,7 +122,7 @@ Workers 統合テストは実際の Workers Runtime、Durable Objects、D1 を�
 3. `wrangler secret put FLARE_LOBBY_TOKEN_SECRET --env staging`（または `production`）で環境固有の秘密値を登録する。
 4. `pnpm generate:worker-types` を実行し、生成された `Env` と Binding の差分を確認する。
 5. `wrangler deploy --env staging`（または `production`）で Worker と Durable Object Migration を公開する。
-6. 公開 URL の `GET /` が `{ "status": "ready" }` を返すこと、認証 Hook が実際の主体を返すことを確認する。
+6. 公開 URL の `GET /health` が `{ "status": "ready" }` を返すこと、認証 Hook が実際の主体を返すことを確認する。
 
 ```sh
 pnpm --filter @flarelobby/cloudflare exec wrangler d1 migrations apply FLARE_LOBBY_DB --remote --env staging
