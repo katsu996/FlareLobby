@@ -38,7 +38,11 @@ importers:
 
   packages/core: {}
 
-  packages/testing: {}
+  packages/testing:
+    dependencies:
+      '@flarelobby/core':
+        specifier: workspace:*
+        version: link:../core
 
 packages:
 
