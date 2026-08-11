@@ -3,13 +3,16 @@ import {
   FlareLobbyError,
   PROTOCOL_VERSION,
   getNextMatchmakingSearchAt,
+  isFlareLobbyErrorCode,
   normalizeMatchmakingSearchPolicy,
   selectMatchCandidates
 } from "@flarelobby/core";
 import type {
+  FlareLobbyErrorCode,
   JsonObject,
   JsonPrimitive,
   JsonValue,
+  MatchRoom,
   MatchmakingCandidateEvaluation,
   MatchCandidate,
   MatchmakingPool,
@@ -17,16 +20,35 @@ import type {
   MatchmakingSearchTicket,
   MatchmakingTicketStatus,
   NormalizedMatchmakingSearchPolicy,
+  Participant,
   Principal,
   Rating,
+  RoomSnapshot,
+  Team,
   Timestamp
 } from "@flarelobby/core";
 
 import { createErrorResponse, verifyGatewayPrincipalEnvelope } from "./security.js";
 import type { GatewayPrincipalEnvelope } from "./security.js";
+import type { RoomInitializationOptions } from "./room.js";
 
 /** チケットの既定の待機期限です。設定がない場合は 1 分後に期限切れにします。 */
 export const DEFAULT_MATCHMAKING_TICKET_TTL_MS = 60_000;
+
+/** 成立処理の一時的な RPC 失敗に対する初回再試行待ち時間です。 */
+export const DEFAULT_MATCHMAKING_MATCH_RETRY_DELAY_MS = 1_000;
+
+/** 成立処理の再試行待ち時間の上限です。 */
+export const DEFAULT_MATCHMAKING_MATCH_MAX_RETRY_DELAY_MS = 60_000;
+
+/** 回復不能な成立失敗と判定する最大試行回数です。 */
+export const DEFAULT_MATCHMAKING_MATCH_MAX_ATTEMPTS = 8;
+
+/** 1 対 1 対戦ルームへ割り当てる既定チームです。 */
+export const DEFAULT_MATCHMAKING_MATCH_TEAM_IDS = Object.freeze([
+  "blue",
+  "red"
+] as const);
 
 /** Match Pool の決定的な識別子に使う区切り文字です。 */
 export const MATCHMAKING_POOL_KEY_SEPARATOR = ":";
@@ -61,17 +83,52 @@ export const getMatchmakingPoolKey = createMatchmakingPoolKey;
 export const createMatchPoolKey = createMatchmakingPoolKey;
 export const getMatchPoolName = createMatchmakingPoolKey;
 
+/** 候補 ID から再試行で変わらない `matchId` を作ります。 */
+export function createMatchmakingMatchId(candidateId: string): string {
+  if (!isNonEmptyString(candidateId) || candidateId.length > 2_048) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return `match_${candidateId}`;
+}
+
+/** `matchId` から再試行で変わらない対戦 Room ID を作ります。 */
+export function createMatchmakingRoomId(matchId: string): string {
+  if (!isNonEmptyString(matchId) || matchId.length > 2_048) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return `room_${matchId}`;
+}
+
 /** Match Pool Durable Object を初期化する入力です。 */
 export interface MatchPoolInitializationOptions {
   readonly pool: MatchmakingPool;
   /** 省略時は 75 → 150 → 400 の既定検索幅を使用します。 */
   readonly searchPolicy?: MatchmakingSearchPolicy;
+  /** 成立時に生成する対戦ルームの初期設定です。 */
+  readonly matchRoom?: MatchmakingMatchRoomOptions;
 }
 
 /** RPC 境界で使う、JSON 直列化可能な対戦ルーム情報です。 */
 export type MatchmakingAttributeObject = Readonly<
   Record<string, JsonPrimitive>
 >;
+
+/** 成立時に生成する対戦ルームの初期設定です。 */
+export interface MatchmakingMatchRoomOptions {
+  readonly settings?: JsonObject;
+  readonly metadata?: JsonObject;
+  /** 2 件のプレイヤーへ順番に割り当てるチーム識別子です。 */
+  readonly teamIds?: readonly string[];
+  /** `teamIds` の説明的な別名です。 */
+  readonly teams?: readonly string[];
+  readonly maxPlayers?: number;
+  readonly minimumPlayers?: number;
+  readonly requireAllPlayersReady?: boolean;
+  /** 回復不能と判定するまでの成立 RPC 試行回数です。 */
+  readonly maxAttempts?: number;
+}
 
 /** RPC 境界で使う、JSON 直列化可能な対戦ルーム情報です。 */
 export interface MatchmakingMatchRoomRecord {
@@ -89,6 +146,35 @@ export interface MatchmakingMatchResult {
   readonly candidate: MatchCandidate;
   readonly room: MatchmakingMatchRoomRecord;
   readonly createdAt: Timestamp;
+}
+
+/** 成立意図の永続状態です。 */
+export type MatchmakingMatchIntentStatus =
+  | "pending"
+  | "initializing"
+  | "matched"
+  | "failed";
+
+/** 成立意図と Room 初期化の再試行状態です。 */
+export interface MatchmakingMatchIntent {
+  readonly matchId: string;
+  readonly candidate: MatchCandidate;
+  readonly room: MatchmakingMatchRoomRecord;
+  readonly status: MatchmakingMatchIntentStatus;
+  readonly attemptCount: number;
+  readonly maxAttempts: number;
+  readonly nextAttemptAt: number | null;
+  readonly lastErrorCode: FlareLobbyErrorCode | null;
+  readonly result: MatchmakingMatchResult | null;
+  readonly createdAt: Timestamp;
+  readonly updatedAt: Timestamp;
+  readonly completedAt: Timestamp | null;
+}
+
+/** 成立処理を明示的に進めるときの入力です。 */
+export interface MatchmakingMatchProcessingOptions {
+  readonly now?: number;
+  readonly maxMatches?: number;
 }
 
 interface MatchmakingTicketRecordBase {
@@ -233,6 +319,7 @@ interface PoolRow extends Record<string, SqlStorageValue> {
   mode: string;
   region: string;
   searchPolicyJson: string;
+  matchRoomJson: string;
   revision: number;
 }
 
@@ -276,6 +363,24 @@ interface EventRow extends Record<string, SqlStorageValue> {
   occurredAt: string;
 }
 
+interface MatchIntentRow extends Record<string, SqlStorageValue> {
+  matchId: string;
+  candidateId: string;
+  poolId: string;
+  roomId: string;
+  candidateJson: string;
+  initializationJson: string;
+  status: MatchmakingMatchIntentStatus;
+  attemptCount: number;
+  maxAttempts: number;
+  nextAttemptAt: number | null;
+  lastErrorCode: FlareLobbyErrorCode | null;
+  resultJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+  completedAt: number | null;
+}
+
 interface ProgressRow extends Record<string, SqlStorageValue> {
   waitingCount: number;
   activeCount: number;
@@ -293,6 +398,27 @@ interface NormalizedCreation {
   readonly createdAtMs: number;
 }
 
+interface NormalizedMatchRoomOptions {
+  readonly settingsJson: string;
+  readonly metadataJson: string;
+  readonly teamIds: readonly string[];
+  readonly maxPlayers: number;
+  readonly minimumPlayers: number;
+  readonly requireAllPlayersReady: boolean;
+  readonly maxAttempts: number;
+}
+
+interface MatchRoomGatewayStub {
+  initialize(options: RoomInitializationOptions): Promise<RoomSnapshot>;
+  getSnapshot(): Promise<RoomSnapshot | null>;
+}
+
+interface InFlightCreateRequest {
+  readonly playerId: string;
+  readonly payloadJson: string;
+  readonly promise: Promise<MatchmakingTicketRecord>;
+}
+
 interface NormalizedCancellation {
   readonly ticketId: string;
   readonly requestId: string | null;
@@ -302,10 +428,15 @@ interface NormalizedCancellation {
 /**
  * 1 マッチングプールを 1 Durable Object として扱う SQLite-backed Durable Object です。
  *
- * 候補評価は純粋関数へ委譲し、候補探索の起動、確保、チケットの状態遷移、
- * 冪等性、期限処理、状態通知を強整合に管理します。対戦ルーム生成は呼び出し側の責務です。
+ * 候補評価は純粋関数へ委譲し、候補探索の起動、確保、成立意図、対戦 Room の
+ * 初期化、チケットの状態遷移、冪等性、期限処理、状態通知を強整合に管理します。
  */
 export class MatchPoolDurableObject extends DurableObject<Env> {
+  private readonly inFlightCreateRequests = new Map<
+    string,
+    InFlightCreateRequest
+  >();
+
   public constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
 
@@ -349,7 +480,34 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
           normalized.searchPolicyJson
         );
         this.searchAndReserveCandidatesAt(Date.now());
+        await this.processPendingMatches();
         await this.synchronizeAlarm();
+      }
+
+      if (
+        normalized.matchRoomProvided &&
+        existing.matchRoomJson !== normalized.matchRoomJson
+      ) {
+        const pendingIntentCount = this.ctx.storage.sql
+          .exec<{ count: number }>(
+            `SELECT COUNT(*) AS count
+             FROM flarelobby_matchmaking_match_intents
+             WHERE status IN ('pending', 'initializing')`
+          )
+          .one().count;
+
+        if (pendingIntentCount > 0) {
+          throw new FlareLobbyError("CONFLICT", {
+            message: "成立処理中の Match Pool の Room 設定は変更できません。"
+          });
+        }
+
+        this.ctx.storage.sql.exec(
+          `UPDATE flarelobby_matchmaking_pools
+           SET match_room_json = ?, revision = revision + 1
+           WHERE singleton_id = 1`,
+          normalized.matchRoomJson
+        );
       }
 
       return toPool(existing);
@@ -365,9 +523,10 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
         mode,
         region,
         search_policy_json,
+        match_room_json,
         revision,
         created_at
-      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
       normalized.pool.id,
       normalized.poolKey,
       normalized.pool.gameId,
@@ -375,6 +534,7 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       normalized.pool.mode,
       normalized.pool.region,
       normalized.searchPolicyJson,
+      normalized.matchRoomJson,
       Date.now()
     );
 
@@ -429,6 +589,7 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
         searchPolicyJson
       );
       this.searchAndReserveCandidatesAt(Date.now());
+      await this.processPendingMatches();
     }
 
     await this.synchronizeAlarm();
@@ -478,6 +639,11 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
     const result = this.searchAndReserveCandidatesAt(
       normalizeSearchNow(options?.now)
     );
+    await this.processPendingMatches({
+      ...(options?.now === undefined
+        ? {}
+        : { now: normalizeSearchNow(options.now) })
+    });
     await this.synchronizeAlarm();
     return result;
   }
@@ -494,6 +660,97 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
     options: MatchmakingSearchOptions = {}
   ): Promise<MatchmakingSearchResult> {
     return this.searchAndReserveCandidates(options);
+  }
+
+  /** 成立意図を取得します。`matchId` または候補 ID を指定できます。 */
+  public async getMatchIntent(
+    matchIdOrCandidateId:
+      | string
+      | { readonly matchId?: string; readonly candidateId?: string }
+  ): Promise<MatchmakingMatchIntent | null> {
+    const identifier = normalizeMatchIntentIdentifier(matchIdOrCandidateId);
+    const row =
+      identifier.kind === "match"
+        ? this.readMatchIntentByMatchId(identifier.value)
+        : this.readMatchIntentByCandidateId(identifier.value);
+    return row === undefined ? null : this.toMatchIntent(row);
+  }
+
+  /** 未完了の成立意図を、Room 初期化とチケット確定まで進めます。 */
+  public async processPendingMatches(
+    options: MatchmakingMatchProcessingOptions = {}
+  ): Promise<readonly MatchmakingMatchIntent[]> {
+    const now = normalizeNow(options?.now);
+    const maxMatches =
+      options?.maxMatches === undefined
+        ? 32
+        : normalizePositiveSafeInteger(options.maxMatches, "maxMatches");
+
+    // マイグレーション前に予約された候補や、インスタンス再生成直後の
+    // `reserved` 行からも成立意図を復元できるようにします。
+    this.ensureMatchIntentsForReservedTickets(now);
+
+    const rows = this.ctx.storage.sql
+      .exec<MatchIntentRow>(
+        `SELECT
+          match_id AS matchId,
+          candidate_id AS candidateId,
+          pool_id AS poolId,
+          room_id AS roomId,
+          candidate_json AS candidateJson,
+          initialization_json AS initializationJson,
+          status,
+          attempt_count AS attemptCount,
+          max_attempts AS maxAttempts,
+          next_attempt_at AS nextAttemptAt,
+          last_error_code AS lastErrorCode,
+          result_json AS resultJson,
+          created_at AS createdAt,
+          updated_at AS updatedAt,
+          completed_at AS completedAt
+         FROM flarelobby_matchmaking_match_intents
+         WHERE status IN ('pending', 'initializing')
+           AND next_attempt_at IS NOT NULL
+           AND next_attempt_at <= ?
+         ORDER BY next_attempt_at ASC, match_id ASC
+         LIMIT ?`,
+        now,
+        maxMatches
+      )
+      .toArray();
+    const processed: MatchmakingMatchIntent[] = [];
+
+    for (const row of rows) {
+      const claimed = this.claimMatchIntent(row.matchId, now);
+
+      if (!claimed) {
+        continue;
+      }
+
+      await this.processClaimedMatchIntent(claimed);
+      const updated = this.readMatchIntentByMatchId(row.matchId);
+
+      if (updated !== undefined) {
+        processed.push(this.toMatchIntent(updated));
+      }
+    }
+
+    await this.synchronizeAlarm();
+    return Object.freeze(processed);
+  }
+
+  /** `processPendingMatches()` の説明的な別名です。 */
+  public async settleMatches(
+    options: MatchmakingMatchProcessingOptions = {}
+  ): Promise<readonly MatchmakingMatchIntent[]> {
+    return this.processPendingMatches(options);
+  }
+
+  /** `processPendingMatches()` の説明的な別名です。 */
+  public async processMatchmaking(
+    options: MatchmakingMatchProcessingOptions = {}
+  ): Promise<readonly MatchmakingMatchIntent[]> {
+    return this.processPendingMatches(options);
   }
 
   /** マッチングチケットを作成し、待機状態へ遷移させます。 */
@@ -516,99 +773,146 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
         });
       }
 
+      const storedTicket = parseStoredTicketResult(existingCommand.resultJson);
+      await this.processPendingMatches();
+      const currentTicket = this.readTicket(storedTicket.id);
       await this.synchronizeAlarm();
-      return parseStoredTicketResult(existingCommand.resultJson);
+      return currentTicket ?? storedTicket;
     }
 
-    const active = this.readActiveTicketByPlayer(principal.playerId);
+    const inFlight = this.inFlightCreateRequests.get(normalized.requestId);
 
-    if (active !== undefined) {
-      throw new FlareLobbyError("CONFLICT", {
-        message: "同じマッチングプールで有効なチケットが既に存在します。"
-      });
+    if (inFlight !== undefined) {
+      if (
+        inFlight.playerId !== principal.playerId ||
+        inFlight.payloadJson !== normalized.requestPayloadJson
+      ) {
+        throw new FlareLobbyError("CONFLICT", {
+          message: "同じ requestId に異なるマッチング条件を指定できません。"
+        });
+      }
+
+      return inFlight.promise;
     }
 
-    const ticketId = `ticket_${crypto.randomUUID()}`;
-    const createdAt = new Date(normalized.createdAtMs).toISOString();
-    const searchAttributesJson = normalized.searchAttributesJson;
+    let resolveInFlight!: (ticket: MatchmakingTicketRecord) => void;
+    let rejectInFlight!: (error: unknown) => void;
+    const inFlightPromise = new Promise<MatchmakingTicketRecord>(
+      (resolve, reject) => {
+        resolveInFlight = resolve;
+        rejectInFlight = reject;
+      }
+    );
+    inFlightPromise.catch(() => undefined);
+    this.inFlightCreateRequests.set(normalized.requestId, {
+      playerId: principal.playerId,
+      payloadJson: normalized.requestPayloadJson,
+      promise: inFlightPromise
+    });
 
     try {
-      this.ctx.storage.sql.exec(
-        `INSERT INTO flarelobby_matchmaking_tickets (
-          ticket_id,
-          pool_id,
-          player_id,
-          rating_value,
-          created_at,
-          queued_at,
-          region,
-          input_method,
-          search_attributes_json,
-          status,
-          expires_at_ms,
-          reserved_candidate_json,
-          reserved_at,
-          match_result_json,
-          matched_at,
-          cancelled_at,
-          expired_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'creating', ?, NULL, NULL, NULL, NULL, NULL, NULL)`,
-        ticketId,
-        pool.poolId,
-        principal.playerId,
-        normalized.ratingValue,
-        createdAt,
-        null,
-        normalized.region,
-        normalized.inputMethod,
-        searchAttributesJson,
-        normalized.expiresAtMs
-      );
-    } catch {
-      if (this.readActiveTicketByPlayer(principal.playerId) !== undefined) {
+      const active = this.readActiveTicketByPlayer(principal.playerId);
+
+      if (active !== undefined) {
         throw new FlareLobbyError("CONFLICT", {
           message: "同じマッチングプールで有効なチケットが既に存在します。"
         });
       }
 
-      throw new FlareLobbyError("CONNECTION_FAILED");
+      const ticketId = `ticket_${crypto.randomUUID()}`;
+      const createdAt = new Date(normalized.createdAtMs).toISOString();
+      const searchAttributesJson = normalized.searchAttributesJson;
+
+      try {
+        this.ctx.storage.sql.exec(
+          `INSERT INTO flarelobby_matchmaking_tickets (
+            ticket_id,
+            pool_id,
+            player_id,
+            rating_value,
+            created_at,
+            queued_at,
+            region,
+            input_method,
+            search_attributes_json,
+            status,
+            expires_at_ms,
+            reserved_candidate_json,
+            reserved_at,
+            match_result_json,
+            matched_at,
+            cancelled_at,
+            expired_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'creating', ?, NULL, NULL, NULL, NULL, NULL, NULL)`,
+          ticketId,
+          pool.poolId,
+          principal.playerId,
+          normalized.ratingValue,
+          createdAt,
+          null,
+          normalized.region,
+          normalized.inputMethod,
+          searchAttributesJson,
+          normalized.expiresAtMs
+        );
+      } catch {
+        if (this.readActiveTicketByPlayer(principal.playerId) !== undefined) {
+          throw new FlareLobbyError("CONFLICT", {
+            message: "同じマッチングプールで有効なチケットが既に存在します。"
+          });
+        }
+
+        throw new FlareLobbyError("CONNECTION_FAILED");
+      }
+
+      this.incrementPoolRevision();
+      this.appendTicketEvent(ticketId, "creating", normalized.createdAtMs);
+
+      this.ctx.storage.sql.exec(
+        `UPDATE flarelobby_matchmaking_tickets
+         SET status = 'waiting', queued_at = ?
+         WHERE ticket_id = ?`,
+        createdAt,
+        ticketId
+      );
+      this.incrementPoolRevision();
+      this.appendTicketEvent(ticketId, "waiting", normalized.createdAtMs);
+
+      // チケット追加時は待機中の全体から決定論的な候補を探索します。
+      // この処理は await を挟まず SQLite 状態変更まで完了するため、候補の
+      // 重複確保が同じ Durable Object の入力ゲート内で起こりません。
+      this.searchAndReserveCandidatesAt(Date.now());
+      await this.processPendingMatches();
+
+      const ticket = this.readTicket(ticketId);
+
+      if (ticket === null) {
+        throw new FlareLobbyError("CONNECTION_FAILED");
+      }
+
+      this.recordProcessedCommand({
+        requestId: normalized.requestId,
+        command: "matchmaking.create",
+        playerId: principal.playerId,
+        payloadJson: normalized.requestPayloadJson,
+        resultJson: JSON.stringify(ticket),
+        createdAt: normalized.createdAtMs
+      });
+      await this.synchronizeAlarm();
+
+      resolveInFlight(ticket);
+      return ticket;
+    } catch (error) {
+      rejectInFlight(error);
+      throw error;
+    } finally {
+      if (
+        this.inFlightCreateRequests.get(normalized.requestId)?.promise ===
+        inFlightPromise
+      ) {
+        this.inFlightCreateRequests.delete(normalized.requestId);
+      }
     }
-
-    this.incrementPoolRevision();
-    this.appendTicketEvent(ticketId, "creating", normalized.createdAtMs);
-
-    this.ctx.storage.sql.exec(
-      `UPDATE flarelobby_matchmaking_tickets
-       SET status = 'waiting', queued_at = ?
-       WHERE ticket_id = ?`,
-      createdAt,
-      ticketId
-    );
-    this.incrementPoolRevision();
-    this.appendTicketEvent(ticketId, "waiting", normalized.createdAtMs);
-
-    // チケット追加時は待機中の全体から決定論的な候補を探索します。
-    // この処理は await を挟まず SQLite 状態変更まで完了するため、候補の
-    // 重複確保が同じ Durable Object の入力ゲート内で起こりません。
-    this.searchAndReserveCandidatesAt(Date.now());
-
-    const ticket = this.readTicket(ticketId);
-
-    if (ticket === null) {
-      throw new FlareLobbyError("CONNECTION_FAILED");
-    }
-
-    this.recordProcessedCommand({
-      requestId: normalized.requestId,
-      command: "matchmaking.create",
-      playerId: principal.playerId,
-      payloadJson: normalized.requestPayloadJson,
-      resultJson: JSON.stringify(ticket),
-      createdAt: normalized.createdAtMs
-    });
-    await this.synchronizeAlarm();
-
-    return ticket;
   }
 
   /** `createTicket()` の意味を明示する別名です。 */
@@ -771,7 +1075,15 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       parseCandidate(first.reservedCandidateJson).id === candidate.id &&
       parseCandidate(second.reservedCandidateJson).id === candidate.id
     ) {
-      return [this.toTicket(first), this.toTicket(second)];
+      await this.processPendingMatches();
+      const retriedFirst = this.readTicket(firstId);
+      const retriedSecond = this.readTicket(secondId);
+
+      if (retriedFirst === null || retriedSecond === null) {
+        throw new FlareLobbyError("CONNECTION_FAILED");
+      }
+
+      return [retriedFirst, retriedSecond];
     }
 
     if (first.status !== "waiting" || second.status !== "waiting") {
@@ -786,6 +1098,7 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       });
     }
 
+    await this.processPendingMatches();
     await this.synchronizeAlarm();
 
     const reservedFirst = this.readTicket(firstId);
@@ -826,22 +1139,37 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
   ): Promise<readonly [MatchmakingTicketRecord, MatchmakingTicketRecord]> {
     const pool = this.requirePool();
     const result = normalizeMatchResult(options?.result, pool);
+    return this.applyMatchResult(result, pool, true);
+  }
+
+  private async applyMatchResult(
+    result: MatchmakingMatchResult,
+    pool: PoolRow,
+    verifyRoom: boolean
+  ): Promise<readonly [MatchmakingTicketRecord, MatchmakingTicketRecord]> {
     const firstId = result.candidate.ticketIds[0];
     const secondId = result.candidate.ticketIds[1];
-    const first = this.readTicketRow(firstId);
-    const second = this.readTicketRow(secondId);
+    const readRows = (): readonly [TicketRow, TicketRow] => {
+      const first = this.readTicketRow(firstId);
+      const second = this.readTicketRow(secondId);
 
-    if (first === undefined || second === undefined || firstId === secondId) {
-      throw new FlareLobbyError("CONFLICT", {
-        message: "成立結果に指定されたチケットが存在しません。"
-      });
-    }
+      if (first === undefined || second === undefined || firstId === secondId) {
+        throw new FlareLobbyError("CONFLICT", {
+          message: "成立結果に指定されたチケットが存在しません。"
+        });
+      }
+
+      return [first, second];
+    };
+
+    let [first, second] = readRows();
 
     if (first.status === "matched" && second.status === "matched") {
       if (
         first.matchResultJson === JSON.stringify(result) &&
         second.matchResultJson === JSON.stringify(result)
       ) {
+        this.completeMatchIntent(result);
         return [this.toTicket(first), this.toTicket(second)];
       }
 
@@ -863,6 +1191,38 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       });
     }
 
+    if (verifyRoom) {
+      await this.verifyMatchRoomInitialized(result, pool);
+      [first, second] = readRows();
+
+      if (first.status === "matched" && second.status === "matched") {
+        if (
+          first.matchResultJson === JSON.stringify(result) &&
+          second.matchResultJson === JSON.stringify(result)
+        ) {
+          this.completeMatchIntent(result);
+          return [this.toTicket(first), this.toTicket(second)];
+        }
+
+        throw new FlareLobbyError("CONFLICT", {
+          message: "成立済みチケットへ異なる結果を適用できません。"
+        });
+      }
+
+      if (
+        first.status !== "reserved" ||
+        second.status !== "reserved" ||
+        first.reservedCandidateJson === null ||
+        second.reservedCandidateJson === null ||
+        parseCandidate(first.reservedCandidateJson).id !== result.candidate.id ||
+        parseCandidate(second.reservedCandidateJson).id !== result.candidate.id
+      ) {
+        throw new FlareLobbyError("CONFLICT", {
+          message: "予約済みではない候補を成立させることはできません。"
+        });
+      }
+    }
+
     const matchedAtMs = Date.now();
     const matchedAt = new Date(matchedAtMs).toISOString();
     const resultJson = JSON.stringify(result);
@@ -880,6 +1240,8 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       this.appendTicketEvent(ticketId, "matched", matchedAtMs);
     }
 
+    this.completeMatchIntent(result);
+
     await this.synchronizeAlarm();
 
     const matchedFirst = this.readTicket(firstId);
@@ -890,6 +1252,29 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
     }
 
     return [matchedFirst, matchedSecond];
+  }
+
+  private async verifyMatchRoomInitialized(
+    result: MatchmakingMatchResult,
+    pool: PoolRow
+  ): Promise<void> {
+    const room = this.env.FLARE_LOBBY_ROOMS.getByName(
+      result.room.id
+    ) as unknown as MatchRoomGatewayStub;
+    const snapshot = await room.getSnapshot();
+
+    if (
+      snapshot === null ||
+      snapshot.room.kind !== "match" ||
+      snapshot.room.id !== result.room.id ||
+      snapshot.room.matchId !== result.matchId
+    ) {
+      throw new FlareLobbyError("CONFLICT", {
+        message: "対戦 Room の初期化が完了していません。"
+      });
+    }
+
+    normalizeMatchRoom(snapshot.room, pool);
   }
 
   /** `matchCandidate()` の意味を明示する別名です。 */
@@ -998,6 +1383,7 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
     const now = Date.now();
     this.expireDueTicketsAt(now);
     this.searchAndReserveCandidatesAt(now);
+    await this.processPendingMatches({ now });
     await this.synchronizeAlarm();
   }
 
@@ -1231,6 +1617,8 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       this.appendTicketEvent(ticketId, "reserved", reservedAtMs);
     }
 
+    this.ensureMatchIntent(candidate, reservedAtMs);
+
     return true;
   }
 
@@ -1285,6 +1673,383 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
     return expired;
   }
 
+  private ensureMatchIntentsForReservedTickets(nowMs: number): void {
+    const candidates = this.ctx.storage.sql
+      .exec<{ candidateJson: string }>(
+        `SELECT DISTINCT reserved_candidate_json AS candidateJson
+         FROM flarelobby_matchmaking_tickets
+         WHERE status = 'reserved' AND reserved_candidate_json IS NOT NULL`
+      )
+      .toArray();
+
+    for (const row of candidates) {
+      this.ensureMatchIntent(parseCandidate(row.candidateJson), nowMs);
+    }
+  }
+
+  private ensureMatchIntent(
+    candidate: MatchCandidate,
+    createdAtMs: number
+  ): MatchIntentRow {
+    const existing = this.readMatchIntentByCandidateId(candidate.id);
+
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    const pool = this.requirePool();
+    const first = this.readTicketRow(candidate.ticketIds[0]);
+    const second = this.readTicketRow(candidate.ticketIds[1]);
+
+    if (
+      first === undefined ||
+      second === undefined ||
+      first.status !== "reserved" ||
+      second.status !== "reserved"
+    ) {
+      throw new FlareLobbyError("CONFLICT", {
+        message: "成立意図を作成するには、2 件のチケットが予約済みである必要があります。"
+      });
+    }
+
+    const matchRoom = parseMatchRoomOptions(pool.matchRoomJson);
+    const matchId = createMatchmakingMatchId(candidate.id);
+    const room = createMatchRoomRecord(
+      matchId,
+      candidate,
+      toPool(pool),
+      matchRoom
+    );
+    const initialization = createMatchRoomInitialization(
+      matchId,
+      room,
+      first,
+      second,
+      matchRoom
+    );
+    const initializationJson = JSON.stringify(initialization);
+    const roomId = room.id;
+
+    this.ctx.storage.sql.exec(
+      `INSERT INTO flarelobby_matchmaking_match_intents (
+        match_id,
+        candidate_id,
+        pool_id,
+        room_id,
+        candidate_json,
+        initialization_json,
+        status,
+        attempt_count,
+        max_attempts,
+        next_attempt_at,
+        last_error_code,
+        result_json,
+        created_at,
+        updated_at,
+        completed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, NULL, NULL, ?, ?, NULL)
+      ON CONFLICT(candidate_id) DO NOTHING`,
+      matchId,
+      candidate.id,
+      pool.poolId,
+      roomId,
+      JSON.stringify(candidate),
+      initializationJson,
+      matchRoom.maxAttempts,
+      createdAtMs,
+      createdAtMs,
+      createdAtMs
+    );
+
+    const stored = this.readMatchIntentByCandidateId(candidate.id);
+
+    if (stored === undefined) {
+      throw new FlareLobbyError("CONNECTION_FAILED");
+    }
+
+    return stored;
+  }
+
+  private readMatchIntentByMatchId(matchId: string): MatchIntentRow | undefined {
+    return this.ctx.storage.sql
+      .exec<MatchIntentRow>(
+        `SELECT
+          match_id AS matchId,
+          candidate_id AS candidateId,
+          pool_id AS poolId,
+          room_id AS roomId,
+          candidate_json AS candidateJson,
+          initialization_json AS initializationJson,
+          status,
+          attempt_count AS attemptCount,
+          max_attempts AS maxAttempts,
+          next_attempt_at AS nextAttemptAt,
+          last_error_code AS lastErrorCode,
+          result_json AS resultJson,
+          created_at AS createdAt,
+          updated_at AS updatedAt,
+          completed_at AS completedAt
+         FROM flarelobby_matchmaking_match_intents
+         WHERE match_id = ?`,
+        matchId
+      )
+      .toArray()[0];
+  }
+
+  private readMatchIntentByCandidateId(
+    candidateId: string
+  ): MatchIntentRow | undefined {
+    return this.ctx.storage.sql
+      .exec<MatchIntentRow>(
+        `SELECT
+          match_id AS matchId,
+          candidate_id AS candidateId,
+          pool_id AS poolId,
+          room_id AS roomId,
+          candidate_json AS candidateJson,
+          initialization_json AS initializationJson,
+          status,
+          attempt_count AS attemptCount,
+          max_attempts AS maxAttempts,
+          next_attempt_at AS nextAttemptAt,
+          last_error_code AS lastErrorCode,
+          result_json AS resultJson,
+          created_at AS createdAt,
+          updated_at AS updatedAt,
+          completed_at AS completedAt
+         FROM flarelobby_matchmaking_match_intents
+         WHERE candidate_id = ?`,
+        candidateId
+      )
+      .toArray()[0];
+  }
+
+  private claimMatchIntent(
+    matchId: string,
+    nowMs: number
+  ): MatchIntentRow | undefined {
+    const retryAt = nowMs + DEFAULT_MATCHMAKING_MATCH_RETRY_DELAY_MS;
+    const updated = this.ctx.storage.sql
+      .exec<MatchIntentRow>(
+        `UPDATE flarelobby_matchmaking_match_intents
+         SET status = 'initializing',
+             attempt_count = attempt_count + 1,
+             next_attempt_at = ?,
+             updated_at = ?
+         WHERE match_id = ?
+           AND status IN ('pending', 'initializing')
+           AND next_attempt_at IS NOT NULL
+           AND next_attempt_at <= ?
+         RETURNING
+           match_id AS matchId,
+           candidate_id AS candidateId,
+           pool_id AS poolId,
+           room_id AS roomId,
+           candidate_json AS candidateJson,
+           initialization_json AS initializationJson,
+           status,
+           attempt_count AS attemptCount,
+           max_attempts AS maxAttempts,
+           next_attempt_at AS nextAttemptAt,
+           last_error_code AS lastErrorCode,
+           result_json AS resultJson,
+           created_at AS createdAt,
+           updated_at AS updatedAt,
+           completed_at AS completedAt`,
+        retryAt,
+        nowMs,
+        matchId,
+        nowMs
+      )
+      .toArray()[0];
+
+    return updated;
+  }
+
+  private async processClaimedMatchIntent(intent: MatchIntentRow): Promise<void> {
+    const current = this.readMatchIntentByMatchId(intent.matchId);
+
+    if (current === undefined || current.status !== "initializing") {
+      return;
+    }
+
+    try {
+      const initialization = parseStoredRoomInitialization(
+        current.initializationJson
+      );
+      const room = this.env.FLARE_LOBBY_ROOMS.getByName(
+        current.roomId
+      ) as unknown as MatchRoomGatewayStub;
+      const snapshot = await room.initialize(initialization);
+      const result = this.createMatchResultFromSnapshot(current, snapshot);
+
+      // Room の初期化が成功した後にだけチケットを matched へ進めます。
+      await this.applyMatchResult(result, this.requirePool(), false);
+    } catch (error) {
+      const code = getMatchSettlementErrorCode(error);
+      const latest = this.readMatchIntentByMatchId(intent.matchId);
+
+      if (latest === undefined || latest.status === "matched") {
+        return;
+      }
+
+      if (
+        !isRetryableMatchSettlementError(code) ||
+        latest.attemptCount >= latest.maxAttempts
+      ) {
+        this.failMatchIntent(latest, code);
+        return;
+      }
+
+      const nowMs = Date.now();
+      const nextAttemptAt =
+        nowMs + getMatchSettlementRetryDelay(latest.attemptCount);
+      this.ctx.storage.sql.exec(
+        `UPDATE flarelobby_matchmaking_match_intents
+         SET status = 'pending',
+             next_attempt_at = ?,
+             last_error_code = ?,
+             updated_at = ?
+         WHERE match_id = ? AND status = 'initializing'`,
+        nextAttemptAt,
+        code,
+        nowMs,
+        latest.matchId
+      );
+    }
+  }
+
+  private createMatchResultFromSnapshot(
+    intent: MatchIntentRow,
+    snapshot: RoomSnapshot
+  ): MatchmakingMatchResult {
+    const pool = this.requirePool();
+
+    if (
+      snapshot.room.kind !== "match" ||
+      snapshot.room.id !== intent.roomId ||
+      snapshot.room.matchId !== intent.matchId
+    ) {
+      throw new FlareLobbyError("CONFLICT", {
+        message: "初期化された Room が成立意図と一致しません。"
+      });
+    }
+
+    const room = normalizeMatchRoom(snapshot.room, pool);
+
+    if (room.id !== intent.roomId || room.matchId !== intent.matchId) {
+      throw new FlareLobbyError("CONFLICT", {
+        message: "初期化された Room の識別子が成立意図と一致しません。"
+      });
+    }
+
+    return deepFreeze({
+      matchId: intent.matchId,
+      candidate: parseCandidate(intent.candidateJson),
+      room,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  private completeMatchIntent(result: MatchmakingMatchResult): void {
+    const nowMs = Date.now();
+    this.ctx.storage.sql.exec(
+      `UPDATE flarelobby_matchmaking_match_intents
+       SET status = 'matched',
+           next_attempt_at = NULL,
+           last_error_code = NULL,
+           result_json = ?,
+           updated_at = ?,
+           completed_at = ?
+       WHERE candidate_id = ?
+         AND status <> 'failed'`,
+      JSON.stringify(result),
+      nowMs,
+      nowMs,
+      result.candidate.id
+    );
+  }
+
+  private failMatchIntent(
+    intent: MatchIntentRow,
+    code: FlareLobbyErrorCode
+  ): void {
+    const nowMs = Date.now();
+    this.ctx.storage.sql.exec(
+      `UPDATE flarelobby_matchmaking_match_intents
+       SET status = 'failed',
+           next_attempt_at = NULL,
+           last_error_code = ?,
+           updated_at = ?
+       WHERE match_id = ? AND status <> 'matched'`,
+      code,
+      nowMs,
+      intent.matchId
+    );
+
+    this.releaseReservedCandidate(parseCandidate(intent.candidateJson), nowMs);
+  }
+
+  private releaseReservedCandidate(
+    candidate: MatchCandidate,
+    cancelledAtMs: number
+  ): void {
+    const cancelledAt = new Date(cancelledAtMs).toISOString();
+
+    for (const ticketId of candidate.ticketIds) {
+      const row = this.readTicketRow(ticketId);
+
+      if (
+        row === undefined ||
+        row.status !== "reserved" ||
+        row.reservedCandidateJson === null ||
+        parseCandidate(row.reservedCandidateJson).id !== candidate.id
+      ) {
+        continue;
+      }
+
+      this.ctx.storage.sql.exec(
+        `UPDATE flarelobby_matchmaking_tickets
+         SET status = 'cancelled', cancelled_at = ?
+         WHERE ticket_id = ? AND status = 'reserved'`,
+        cancelledAt,
+        ticketId
+      );
+      this.incrementPoolRevision();
+      this.appendTicketEvent(ticketId, "cancelled", cancelledAtMs);
+    }
+  }
+
+  private toMatchIntent(row: MatchIntentRow): MatchmakingMatchIntent {
+    const pool = this.requirePool();
+    const initialization = parseStoredRoomInitialization(row.initializationJson);
+    const candidate = parseCandidate(row.candidateJson);
+    const room = normalizeMatchRoom(initialization.room, pool);
+    const result =
+      row.resultJson === null ? null : parseMatchResult(row.resultJson);
+    const lastErrorCode = isFlareLobbyErrorCode(row.lastErrorCode)
+      ? row.lastErrorCode
+      : null;
+
+    return deepFreeze({
+      matchId: row.matchId,
+      candidate,
+      room,
+      status: row.status,
+      attemptCount: row.attemptCount,
+      maxAttempts: row.maxAttempts,
+      nextAttemptAt: row.nextAttemptAt,
+      lastErrorCode,
+      result,
+      createdAt: new Date(row.createdAt).toISOString(),
+      updatedAt: new Date(row.updatedAt).toISOString(),
+      completedAt:
+        row.completedAt === null
+          ? null
+          : new Date(row.completedAt).toISOString()
+    });
+  }
+
   private async requireGatewayPrincipal(
     options: { readonly gatewayPrincipal?: GatewayPrincipalEnvelope }
   ): Promise<Principal> {
@@ -1326,6 +2091,7 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
           mode,
           region,
           search_policy_json AS searchPolicyJson,
+          match_room_json AS matchRoomJson,
           revision
          FROM flarelobby_matchmaking_pools
          WHERE singleton_id = 1`
@@ -1716,7 +2482,15 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
             Date.now(),
             parseSearchPolicy(pool.searchPolicyJson)
           );
-    const nextValues = [nextExpiry, nextSearchAt].filter(
+    const nextMatchAttemptAt = this.ctx.storage.sql
+      .exec<{ nextAttemptAt: number | null }>(
+        `SELECT MIN(next_attempt_at) AS nextAttemptAt
+         FROM flarelobby_matchmaking_match_intents
+         WHERE status IN ('pending', 'initializing')
+           AND next_attempt_at IS NOT NULL`
+      )
+      .one().nextAttemptAt;
+    const nextValues = [nextExpiry, nextSearchAt, nextMatchAttemptAt].filter(
       (value): value is number => value !== null
     );
     const current = await this.ctx.storage.getAlarm();
@@ -1843,6 +2617,45 @@ function migrateMatchPoolSchema(sql: SqlStorage): void {
       Date.now()
     );
   }
+
+  if (currentVersion < 3) {
+    sql.exec(
+      `ALTER TABLE flarelobby_matchmaking_pools
+       ADD COLUMN match_room_json TEXT`
+    );
+    sql.exec(
+      `UPDATE flarelobby_matchmaking_pools
+       SET match_room_json = ?
+       WHERE match_room_json IS NULL`,
+      JSON.stringify(normalizeMatchmakingMatchRoomOptions())
+    );
+    sql.exec(`
+      CREATE TABLE IF NOT EXISTS flarelobby_matchmaking_match_intents (
+        match_id TEXT PRIMARY KEY,
+        candidate_id TEXT NOT NULL UNIQUE,
+        pool_id TEXT NOT NULL,
+        room_id TEXT NOT NULL UNIQUE,
+        candidate_json TEXT NOT NULL,
+        initialization_json TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'initializing', 'matched', 'failed')),
+        attempt_count INTEGER NOT NULL,
+        max_attempts INTEGER NOT NULL,
+        next_attempt_at INTEGER,
+        last_error_code TEXT,
+        result_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        completed_at INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS
+        idx_flarelobby_matchmaking_match_intents_retry
+        ON flarelobby_matchmaking_match_intents (status, next_attempt_at, match_id);
+
+      INSERT INTO flarelobby_matchmaking_schema_migrations (version, applied_at)
+      VALUES (3, ?)
+    `, Date.now());
+  }
 }
 
 function normalizePoolInput(
@@ -1852,6 +2665,8 @@ function normalizePoolInput(
   readonly poolKey: string;
   readonly searchPolicyJson: string;
   readonly searchPolicyProvided: boolean;
+  readonly matchRoomJson: string;
+  readonly matchRoomProvided: boolean;
 } {
   const candidate =
     isRecord(input) && isRecord(input["pool"]) ? input["pool"] : input;
@@ -1861,12 +2676,19 @@ function normalizePoolInput(
       ? input["searchPolicy"]
       : undefined;
   const searchPolicy = normalizeMatchmakingSearchPolicy(searchPolicyValue);
+  const matchRoomValue =
+    isRecord(input) && Object.prototype.hasOwnProperty.call(input, "matchRoom")
+      ? input["matchRoom"]
+      : undefined;
+  const matchRoom = normalizeMatchmakingMatchRoomOptions(matchRoomValue);
 
   return {
     pool,
     poolKey: createMatchmakingPoolKey(pool),
     searchPolicyJson: JSON.stringify(searchPolicy),
-    searchPolicyProvided: searchPolicyValue !== undefined
+    searchPolicyProvided: searchPolicyValue !== undefined,
+    matchRoomJson: JSON.stringify(matchRoom),
+    matchRoomProvided: matchRoomValue !== undefined
   };
 }
 
@@ -1924,6 +2746,248 @@ function parseSearchPolicy(value: string): NormalizedMatchmakingSearchPolicy {
     }
     throw new FlareLobbyError("CONNECTION_FAILED");
   }
+}
+
+function normalizeMatchmakingMatchRoomOptions(
+  input: unknown = {}
+): NormalizedMatchRoomOptions {
+  if (!isRecord(input)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  const settings =
+    input["settings"] === undefined
+      ? {}
+      : normalizeJsonObject(input["settings"]);
+  const metadata =
+    input["metadata"] === undefined
+      ? {}
+      : normalizeJsonObject(input["metadata"]);
+  const firstTeamIds = input["teamIds"];
+  const secondTeamIds = input["teams"];
+
+  if (
+    firstTeamIds !== undefined &&
+    secondTeamIds !== undefined &&
+    JSON.stringify(firstTeamIds) !== JSON.stringify(secondTeamIds)
+  ) {
+    throw new FlareLobbyError("CONFLICT", {
+      message: "teamIds と teams に異なるチームを指定できません。"
+    });
+  }
+
+  const teamIdsValue =
+    firstTeamIds ?? secondTeamIds ?? DEFAULT_MATCHMAKING_MATCH_TEAM_IDS;
+
+  if (
+    !Array.isArray(teamIdsValue) ||
+    teamIdsValue.length !== 2 ||
+    !teamIdsValue.every(isNonEmptyString)
+  ) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: "対戦ルームのチームは異なる 2 件の識別子で指定してください。"
+    });
+  }
+
+  const teamIds = teamIdsValue.map((teamId) => teamId.trim());
+
+  if (
+    teamIds[0] === teamIds[1] ||
+    teamIds.some((teamId) => teamId.length > 128)
+  ) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: "対戦ルームのチーム識別子が正しくありません。"
+    });
+  }
+
+  const maxPlayers =
+    input["maxPlayers"] === undefined
+      ? 2
+      : normalizePositiveSafeInteger(input["maxPlayers"], "maxPlayers");
+  const minimumPlayers =
+    input["minimumPlayers"] === undefined
+      ? 2
+      : normalizePositiveSafeInteger(
+          input["minimumPlayers"],
+          "minimumPlayers"
+        );
+  const requireAllPlayersReady = input["requireAllPlayersReady"] ?? false;
+
+  if (
+    typeof requireAllPlayersReady !== "boolean" ||
+    maxPlayers < 2 ||
+    minimumPlayers < 2 ||
+    minimumPlayers > maxPlayers
+  ) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: "対戦ルームのプレイヤー数設定が正しくありません。"
+    });
+  }
+
+  const maxAttempts =
+    input["maxAttempts"] === undefined
+      ? DEFAULT_MATCHMAKING_MATCH_MAX_ATTEMPTS
+      : normalizePositiveSafeInteger(input["maxAttempts"], "maxAttempts");
+
+  return {
+    settingsJson: JSON.stringify(settings),
+    metadataJson: JSON.stringify(metadata),
+    teamIds: Object.freeze(teamIds),
+    maxPlayers,
+    minimumPlayers,
+    requireAllPlayersReady,
+    maxAttempts
+  };
+}
+
+function parseMatchRoomOptions(value: string): NormalizedMatchRoomOptions {
+  try {
+    return normalizeMatchmakingMatchRoomOptions(JSON.parse(value));
+  } catch (error) {
+    if (error instanceof FlareLobbyError) {
+      throw error;
+    }
+
+    throw new FlareLobbyError("CONNECTION_FAILED");
+  }
+}
+
+function createMatchRoomRecord(
+  matchId: string,
+  candidate: MatchCandidate,
+  pool: MatchmakingPool,
+  options: NormalizedMatchRoomOptions
+): MatchmakingMatchRoomRecord {
+  const settings = parseJsonObject(options.settingsJson);
+  const configuredMetadata = parseJsonObject(options.metadataJson);
+  const metadata = {
+    ...configuredMetadata,
+    candidateId: candidate.id,
+    matchId,
+    poolId: pool.id,
+    gameId: pool.gameId,
+    seasonId: pool.seasonId,
+    mode: pool.mode,
+    region: pool.region
+  };
+
+  return deepFreeze({
+    id: createMatchmakingRoomId(matchId),
+    kind: "match",
+    matchId,
+    pool,
+    settings: toMatchmakingAttributeObject(settings),
+    metadata: toMatchmakingAttributeObject(metadata)
+  });
+}
+
+function createMatchRoomInitialization(
+  matchId: string,
+  room: MatchmakingMatchRoomRecord,
+  first: TicketRow,
+  second: TicketRow,
+  options: NormalizedMatchRoomOptions
+): RoomInitializationOptions {
+  const ticketRows = [first, second] as const;
+  const participants: readonly Participant[] = ticketRows.map(
+    (ticket, index) => ({
+      kind: "player" as const,
+      id: `participant_${matchId}_${index + 1}`,
+      player: { id: ticket.playerId },
+      teamId: options.teamIds[index]!,
+      ready: false
+    })
+  );
+  const teams: readonly Team[] = options.teamIds.map((id) => ({ id }));
+
+  return {
+    room: room as unknown as MatchRoom,
+    participants,
+    teams,
+    maxPlayers: options.maxPlayers,
+    minimumPlayers: options.minimumPlayers,
+    requireAllPlayersReady: options.requireAllPlayersReady
+  };
+}
+
+function parseStoredRoomInitialization(
+  value: string
+): RoomInitializationOptions {
+  try {
+    const parsed: unknown = JSON.parse(value);
+
+    if (!isRecord(parsed) || !isRecord(parsed["room"])) {
+      throw new FlareLobbyError("CONNECTION_FAILED");
+    }
+
+    return parsed as unknown as RoomInitializationOptions;
+  } catch (error) {
+    if (error instanceof FlareLobbyError) {
+      throw error;
+    }
+
+    throw new FlareLobbyError("CONNECTION_FAILED");
+  }
+}
+
+function normalizeMatchIntentIdentifier(
+  value: string | { readonly matchId?: string; readonly candidateId?: string }
+): { readonly kind: "match" | "candidate"; readonly value: string } {
+  if (isNonEmptyString(value)) {
+    return value.startsWith("match_")
+      ? { kind: "match", value }
+      : { kind: "candidate", value };
+  }
+
+  if (isRecord(value)) {
+    if (isNonEmptyString(value["matchId"])) {
+      return { kind: "match", value: value["matchId"] };
+    }
+
+    if (isNonEmptyString(value["candidateId"])) {
+      return { kind: "candidate", value: value["candidateId"] };
+    }
+  }
+
+  throw new FlareLobbyError("INVALID_PAYLOAD");
+}
+
+function normalizePositiveSafeInteger(value: unknown, fieldName: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: `${fieldName} は 1 以上の安全な整数で指定してください。`
+    });
+  }
+
+  return value;
+}
+
+function getMatchSettlementErrorCode(error: unknown): FlareLobbyErrorCode {
+  return error instanceof FlareLobbyError ? error.code : "CONNECTION_FAILED";
+}
+
+function isRetryableMatchSettlementError(
+  code: FlareLobbyErrorCode
+): boolean {
+  return ![
+    "INVALID_PAYLOAD",
+    "INVALID_MESSAGE",
+    "UNAUTHENTICATED",
+    "FORBIDDEN",
+    "ROOM_FULL",
+    "ROOM_FINISHED",
+    "CANCELLED",
+    "UNSUPPORTED_PROTOCOL_VERSION",
+    "UNKNOWN_EVENT"
+  ].includes(code);
+}
+
+function getMatchSettlementRetryDelay(attemptCount: number): number {
+  const exponent = Math.max(0, Math.min(attemptCount - 1, 6));
+  return Math.min(
+    DEFAULT_MATCHMAKING_MATCH_RETRY_DELAY_MS * 2 ** exponent,
+    DEFAULT_MATCHMAKING_MATCH_MAX_RETRY_DELAY_MS
+  );
 }
 
 function normalizeCreation(
@@ -2107,9 +3171,14 @@ function normalizeMatchRoom(
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }
 
-    const roomPool = normalizePool(value["pool"]);
+  const roomPool = normalizePool(value["pool"]);
 
-  if (!samePool(pool, { pool: roomPool, poolKey: createMatchmakingPoolKey(roomPool) })) {
+  if (
+    !samePool(pool, {
+      pool: roomPool,
+      poolKey: createMatchmakingPoolKey(roomPool)
+    })
+  ) {
     throw new FlareLobbyError("CONFLICT", {
       message: "成立結果の Room が Match Pool と一致しません。"
     });

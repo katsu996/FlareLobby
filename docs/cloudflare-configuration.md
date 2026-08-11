@@ -59,7 +59,24 @@ export {
 } from "@flarelobby/cloudflare";
 ```
 
-`matchmakingPools` にプールを追加する場合は、`id`、`gameId`、`seasonId`、`mode`、`region` をすべて空でない文字列にし、`id` を重複させないでください。候補探索の `searchPolicy` は任意で、未指定時は待機開始時 `75`、20 秒後 `150`、60 秒後 `400` の検索幅を使用します。
+`matchmakingPools` にプールを追加する場合は、`id`、`gameId`、`seasonId`、`mode`、`region` をすべて空でない文字列にし、`id` を重複させないでください。候補探索の `searchPolicy` は任意で、未指定時は待機開始時 `75`、20 秒後 `150`、60 秒後 `400` の検索幅を使用します。成立時の対戦 Room は `matchRoom` で設定でき、未指定時は `blue` と `red` の 2 チーム、最大 2 プレイヤー、最小 2 プレイヤーで初期化します。
+
+```ts
+matchmakingPools: [
+  {
+    id: "ranked-jp",
+    gameId: "example-game",
+    seasonId: "season-1",
+    mode: "ranked-1v1",
+    region: "jp",
+    matchRoom: {
+      settings: { map: "forest" },
+      metadata: { playlist: "ranked" },
+      teamIds: ["blue", "red"]
+    }
+  }
+]
+```
 
 ## Wrangler 設定
 

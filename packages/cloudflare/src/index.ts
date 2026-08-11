@@ -74,9 +74,15 @@ export {
   getRoomWebSocketTag
 } from "./room.js";
 export {
+  DEFAULT_MATCHMAKING_MATCH_MAX_ATTEMPTS,
+  DEFAULT_MATCHMAKING_MATCH_MAX_RETRY_DELAY_MS,
+  DEFAULT_MATCHMAKING_MATCH_RETRY_DELAY_MS,
+  DEFAULT_MATCHMAKING_MATCH_TEAM_IDS,
   DEFAULT_MATCHMAKING_TICKET_TTL_MS,
   MATCHMAKING_POOL_KEY_SEPARATOR,
+  createMatchmakingMatchId,
   createMatchmakingPoolKey,
+  createMatchmakingRoomId,
   createMatchPoolKey,
   getMatchmakingPoolKey,
   getMatchPoolName
@@ -94,6 +100,10 @@ export type {
   MatchPoolInitializationOptions,
   MatchPoolSnapshot,
   MatchmakingAttributeObject,
+  MatchmakingMatchIntent,
+  MatchmakingMatchIntentStatus,
+  MatchmakingMatchProcessingOptions,
+  MatchmakingMatchRoomOptions,
   MatchmakingMatchRoomRecord,
   MatchmakingMatchResult,
   MatchmakingSearchOptions,

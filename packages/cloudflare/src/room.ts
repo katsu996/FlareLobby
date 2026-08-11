@@ -4033,10 +4033,14 @@ async function normalizeInitialization(
     hostParticipantId: null,
     hostPlayerId: null,
     maxPlayers,
-    maxSpectators: null,
+    // SQLite の Room スキーマでは観戦者上限を必須値として保持するため、
+    // 対戦 Room は観戦不可を 0 として保存します。
+    maxSpectators: 0,
     minimumPlayers: startConditions.minimumPlayers,
     requireAllPlayersReady: startConditions.requireAllPlayersReady,
-    joinMethod: null,
+    // Match Room は `join()` の対象外ですが、SQLite の互換スキーマでは
+    // join_method が必須のため、未使用の既定値を保存します。
+    joinMethod: "public",
     joinPasswordSalt: null,
     joinPasswordHash: null,
     finishedRoomRetentionMs,
