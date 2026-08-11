@@ -2,9 +2,13 @@ import type {
   AnyFlareLobbyApp,
   AppRoomSettings,
   FlareLobbyApp,
-  MatchmakingPool
+  MatchmakingPool,
+  MatchmakingSearchPolicy
 } from "@flarelobby/core";
-import { FlareLobbyError } from "@flarelobby/core";
+import {
+  FlareLobbyError,
+  normalizeMatchmakingSearchPolicy
+} from "@flarelobby/core";
 import type { ProtocolResult } from "@flarelobby/core";
 
 import type {
@@ -86,7 +90,10 @@ export interface CustomRoomConfiguration<
 }
 
 /** 1 対 1 マッチングに使うプール設定です。 */
-export type MatchmakingPoolConfiguration = MatchmakingPool;
+export interface MatchmakingPoolConfiguration extends MatchmakingPool {
+  /** 候補探索の検索幅と 1 回あたりの処理量です。 */
+  readonly searchPolicy?: MatchmakingSearchPolicy;
+}
 
 /** Gateway Worker が受け付ける入力の上限です。 */
 export interface FlareLobbyInputLimits {
@@ -503,7 +510,14 @@ function normalizeConfiguration<TApp extends AnyFlareLobbyApp>(
         DEFAULT_PROCESSED_COMMAND_RETENTION_MS
     }),
     matchmakingPools: Object.freeze(
-      configuration.matchmakingPools.map((pool) => Object.freeze({ ...pool }))
+      configuration.matchmakingPools.map((pool) =>
+        Object.freeze({
+          ...pool,
+          ...(pool.searchPolicy === undefined
+            ? {}
+            : { searchPolicy: normalizeMatchmakingSearchPolicy(pool.searchPolicy) })
+        })
+      )
     ),
     authenticate: configuration.authenticate,
     inputLimits: Object.freeze({ ...configuration.inputLimits }),
@@ -615,6 +629,17 @@ function assertMatchmakingPools(
         "INVALID_MATCHMAKING_POOL",
         `matchmakingPools の id（${pool.id}）が重複しています。`
       );
+    }
+
+    if (pool.searchPolicy !== undefined) {
+      try {
+        normalizeMatchmakingSearchPolicy(pool.searchPolicy);
+      } catch {
+        throw new FlareLobbyConfigurationError(
+          "INVALID_MATCHMAKING_POOL",
+          "matchmakingPools の searchPolicy が正しくありません。"
+        );
+      }
     }
 
     poolIds.add(pool.id);
