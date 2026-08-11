@@ -127,6 +127,7 @@ Room、Match Pool、利用制限の公開クラスは Wrangler から静的に�
 | マッチングプール設定 | `INVALID_MATCHMAKING_POOL` |
 | 入力制限 | `INVALID_INPUT_LIMITS` |
 | 認証 Hook | `INVALID_AUTHENTICATION_HOOK` |
+| 観測サンプリング設定 | `INVALID_OBSERVABILITY_CONFIGURATION` |
 
 `customRooms.finishedRoomRetentionMs` を指定すると、終了済み Room を SQLite から削除するまでの保持期間（ミリ秒）を変更できます。省略時は `DEFAULT_FINISHED_ROOM_RETENTION_MS`（24 時間）です。0 を指定した Room は終了後すぐに削除対象となります。
 
@@ -197,6 +198,8 @@ Analytics Engine は `FLARE_LOBBY_ANALYTICS` という任意 Binding です。�
   ]
 }
 ```
+
+構造化ログの項目、相関 ID の引き継ぎ、待機時間・成立時レート差・検索幅・成立率・キャンセル率の集計方法、秘密情報を記録しない規則は [観測基盤](./observability.md) に定義しています。高頻度の成功操作は `observability.logSampleRate` と `observability.analyticsSampleRate`（既定値 `1`）でサンプリングできます。失敗ログは原因追跡のため常に記録し、観測先の障害は主要処理へ伝播しません。
 
 ## トークン秘密値
 

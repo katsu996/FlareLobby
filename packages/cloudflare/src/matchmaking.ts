@@ -29,6 +29,13 @@ import {
   readWebSocketJoinToken
 } from "./security.js";
 import type { AuthenticatedGatewayRequest } from "./security.js";
+import {
+  createObservabilitySink,
+  observeOperation,
+  readObservabilityContext,
+  withObservabilityRequestId
+} from "./observability.js";
+import type { FlareLobbyObservabilityContext } from "./observability.js";
 import type {
   MatchPoolInitializationOptions,
   MatchmakingMatchIntent,
@@ -77,6 +84,7 @@ interface MatchPoolGatewayStub {
     readonly expiresAt?: number | string;
     readonly ttlMs?: number;
     readonly pool?: MatchmakingPool;
+    readonly observability?: FlareLobbyObservabilityContext;
   }): Promise<MatchmakingTicketRecord>;
   getTicket(ticketId: string): Promise<MatchmakingTicketRecord | null>;
   cancelTicket(options: {
@@ -84,6 +92,7 @@ interface MatchPoolGatewayStub {
     readonly ticketId: string;
     readonly requestId?: string;
     readonly requestPayload?: JsonValue;
+    readonly observability?: FlareLobbyObservabilityContext;
   }): Promise<MatchmakingTicketRecord>;
   fetch(request: Request): Promise<Response>;
 }
@@ -140,7 +149,11 @@ export async function handleMatchmakingRequest<
       return createErrorResponse(new FlareLobbyError("CONFLICT"));
     }
 
-    const pool = await initializeMatchPool(env, poolConfiguration);
+    const pool = await initializeMatchPool(
+      env,
+      poolConfiguration,
+      authenticatedRequest.observability
+    );
     const poolStub = env.FLARE_LOBBY_MATCH_POOLS.getByName(
       createMatchmakingPoolKey(pool)
     ) as unknown as MatchPoolGatewayStub;
@@ -304,7 +317,11 @@ export async function upgradeMatchmakingTicketWebSocket<
   }
 
   try {
-    const pool = await initializeMatchPool(env, poolConfiguration);
+    const pool = await initializeMatchPool(
+      env,
+      poolConfiguration,
+      authenticatedRequest.value.observability
+    );
     const poolStub = env.FLARE_LOBBY_MATCH_POOLS.getByName(
       createMatchmakingPoolKey(pool)
     ) as unknown as MatchPoolGatewayStub;
@@ -374,9 +391,9 @@ async function createTicket<TApp extends AnyFlareLobbyApp>(
         poolConfiguration.rating
       )
     ).value;
-  const options = {
-    gatewayPrincipal: authenticatedRequest.gatewayPrincipal,
-    requestId,
+    const options = {
+      gatewayPrincipal: authenticatedRequest.gatewayPrincipal,
+      requestId,
     rating,
     ...(region === undefined ? {} : { region }),
     ...(inputMethod === undefined ? {} : { inputMethod }),
@@ -384,7 +401,11 @@ async function createTicket<TApp extends AnyFlareLobbyApp>(
     ...(searchAttributes === undefined ? {} : { searchAttributes }),
     ...(expiresAt === undefined ? {} : { expiresAt }),
     ...(ttlMs === undefined ? {} : { ttlMs }),
-    pool
+    pool,
+    observability: withObservabilityRequestId(
+      authenticatedRequest.observability ?? readObservabilityContext(request),
+      requestId
+    )
   };
   const ticket = await poolStub.createTicket(options);
   return Response.json({ ticket }, { status: 201 });
@@ -411,11 +432,17 @@ async function cancelTicket<TApp extends AnyFlareLobbyApp>(
   }
 
   const requestId = readRequestId(request, body);
+  const observabilityContext =
+    authenticatedRequest.observability ?? readObservabilityContext(request);
   const ticket = await poolStub.cancelTicket({
     gatewayPrincipal: authenticatedRequest.gatewayPrincipal,
     ticketId,
     ...(requestId === null ? {} : { requestId }),
-    requestPayload: body
+    requestPayload: body,
+    observability: withObservabilityRequestId(
+      observabilityContext,
+      requestId ?? observabilityContext.requestId
+    )
   });
   return Response.json({ ticket });
 }
@@ -449,6 +476,10 @@ async function registerGatewayMatchResult<TApp extends AnyFlareLobbyApp>(
   }
 
   const input = readMatchResultInput(body.value, matchId);
+  const observability = withObservabilityRequestId(
+    authenticatedRequest.observability ?? readObservabilityContext(request),
+    input.resultId
+  );
   const intent = await poolStub.getMatchIntent({ matchId });
   if (intent === null || intent.status !== "matched" || intent.result === null) {
     throw new FlareLobbyError("CONFLICT");
@@ -468,15 +499,21 @@ async function registerGatewayMatchResult<TApp extends AnyFlareLobbyApp>(
     throw new FlareLobbyError("CONFLICT");
   }
 
-  const registration = await registerMatchResult(
-    env.FLARE_LOBBY_DB,
-    pool,
-    {
-      ...input,
-      playerAId: playerATicket.player.id,
-      playerBId: playerBTicket.player.id
-    },
-    poolConfiguration.rating
+  const registration = await observeOperation(
+    createObservabilitySink(env.FLARE_LOBBY_ANALYTICS),
+    observability,
+    "rating.result",
+    () =>
+      registerMatchResult(
+        env.FLARE_LOBBY_DB,
+        pool,
+        {
+          ...input,
+          playerAId: playerATicket.player.id,
+          playerBId: playerBTicket.player.id
+        },
+        poolConfiguration.rating
+      )
   );
 
   return Response.json({
@@ -533,7 +570,8 @@ async function createMatchRoomConnection(
 
 async function initializeMatchPool(
   env: FlareLobbyBindings,
-  configuration: MatchmakingPoolConfiguration
+  configuration: MatchmakingPoolConfiguration,
+  observability?: FlareLobbyObservabilityContext
 ): Promise<MatchmakingPool> {
   const stub = env.FLARE_LOBBY_MATCH_POOLS.getByName(
     createMatchmakingPoolKey(configuration)
@@ -545,7 +583,8 @@ async function initializeMatchPool(
       : { searchPolicy: configuration.searchPolicy }),
     ...(configuration.matchRoom === undefined
       ? {}
-      : { matchRoom: configuration.matchRoom })
+      : { matchRoom: configuration.matchRoom }),
+    ...(observability === undefined ? {} : { observability })
   });
 }
 
