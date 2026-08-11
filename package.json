@@ -16,6 +16,7 @@
     "test:unit": "pnpm --filter @flarelobby/core run test:unit && pnpm --filter @flarelobby/client run test:unit && pnpm --filter @flarelobby/testing run test:unit",
     "test:integration": "pnpm --filter @flarelobby/cloudflare run test:integration",
     "check:esm": "pnpm build && node scripts/verify-esm.mjs",
+    "check:docs": "pnpm build && node scripts/verify-docs.mjs && tsc -p docs/tsconfig.json --noEmit",
     "dev:worker": "pnpm --filter @flarelobby/cloudflare run dev",
     "generate:worker-types": "pnpm --filter @flarelobby/cloudflare run generate:types",
     "check:worker-types": "pnpm --filter @flarelobby/cloudflare run check:types",

@@ -45,7 +45,7 @@ rawDeltaA = kFactor * (result - expectedA)
 - `kFactor` は 0 より大きい有限な数値である必要があります。
 - 設定や入力の型・値が不正な場合は `TypeError` または `RangeError` を送出します。
 
-ELO エンジンは試合結果の正当性、認証、D1 への保存を行いません。それらは後続のマッチ成立・結果確定処理の責務です。
+ELO エンジンは試合結果の正当性、認証、D1 への保存を行いません。それらは Gateway、Match Pool、D1 レーティング処理の境界で扱います。一般クライアントへ結果確定権限を与えない規則は [マッチメイキング利用ガイド](./matchmaking-guide.md) と [ADR-0004](./adr/0004-match-result-trust-boundary.md) を参照してください。
 
 ## D1 への永続化
 
