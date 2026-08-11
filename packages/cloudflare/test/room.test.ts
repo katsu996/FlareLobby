@@ -781,13 +781,14 @@ describe("Room Durable Object のカスタムルーム操作", () => {
     );
     expect((await room.getSnapshot())?.revision).toBe(1);
 
+    const closeAt = new Date(Date.now() + 1_000).toISOString();
     const closeResults = await Promise.all(
       Array.from({ length: 2 }, () =>
         room.close({
           gatewayPrincipal: hostPrincipal,
           participantId: "participant-host",
           requestId: "close-once",
-          at: "2026-08-11T00:01:00.000Z"
+          at: closeAt
         })
       )
     );

@@ -10,6 +10,10 @@
               └────────→ 期限切れ
 ```
 
+候補を確保すると、Match Pool は候補ごとに 1 件の成立意図を永続化し、対戦
+Room の初期化とチケットの `matched` 遷移を続けて処理します。通常はチケット
+追加時、候補探索時、または Alarm で自動的に進みます。
+
 重要な状態は SQLite を正本とし、次の情報をチケットごとに保存します。
 
 - 認証済み主体から決定したプレイヤー
@@ -51,13 +55,50 @@ await pool.initialize({
 });
 ```
 
-`searchCandidates()` は品質説明を返すだけで状態を変更せず、`searchAndReserveCandidates()` は選択した候補を同じ SQLite 整合性境界で `reserved` へ進めます。チケット追加時と検索幅の切替時には後者を自動的に起動します。
+`searchCandidates()` は品質説明を返すだけで状態を変更せず、`searchAndReserveCandidates()` は選択した候補を同じ SQLite 整合性境界で `reserved` へ進めます。チケット追加時と検索幅の切替時には後者を自動的に起動し、続けて成立処理も起動します。
+
+## 成立処理と対戦 Room
+
+成立意図の `matchId` は候補 ID から決定的に作られ、対戦 Room の ID も
+`matchId` から決定的に作られます。そのため、同じ候補の成立処理を再実行しても
+別の Room や別の成立結果は作成されません。
+
+```ts
+await pool.initialize({
+  pool,
+  matchRoom: {
+    settings: { map: "forest" },
+    metadata: { playlist: "ranked" },
+    teamIds: ["blue", "red"],
+    maxPlayers: 2,
+    minimumPlayers: 2,
+    requireAllPlayersReady: false
+  }
+});
+```
+
+`MatchmakingMatchIntent` は `pending`、`initializing`、`matched`、`failed` の
+状態を SQLite に保持します。`processPendingMatches()`、`settleMatches()`、
+`processMatchmaking()` で未完了の成立処理を明示的に再開できます。成立意図を
+取得するには `getMatchIntent(matchId)` または候補 ID を指定します。
+
+処理順序は、(1) 成立意図の確保、(2) 対戦 Room の冪等な初期化、(3) Room の
+スナップショットと `matchId` の検証、(4) 2 チケットの `matched` 遷移、(5)
+永続イベントの追加です。Room の初期化が成功するまで `matched` 通知は生成
+されません。WebSocket への送信に失敗しても永続イベントは残るため、再接続後に
+`getTicketEvents()` で両チケットの成立結果を再取得できます。
+
+一時的な Room RPC・ストレージ障害は指数バックオフで自動再試行し、Alarm も
+次回試行時刻へ更新します。Durable Object のインスタンスが再生成されても、
+`pending` または期限切れの `initializing` 成立意図を SQLite から読み直して
+処理を再開します。最大試行回数を超えた成立意図は `failed` になり、まだ
+`reserved` のチケットは `cancelled` へ解放されます。
 
 ## 冪等性と競合
 
 `createTicket()` は `requestId`、認証済みプレイヤー、作成条件を SQLite に保存します。同じ要求を再送すると最初のチケットを返し、同じ `requestId` に異なる条件を指定すると `CONFLICT` です。
 
-探索側は `reserveCandidate()` で 2 件の待機チケットを同一入力ゲート内に確保し、ルーム生成後に `matchCandidate()` で成立結果を適用します。予約後のキャンセルは `CONFLICT` とし、キャンセルと候補確保が競合した場合は先に SQLite へ確定した遷移だけが成功します。自動探索も同じ確保処理を通るため、選択済みチケットを別候補へ重複確保しません。
+探索側は `reserveCandidate()` で 2 件の待機チケットを同一入力ゲート内に確保し、成立意図に従って Room 初期化後に `matchCandidate()` で成立結果を適用します。予約後のキャンセルは `CONFLICT` とし、キャンセルと候補確保が競合した場合は先に SQLite へ確定した遷移だけが成功します。自動探索も同じ確保処理を通るため、選択済みチケットを別候補へ重複確保しません。
 
 ## 期限と通知
 

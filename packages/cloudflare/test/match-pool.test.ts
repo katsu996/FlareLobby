@@ -197,7 +197,7 @@ describe("Match Pool Durable Object", () => {
     });
   });
 
-  it("候補確保後のキャンセル競合は CONFLICT で拒否し、reserved を維持する", async () => {
+  it("成立処理後のキャンセル競合は CONFLICT で拒否し、matched を維持する", async () => {
     const { stub } = await createInitializedPool();
     const firstPrincipal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
     const secondPrincipal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
@@ -214,8 +214,8 @@ describe("Match Pool Durable Object", () => {
 
     const reserved = await stub.reserveCandidate({ candidate });
     expect(reserved.map((ticket) => ticket.status)).toEqual([
-      "reserved",
-      "reserved"
+      "matched",
+      "matched"
     ]);
 
     const cancelCode = await runInDurableObject(
@@ -234,7 +234,7 @@ describe("Match Pool Durable Object", () => {
     );
     expect(cancelCode).toBe("CONFLICT");
     await expect(stub.getTicket(first.id)).resolves.toMatchObject({
-      status: "reserved"
+      status: "matched"
     });
   });
 
@@ -332,9 +332,9 @@ describe("Match Pool Durable Object", () => {
     );
 
     expect(first.status).toBe("waiting");
-    expect(second.status).toBe("reserved");
+    expect(second.status).toBe("matched");
     await expect(stub.getTicket(first.id)).resolves.toMatchObject({
-      status: "reserved"
+      status: "matched"
     });
     await expect(stub.getNextAlarm()).resolves.toBeNull();
 
@@ -345,7 +345,8 @@ describe("Match Pool Durable Object", () => {
     expect(events.map((event) => event.type)).toEqual([
       "creating",
       "waiting",
-      "reserved"
+      "reserved",
+      "matched"
     ]);
   });
 
@@ -435,10 +436,10 @@ describe("Match Pool Durable Object", () => {
     });
 
     await expect(stub.getTicket(first.id)).resolves.toMatchObject({
-      status: "reserved"
+      status: "matched"
     });
     await expect(stub.getTicket(second.id)).resolves.toMatchObject({
-      status: "reserved"
+      status: "matched"
     });
     await expect(stub.getNextAlarm()).resolves.toBeNull();
   });
@@ -478,10 +479,10 @@ describe("Match Pool Durable Object", () => {
     });
     expect(expanded.maxRatingDifference).toBe(40);
     await expect(stub.getTicket(first.id)).resolves.toMatchObject({
-      status: "reserved"
+      status: "matched"
     });
     await expect(stub.getTicket(second.id)).resolves.toMatchObject({
-      status: "reserved"
+      status: "matched"
     });
   });
 
@@ -504,16 +505,21 @@ describe("Match Pool Durable Object", () => {
     }
 
     const current = await Promise.all(created.map((ticket) => stub.getTicket(ticket.id)));
-    const reserved = current.filter((ticket) => ticket?.status === "reserved");
-    const reservedIds = current.flatMap((ticket) =>
-      ticket?.status === "reserved" ? ticket.candidate.ticketIds : []
+    const matched = current.filter((ticket) => ticket?.status === "matched");
+    const matchedIds = current.flatMap((ticket) =>
+      ticket?.status === "matched" ? ticket.result.candidate.ticketIds : []
     );
 
-    expect(reserved.length).toBe(20);
-    expect(new Set(reservedIds).size).toBe(reserved.length);
+    expect(matched.length).toBe(20);
+    expect(new Set(matchedIds).size).toBe(20);
+    expect(new Set(
+      matched.flatMap((ticket) =>
+        ticket.status === "matched" ? ticket.result.matchId : []
+      )
+    ).size).toBe(10);
     await expect(stub.getSnapshot()).resolves.toMatchObject({
       waitingCount: 0,
-      activeCount: 20
+      activeCount: 0
     });
   });
 });

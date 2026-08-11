@@ -16,6 +16,7 @@ import type {
   RateLimitDurableObject,
   RoomDurableObject
 } from "./durable-objects.js";
+import type { MatchmakingMatchRoomOptions } from "./match-pool.js";
 import {
   createCustomRoom,
   joinCustomRoom,
@@ -93,6 +94,8 @@ export interface CustomRoomConfiguration<
 export interface MatchmakingPoolConfiguration extends MatchmakingPool {
   /** 候補探索の検索幅と 1 回あたりの処理量です。 */
   readonly searchPolicy?: MatchmakingSearchPolicy;
+  /** 成立時に生成する対戦ルームの初期設定です。 */
+  readonly matchRoom?: MatchmakingMatchRoomOptions;
 }
 
 /** Gateway Worker が受け付ける入力の上限です。 */
