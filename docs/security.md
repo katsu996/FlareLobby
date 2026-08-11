@@ -43,6 +43,8 @@ authorization: {
 
 ルート実装では、`authorizeGatewayOperation(authenticatedRequest, configuration.authorization, target)` を業務処理より先に呼びます。認可 Hook の引数に入る `principal` は Gateway の認証結果から固定されます。
 
+試合結果登録では、本文からプレイヤー ID を受け付けません。`matchId` に紐付く成立済み Match Pool のチケットからサーバー側で参加者を確定し、`resultId` と結果値だけを受け取ります。認可 Hook が許可しない場合は D1 のレーティング処理へ進みません。
+
 ## 共通入力検証
 
 HTTP 本文には `readValidatedJsonBody(request, maxBytes, validator)` を使います。`Content-Length` を早期に確認したうえで、ストリームから最大サイズまでだけ読み取ります。Query は `validateQuery(request, validator)`、WebSocket コマンドは `validateWebSocketCommand(message, maxBytes, validator)` を使います。後者はサイズ、UTF-8、JSON プロトコル v1、利用者の追加検証を順に適用します。
