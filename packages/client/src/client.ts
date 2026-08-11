@@ -13,6 +13,7 @@ import type {
   FlareLobbyErrorPayload,
   JsonValue,
   ProtocolEventType,
+  Revision,
   RequestId,
   ServerEventEnvelope,
   ServerMessage
@@ -26,6 +27,7 @@ import type {
   CustomRoomListQuery,
   HostRoom,
   PlayerRoom,
+  RoomReconnectOptions,
   Room,
   SpectatorRoom
 } from "./custom-room.js";
@@ -70,6 +72,8 @@ export interface ClientWebSocketOptions {
   readonly signal?: AbortSignal;
   readonly protocols?: string | readonly string[];
   readonly knownEventTypes?: readonly ProtocolEventType[];
+  /** 再開接続時に最後に適用した Room の版番号を指定します。 */
+  readonly lastRevision?: Revision;
 }
 
 /** WebSocket コマンドのオプションです。 */
@@ -93,6 +97,8 @@ export interface FlareLobbyClientOptions<
   readonly webSocketFactory?: WebSocketFactory;
   /** テストまたは再送制御用の要求識別子生成関数です。 */
   readonly requestIdFactory?: () => RequestId;
+  /** Room の再接続に使う既定設定です。 */
+  readonly reconnect?: RoomReconnectOptions;
 }
 
 /** WebSocket イベントを受け取るコールバックです。 */
@@ -111,6 +117,7 @@ export interface FlareLobbyWebSocketConnection<
     options?: ClientCommandOptions
   ): Promise<TResponse>;
   onEvent(listener: ClientEventListener): () => void;
+  onClose(listener: (error: FlareLobbyError) => void): () => void;
   close(code?: number, reason?: string): void;
 }
 
@@ -196,7 +203,10 @@ class FlareLobbyClientImpl<
       request: this.request.bind(this),
       connect: this.connect.bind(this),
       connectWithToken: (path, options, token) =>
-        this.connectWithToken(path, options, token)
+        this.connectWithToken(path, options, token),
+      ...(options.reconnect === undefined
+        ? {}
+        : { reconnectOptions: options.reconnect })
     });
   }
 
@@ -294,7 +304,11 @@ class FlareLobbyClientImpl<
     this.assertActive();
     throwIfAborted(options.signal);
 
-    const url = resolveWebSocketUrl(this.endpointUrl, path);
+    const url = resolveWebSocketUrl(
+      this.endpointUrl,
+      path,
+      options.lastRevision
+    );
     const authenticationToken =
       token === undefined ? await this.readAccessToken() : token;
     throwIfAborted(options.signal);
@@ -457,6 +471,10 @@ class FlareLobbyWebSocketConnectionImpl
   private readonly onClosed: () => void;
   private readonly pending = new Map<RequestId, PendingCommand>();
   private readonly eventListeners = new Set<ClientEventListener>();
+  private readonly closeListeners = new Set<
+    (error: FlareLobbyError) => void
+  >();
+  private readonly queuedEvents: ServerEventEnvelope[] = [];
   private readonly openPromise: Promise<void>;
   private resolveOpen!: () => void;
   private rejectOpen!: (error: FlareLobbyError) => void;
@@ -504,7 +522,7 @@ class FlareLobbyWebSocketConnectionImpl
     this.terminate(new FlareLobbyError("CONNECTION_FAILED"));
   };
 
-  private readonly handleClose = (): void => {
+  private readonly handleClose = (event: Event): void => {
     if (this.closedState) {
       return;
     }
@@ -512,7 +530,7 @@ class FlareLobbyWebSocketConnectionImpl
     this.terminate(
       this.closedByClient
         ? new FlareLobbyError("CANCELLED")
-        : new FlareLobbyError("CONNECTION_FAILED")
+        : errorForWebSocketCloseCode((event as CloseEvent).code)
     );
   };
 
@@ -674,8 +692,26 @@ class FlareLobbyWebSocketConnectionImpl
     }
 
     this.eventListeners.add(listener);
+    if (this.queuedEvents.length > 0) {
+      const queuedEvents = this.queuedEvents.splice(0);
+      for (const event of queuedEvents) {
+        this.notifyEventListeners(event);
+      }
+    }
     return (): void => {
       this.eventListeners.delete(listener);
+    };
+  }
+
+  public onClose(listener: (error: FlareLobbyError) => void): () => void {
+    if (this.closedState) {
+      listener(this.closedError ?? new FlareLobbyError("CONNECTION_FAILED"));
+      return (): void => undefined;
+    }
+
+    this.closeListeners.add(listener);
+    return (): void => {
+      this.closeListeners.delete(listener);
     };
   }
 
@@ -700,13 +736,12 @@ class FlareLobbyWebSocketConnectionImpl
 
   private handleServerMessage(message: ServerMessage): void {
     if (message.kind === "event") {
-      for (const listener of this.eventListeners) {
-        try {
-          listener(message);
-        } catch {
-          // 利用者の listener 例外で通信路を壊さないようにします。
-        }
+      if (this.eventListeners.size === 0) {
+        this.queuedEvents.push(message);
+        return;
       }
+
+      this.notifyEventListeners(message);
       return;
     }
 
@@ -728,6 +763,16 @@ class FlareLobbyWebSocketConnectionImpl
     }
 
     this.pending.get(message.requestId)?.resolve(message.payload);
+  }
+
+  private notifyEventListeners(message: ServerEventEnvelope): void {
+    for (const listener of this.eventListeners) {
+      try {
+        listener(message);
+      } catch {
+        // 利用者の listener 例外で通信路を壊さないようにします。
+      }
+    }
   }
 
   private removePending(requestId: RequestId): void {
@@ -766,6 +811,16 @@ class FlareLobbyWebSocketConnectionImpl
       pending.reject(error);
     }
     this.pending.clear();
+    this.queuedEvents.length = 0;
+
+    for (const listener of this.closeListeners) {
+      try {
+        listener(error);
+      } catch {
+        // 切断通知の利用者例外で後始末を止めないようにします。
+      }
+    }
+    this.closeListeners.clear();
     this.eventListeners.clear();
     this.onClosed();
 
@@ -822,7 +877,11 @@ function resolveHttpUrl(endpoint: URL, path: string | URL): URL {
   return url;
 }
 
-function resolveWebSocketUrl(endpoint: URL, path: string | URL): URL {
+function resolveWebSocketUrl(
+  endpoint: URL,
+  path: string | URL,
+  lastRevision?: Revision
+): URL {
   let url: URL;
   try {
     url = new URL(path.toString(), endpoint);
@@ -843,6 +902,19 @@ function resolveWebSocketUrl(endpoint: URL, path: string | URL): URL {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
       message: "接続先と同じ WebSocket エンドポイントを指定してください。"
     });
+  }
+
+  if (
+    lastRevision !== undefined &&
+    (!Number.isSafeInteger(lastRevision) || lastRevision < 0)
+  ) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: "lastRevision は 0 以上の安全な整数で指定してください。"
+    });
+  }
+
+  if (lastRevision !== undefined) {
+    url.searchParams.set("lastRevision", String(lastRevision));
   }
 
   return url;
@@ -1032,6 +1104,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+function errorForWebSocketCloseCode(code: number): FlareLobbyError {
+  switch (code) {
+    case 4001:
+    case 4401:
+      return new FlareLobbyError("UNAUTHENTICATED");
+    case 1008:
+    case 4003:
+    case 4403:
+      return new FlareLobbyError("FORBIDDEN");
+    case 4009:
+    case 4409:
+      return new FlareLobbyError("CONFLICT");
+    case 4410:
+      return new FlareLobbyError("ROOM_FINISHED");
+    default:
+      return new FlareLobbyError("CONNECTION_FAILED");
+  }
 }
 
 let fallbackRequestSequence = 0;

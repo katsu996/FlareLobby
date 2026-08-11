@@ -59,6 +59,30 @@ Room の状態変更メソッドはサーバーの成功応答を待ってから
 `leave()` は参加用トークンを使った HTTP 退出、ホストの `close()` は WebSocket
 操作として実行されます。
 
+Room の状態とイベントは次の API で購読できます。購読解除関数は何度呼び出しても
+安全です。
+
+```ts
+const unsubscribeSnapshot = room.subscribe((snapshot) => {
+  renderRoom(snapshot);
+});
+const unsubscribeEvent = room.on("room.snapshot", (event) => {
+  console.log(event.revision);
+});
+const unsubscribeMessage = room.onMessage("chat.message", (message) => {
+  showChat(message.payload.text);
+});
+const unsubscribeStatus = room.onStatusChange((status) => {
+  // connecting / connected / reconnecting / disconnected
+  showConnectionStatus(status);
+});
+```
+
+`subscribe()` はリビジョンが進んだスナップショットだけを一度ずつ通知します。
+同じイベントの再送、逆順、欠落は部分状態へ適用せず、再同期へ切り替えます。
+購読者の例外は他の購読者や内部状態の更新へ影響しません。ゲーム固有メッセージの
+名前と Payload は `createFlareLobbyClient<TApp>()` の `TApp` から型付けされます。
+
 ## WebSocket
 
 ```ts
@@ -99,6 +123,12 @@ WebSocket の切断は直ちに `leave()` へ変換されず、`disconnectGraceP
 参加者の準備状態・チーム・参加者 ID を保持します。猶予終了時に参加者を退出させ、
 ホストなら最古のプレイヤーへ移譲します。`leave()` または `kick()` は対象参加者の
 再開セッションを明示的に無効化するため、古い再開トークンで新規参加へ暗黙変換されません。
+
+接続が一時的に切断されると、Room は指数バックオフと揺らぎを使って最大試行回数まで
+再接続します。再接続時は最後に受信した `resumeToken` と `revision` を使うため、同じ
+参加者状態を引き継げます。再試行不能な認証・権限エラー、明示的な `leave()` または
+`close()` の後は再接続しません。待機時間や試行回数はクライアント初期化時または
+Room 作成・参加時の `reconnect` オプションで調整できます。
 
 ## テスト用差し替え
 
