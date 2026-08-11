@@ -370,4 +370,5 @@ export type GameMessage<TApp extends AnyFlareLobbyApp = FlareLobbyApp> = {
 export type InferFlareLobbyApp<TPublicType> =
   TPublicType extends AppBound<infer TApp> ? TApp : never;
 
+export * from "./rating.js";
 export * from "./protocol.js";
