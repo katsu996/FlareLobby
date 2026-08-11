@@ -41,3 +41,18 @@ export type {
   WebSocketConstructor,
   WebSocketFactory
 } from "./client.js";
+export type {
+  MatchmakingClientApi,
+  MatchmakingJoinOptions,
+  MatchmakingPoolReference,
+  MatchmakingProgress,
+  MatchmakingProgressListener,
+  MatchmakingResult,
+  MatchmakingTicket,
+  MatchmakingTicketCancelOptions,
+  MatchmakingTicketConnectionStatus,
+  MatchmakingTicketConnectionStatusListener,
+  MatchmakingTicketRequestOptions,
+  MatchmakingTicketSnapshot,
+  MatchmakingWaitForMatchOptions
+} from "./matchmaking.js";

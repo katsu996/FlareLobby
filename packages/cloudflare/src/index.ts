@@ -17,6 +17,11 @@ export {
 } from "./custom-room.js";
 export { listCustomRooms } from "./custom-room-list.js";
 export {
+  getMatchmakingTicketWebSocketRoute,
+  handleMatchmakingRequest,
+  upgradeMatchmakingTicketWebSocket
+} from "./matchmaking.js";
+export {
   DEFAULT_MATCHMAKING_MAX_CANDIDATES_PER_SEARCH,
   DEFAULT_MATCHMAKING_MAX_MATCHES_PER_SEARCH,
   DEFAULT_MATCHMAKING_MAX_TICKETS_PER_SEARCH,
@@ -116,6 +121,11 @@ export type {
   MatchmakingTicketRecord,
   MatchmakingTicketReservationOptions
 } from "./match-pool.js";
+export type {
+  MatchmakingRoomConnection,
+  MatchmakingTicketGatewayResponse,
+  MatchmakingTicketWebSocketRoute
+} from "./matchmaking.js";
 export type {
   RoomInitializationOptions,
   RoomStartConditions,

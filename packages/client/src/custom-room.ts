@@ -288,7 +288,7 @@ export type Room<
       ? SpectatorRoom<TApp>
       : HostRoom<TApp> | PlayerRoom<TApp> | SpectatorRoom<TApp>;
 
-interface CustomRoomTransport<
+export interface CustomRoomTransport<
   TApp extends AnyFlareLobbyApp = FlareLobbyApp,
 > {
   request<TResponse = JsonValue>(
@@ -479,7 +479,7 @@ function appendQueryValue(
   params.set(name, String(value));
 }
 
-async function createRoomHandle<TApp extends AnyFlareLobbyApp>(
+export async function createRoomHandle<TApp extends AnyFlareLobbyApp>(
   transport: CustomRoomTransport<TApp>,
   result: RoomConnectionResult<TApp>,
   initialRole: "host" | CustomRoomParticipantRole,
@@ -509,7 +509,7 @@ async function createRoomHandle<TApp extends AnyFlareLobbyApp>(
   return room as unknown as Room<TApp>;
 }
 
-interface RoomConnectionResult<TApp extends AnyFlareLobbyApp> {
+export interface RoomConnectionResult<TApp extends AnyFlareLobbyApp> {
   readonly roomId: string;
   readonly participantId: string;
   readonly role: CustomRoomParticipantRole;

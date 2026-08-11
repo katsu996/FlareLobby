@@ -83,6 +83,51 @@ const unsubscribeStatus = room.onStatusChange((status) => {
 購読者の例外は他の購読者や内部状態の更新へ影響しません。ゲーム固有メッセージの
 名前と Payload は `createFlareLobbyClient<TApp>()` の `TApp` から型付けされます。
 
+## マッチメイキング
+
+プール ID、または `MatchmakingPool` を指定してチケットを作成します。作成直後から
+サーバーが保持する状態、待機時間、現在の検索幅を読み取れます。
+
+```ts
+const ticket = await client.joinMatchmaking("ranked-1v1", {
+  rating: 1500,
+  inputMethod: "keyboard_mouse"
+});
+
+const unsubscribe = ticket.on("progress", (progress) => {
+  renderQueue({
+    state: progress.ticket.status,
+    waitingTimeMs: progress.waitingTimeMs,
+    searchRange: progress.searchRange,
+    waitingCount: progress.waitingCount
+  });
+});
+
+const room = await ticket.waitForMatch();
+unsubscribe();
+```
+
+`ticket.cancel()` はサーバーのキャンセル応答を受け取ってから状態を更新し、同じ
+要求の再呼び出しは同じ終端状態へ収束します。待機を中止する場合は
+`AbortSignal` とサーバー側キャンセルを連動できます。
+
+```ts
+const controller = new AbortController();
+const ticket = await client.joinMatchmaking("ranked-1v1", {
+  signal: controller.signal,
+  reconnect: { maxAttempts: 5 }
+});
+
+const waiting = ticket.waitForMatch({ signal: controller.signal });
+controller.abort();
+await waiting; // 中止時は CANCELLED
+```
+
+作成と成立待機を一度に行う場合は `findMatch()` を使います。成立イベントを受信した
+時点で、Client SDK は対戦 Room の参加トークンで WebSocket 接続し、初期スナップ
+ショットを同期してから返します。チケットイベントの一時切断時は最後に受信した
+イベント番号から履歴を再取得して再接続するため、既存チケットの状態を引き継げます。
+
 ## WebSocket
 
 ```ts

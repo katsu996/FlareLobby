@@ -31,6 +31,14 @@ import type {
   Room,
   SpectatorRoom
 } from "./custom-room.js";
+import { createMatchmakingApi } from "./matchmaking.js";
+import type {
+  MatchmakingClientApi,
+  MatchmakingJoinOptions,
+  MatchmakingPoolReference,
+  MatchmakingTicket,
+  MatchmakingTicketRequestOptions
+} from "./matchmaking.js";
 
 const WEBSOCKET_OPEN = 1;
 const WEBSOCKET_CLOSED = 3;
@@ -156,6 +164,18 @@ export interface FlareLobbyClient<
   listCustomRooms(
     query?: CustomRoomListQuery
   ): Promise<CustomRoomListPage<TApp>>;
+  joinMatchmaking(
+    pool: MatchmakingPoolReference,
+    options?: MatchmakingJoinOptions
+  ): Promise<MatchmakingTicket<TApp>>;
+  findMatch(
+    pool: MatchmakingPoolReference,
+    options?: MatchmakingJoinOptions
+  ): Promise<import("./custom-room.js").PlayerRoom<TApp>>;
+  getRating(
+    pool: MatchmakingPoolReference,
+    options?: MatchmakingTicketRequestOptions
+  ): Promise<import("@flarelobby/core").Rating>;
   dispose(): void;
   /** `dispose()` の説明的な別名です。 */
   destroy(): void;
@@ -182,6 +202,7 @@ class FlareLobbyClientImpl<
   private readonly webSocketFactory: WebSocketFactory | undefined;
   private readonly requestIdFactory: () => RequestId;
   private readonly customRoomApi: CustomRoomClientApi<TApp>;
+  private readonly matchmakingApi: MatchmakingClientApi<TApp>;
   private readonly connections = new Set<FlareLobbyWebSocketConnectionImpl>();
   private disposedState = false;
 
@@ -204,6 +225,16 @@ class FlareLobbyClientImpl<
       connect: this.connect.bind(this),
       connectWithToken: (path, options, token) =>
         this.connectWithToken(path, options, token),
+      ...(options.reconnect === undefined
+        ? {}
+        : { reconnectOptions: options.reconnect })
+    });
+    this.matchmakingApi = createMatchmakingApi<TApp>({
+      request: this.request.bind(this),
+      connect: this.connect.bind(this),
+      connectWithToken: (path, connectionOptions, token) =>
+        this.connectWithToken(path, connectionOptions, token),
+      requestIdFactory: this.requestIdFactory,
       ...(options.reconnect === undefined
         ? {}
         : { reconnectOptions: options.reconnect })
@@ -371,12 +402,34 @@ class FlareLobbyClientImpl<
     return this.customRoomApi.listCustomRooms(query);
   }
 
+  public joinMatchmaking(
+    pool: MatchmakingPoolReference,
+    options: MatchmakingJoinOptions = {}
+  ): Promise<MatchmakingTicket<TApp>> {
+    return this.matchmakingApi.joinMatchmaking(pool, options);
+  }
+
+  public findMatch(
+    pool: MatchmakingPoolReference,
+    options: MatchmakingJoinOptions = {}
+  ): Promise<import("./custom-room.js").PlayerRoom<TApp>> {
+    return this.matchmakingApi.findMatch(pool, options);
+  }
+
+  public getRating(
+    pool: MatchmakingPoolReference,
+    options: MatchmakingTicketRequestOptions = {}
+  ): Promise<import("@flarelobby/core").Rating> {
+    return this.matchmakingApi.getRating(pool, options);
+  }
+
   public dispose(): void {
     if (this.disposedState) {
       return;
     }
 
     this.disposedState = true;
+    this.matchmakingApi.dispose();
     for (const connection of this.connections) {
       connection.close(1000, "client disposed");
     }
