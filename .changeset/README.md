@@ -14,4 +14,6 @@ pnpm changeset
 pnpm version-packages
 ```
 
-この基盤では npm への公開を実行しません。公開範囲が設計で確定した後に、必要に応じて `.changeset/config.json` の公開設定を見直してください。
+公開 package は public scoped package として設定しています。ただし、この基盤と CI は
+npm への公開を実行しません。version 反映後も `pnpm release:check` の npm publish
+dry-run、変更履歴、所有者の最終承認を確認してから、認証済み環境で公開してください。

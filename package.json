@@ -3,6 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "description": "Cloudflare Workers 向けゲームロビーライブラリのモノレポ",
+  "license": "MIT",
+  "author": "katsu996",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/katsu996/FlareLobby.git"
+  },
+  "homepage": "https://github.com/katsu996/FlareLobby#readme",
+  "bugs": {
+    "url": "https://github.com/katsu996/FlareLobby/issues"
+  },
   "type": "module",
   "packageManager": "pnpm@11.21.0",
   "engines": {
@@ -17,6 +27,9 @@
     "test:integration": "pnpm --filter @flarelobby/cloudflare run test:integration && pnpm --filter @flarelobby/example-local-demo run test:integration",
     "check:esm": "pnpm build && node scripts/verify-esm.mjs",
     "check:docs": "pnpm build && node scripts/verify-docs.mjs && tsc -p docs/tsconfig.json --noEmit",
+    "check:packages": "node scripts/verify-packages.mjs",
+    "check:deploy": "node scripts/verify-cloudflare-deploy.mjs",
+    "release:check": "pnpm build && pnpm typecheck && pnpm test:unit && pnpm test:integration && node scripts/verify-docs.mjs && tsc -p docs/tsconfig.json --noEmit && node scripts/verify-esm.mjs && pnpm check:worker-types && pnpm check:packages && pnpm check:deploy",
     "dev:worker": "pnpm --filter @flarelobby/cloudflare run dev",
     "generate:worker-types": "pnpm --filter @flarelobby/cloudflare run generate:types",
     "check:worker-types": "pnpm --filter @flarelobby/cloudflare run check:types",

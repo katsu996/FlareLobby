@@ -2,6 +2,25 @@
   "name": "@flarelobby/testing",
   "version": "0.1.0",
   "description": "FlareLobby のテスト補助",
+  "license": "MIT",
+  "author": "katsu996",
+  "keywords": [
+    "cloudflare",
+    "game",
+    "matchmaking",
+    "simulation",
+    "testing",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/katsu996/FlareLobby.git",
+    "directory": "packages/testing"
+  },
+  "homepage": "https://github.com/katsu996/FlareLobby#readme",
+  "bugs": {
+    "url": "https://github.com/katsu996/FlareLobby/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "dependencies": {
@@ -15,7 +34,10 @@
     }
   },
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
+  "files": ["dist", "!dist/.tsbuildinfo", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

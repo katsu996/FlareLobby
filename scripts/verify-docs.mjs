@@ -30,6 +30,9 @@ const requiredFiles = [
   "docs/api-reference.md",
   "docs/architecture.md",
   "docs/testing.md",
+  "docs/releases/v0.1.0.md",
+  "CHANGELOG.md",
+  "LICENSE",
   "docs/tsconfig.json",
   "docs/adr/0001-durable-object-sqlite.md",
   "docs/adr/0002-reconnect-and-revision.md",
@@ -47,6 +50,8 @@ requireText("README.md", "./docs/getting-started.md");
 requireText("README.md", "./docs/api-reference.md");
 requireText("README.md", "./docs/architecture.md");
 requireText("README.md", "pnpm check:docs");
+requireText("README.md", "pnpm release:check");
+requireText("README.md", "MIT License");
 requireText("docs/architecture.md", "Room Durable Object");
 requireText("docs/architecture.md", "revision");
 requireText("docs/architecture.md", "D1");
@@ -54,6 +59,8 @@ requireText("docs/architecture.md", "再接続");
 requireText("docs/api-reference.md", "## エラーコード");
 requireText("docs/api-reference.md", "## 公開 Export の検査対象");
 requireText("docs/testing.md", "完了条件");
+requireText("docs/releases/v0.1.0.md", "## 既知の制限");
+requireText("docs/releases/v0.1.0.md", "## 対象外");
 requireText(".github/ISSUE_TEMPLATE/bug_report.md", "## 完了条件");
 requireText(".github/ISSUE_TEMPLATE/feature_request.md", "設計の正本 #1");
 requireText(".github/pull_request_template.md", "Closes #");
@@ -152,6 +159,12 @@ const markdownFiles = [
   "docs/rating.md",
   "docs/security.md",
   "docs/testing.md",
+  "docs/releases/v0.1.0.md",
+  "CHANGELOG.md",
+  "packages/core/README.md",
+  "packages/cloudflare/README.md",
+  "packages/client/README.md",
+  "packages/testing/README.md",
   "examples/README.md"
 ];
 

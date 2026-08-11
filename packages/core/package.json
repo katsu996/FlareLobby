@@ -2,6 +2,18 @@
   "name": "@flarelobby/core",
   "version": "0.1.0",
   "description": "FlareLobby のプラットフォーム非依存ドメインロジック",
+  "license": "MIT",
+  "author": "katsu996",
+  "keywords": ["cloudflare", "game", "matchmaking", "typescript"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/katsu996/FlareLobby.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/katsu996/FlareLobby#readme",
+  "bugs": {
+    "url": "https://github.com/katsu996/FlareLobby/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -12,7 +24,10 @@
     }
   },
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
+  "files": ["dist", "!dist/.tsbuildinfo", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit",
