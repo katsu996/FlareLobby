@@ -1,12 +1,14 @@
 import type {
   AnyFlareLobbyApp,
   AppRoomSettings,
+  EloOptions,
   FlareLobbyApp,
   MatchmakingPool,
   MatchmakingSearchPolicy
 } from "@flarelobby/core";
 import {
   FlareLobbyError,
+  elo,
   normalizeMatchmakingSearchPolicy
 } from "@flarelobby/core";
 import type { ProtocolResult } from "@flarelobby/core";
@@ -17,6 +19,7 @@ import type {
   RoomDurableObject
 } from "./durable-objects.js";
 import type { MatchmakingMatchRoomOptions } from "./match-pool.js";
+import type { RatingConfiguration } from "./rating.js";
 import {
   createCustomRoom,
   joinCustomRoom,
@@ -101,6 +104,8 @@ export interface MatchmakingPoolConfiguration extends MatchmakingPool {
   readonly searchPolicy?: MatchmakingSearchPolicy;
   /** 成立時に生成する対戦ルームの初期設定です。 */
   readonly matchRoom?: MatchmakingMatchRoomOptions;
+  /** この Pool/Season で利用する ELO の初期値と K 係数です。 */
+  readonly rating?: RatingConfiguration;
 }
 
 /** Gateway Worker が受け付ける入力の上限です。 */
@@ -546,7 +551,10 @@ function normalizeConfiguration<TApp extends AnyFlareLobbyApp>(
           ...pool,
           ...(pool.searchPolicy === undefined
             ? {}
-            : { searchPolicy: normalizeMatchmakingSearchPolicy(pool.searchPolicy) })
+            : { searchPolicy: normalizeMatchmakingSearchPolicy(pool.searchPolicy) }),
+          ...(pool.rating === undefined
+            ? {}
+            : { rating: normalizeRatingConfiguration(pool.rating) })
         })
       )
     ),
@@ -673,6 +681,17 @@ function assertMatchmakingPools(
       }
     }
 
+    if (pool.rating !== undefined) {
+      try {
+        normalizeRatingConfiguration(pool.rating);
+      } catch {
+        throw new FlareLobbyConfigurationError(
+          "INVALID_MATCHMAKING_POOL",
+          "matchmakingPools の rating 設定が正しくありません。"
+        );
+      }
+    }
+
     poolIds.add(pool.id);
   }
 }
@@ -723,4 +742,14 @@ function isNonNegativeInteger(value: unknown): value is number {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function normalizeRatingConfiguration(
+  configuration: RatingConfiguration
+): Required<EloOptions> {
+  const engine = elo(configuration);
+  return {
+    initialRating: engine.initialRating,
+    kFactor: engine.kFactor
+  };
 }

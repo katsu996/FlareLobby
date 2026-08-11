@@ -22,6 +22,17 @@ export {
   upgradeMatchmakingTicketWebSocket
 } from "./matchmaking.js";
 export {
+  DEFAULT_RATING_CONFLICT_RETRY_COUNT,
+  applyMatchResult,
+  ensureRatingSchema,
+  getMatchHistory,
+  getPlayerRating,
+  getRating,
+  listMatchHistory,
+  recordMatchResult,
+  registerMatchResult
+} from "./rating.js";
+export {
   DEFAULT_MATCHMAKING_MAX_CANDIDATES_PER_SEARCH,
   DEFAULT_MATCHMAKING_MAX_MATCHES_PER_SEARCH,
   DEFAULT_MATCHMAKING_MAX_TICKETS_PER_SEARCH,
@@ -37,6 +48,7 @@ export type {
   FlareLobbyInputLimits,
   MatchmakingPoolConfiguration
 } from "./config.js";
+export type { RatingConfiguration } from "./rating.js";
 export type {
   CustomRoomCreationInput,
   CustomRoomCreationOptions,
@@ -126,6 +138,14 @@ export type {
   MatchmakingTicketGatewayResponse,
   MatchmakingTicketWebSocketRoute
 } from "./matchmaking.js";
+export type {
+  MatchHistoryPage,
+  MatchHistoryQuery,
+  MatchResultRegistration,
+  MatchResultRegistrationInput,
+  RatingMatchParticipant,
+  RatingMatchRecord
+} from "./rating.js";
 export type {
   RoomInitializationOptions,
   RoomStartConditions,

@@ -46,3 +46,36 @@ rawDeltaA = kFactor * (result - expectedA)
 - 設定や入力の型・値が不正な場合は `TypeError` または `RangeError` を送出します。
 
 ELO エンジンは試合結果の正当性、認証、D1 への保存を行いません。それらは後続のマッチ成立・結果確定処理の責務です。
+
+## D1 への永続化
+
+`@flarelobby/cloudflare` は Pool・Season 単位で初期値、現在値、版番号、試合履歴を D1 に保存します。`packages/cloudflare/migrations/0002_rating.sql` が本番用のスキーマで、Worker の公開関数も未適用のローカル D1 へ冪等にスキーマを準備します。
+
+Pool ごとの ELO 設定は `matchmakingPools` に指定します。
+
+```ts
+matchmakingPools: [
+  {
+    id: "ranked-jp",
+    gameId: "example-game",
+    seasonId: "season-1",
+    mode: "ranked-1v1",
+    region: "jp",
+    rating: {
+      initialRating: 1_500,
+      kFactor: 24
+    }
+  }
+]
+```
+
+`getRating(database, pool, playerId)` は初回参照時に設定済みの初期値を保存し、以後は確定済みの最新値を返します。試合結果の登録はサーバー側の認可済み処理から `registerMatchResult()` を呼ぶか、認可 Hook を設定した次の Gateway ルートを使います。
+
+```text
+POST /v1/matchmaking/pools/:poolId/matches/:matchId/result
+{ "resultId": "result-123", "result": 1 }
+```
+
+この HTTP 本文にはプレイヤー ID を含めません。Gateway は `matchId` に対応する成立済み Match Pool チケットから参加者を復元し、`authorizeMatchResult` が許可した場合だけ結果を適用します。結果 ID と match ID は冪等性キーとして扱い、同じ結果の再送は再計算せず `applied: false` を返します。
+
+試合行、2 人の参加者履歴、2 人のレーティング更新は 1 回の D1 batch へまとめます。レーティングの版番号を条件にした更新が競合した場合は再読込・再計算を有界回数だけ行うため、同時更新で片方の結果を失いません。`listMatchHistory()` / `getMatchHistory()` は Pool と任意の playerId で絞り込み、cursor と limit（最大 100）で新しい順に取得できます。
