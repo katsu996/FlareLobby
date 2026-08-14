@@ -32,6 +32,11 @@ export default defineConfig({
   ],
   test: {
     include: ["test/**/*.test.ts"],
+    coverage: {
+      provider: "istanbul",
+      include: ["src/**/*.ts"],
+      reporter: ["text", "lcov", "json-summary"]
+    },
     setupFiles: ["../../packages/cloudflare/test/apply-migrations.ts"]
   }
 });

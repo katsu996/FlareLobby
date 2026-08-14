@@ -41,12 +41,34 @@ jobs:
 
       - name: Verify documentation and examples
         run: pnpm check:docs
+      - name: Run tests and collect coverage
+        run: pnpm test:coverage
+      - name: Publish coverage summary
+        if: ${{ !cancelled() }}
+        run: pnpm coverage:summary
+      - name: Upload coverage reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports-${{ github.run_number }}
+          path: |
+            packages/core/coverage
+            packages/client/coverage
+            packages/testing/coverage
+            packages/cloudflare/coverage
+            examples/local-demo/coverage
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          files: packages/core/coverage/lcov.info,packages/client/coverage/lcov.info,packages/testing/coverage/lcov.info,packages/cloudflare/coverage/lcov.info,examples/local-demo/coverage/lcov.info
+          fail_ci_if_error: false
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-      - name: Run unit tests
-        run: pnpm test:unit
-
-      - name: Run Workers integration tests
-        run: pnpm test:integration
 
       - name: Verify ES Modules entry points
         run: node scripts/verify-esm.mjs
