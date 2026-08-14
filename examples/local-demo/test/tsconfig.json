@@ -5,6 +5,8 @@
     "declaration": false,
     "declarationMap": false,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2024", "DOM"],
     "types": [
       "../../../packages/cloudflare/worker-configuration.d.ts",
       "@cloudflare/vitest-pool-workers/types"
