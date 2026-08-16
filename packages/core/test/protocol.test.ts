@@ -10,12 +10,12 @@ import {
   decodeServerMessage,
   encodeProtocolMessage,
   isDuplicateRequest,
-  validateProtocolMessage
+  validateProtocolMessage,
 } from "../src/index.js";
 import type {
   ClientCommandEnvelope,
   ProtocolMessage,
-  ProtocolResult
+  ProtocolResult,
 } from "../src/index.js";
 
 function expectProtocolValue<TValue>(result: ProtocolResult<TValue>): TValue {
@@ -28,7 +28,7 @@ function expectProtocolValue<TValue>(result: ProtocolResult<TValue>): TValue {
 
 function expectProtocolError<TValue>(
   result: ProtocolResult<TValue>,
-  code: FlareLobbyError["code"]
+  code: FlareLobbyError["code"],
 ): FlareLobbyError {
   expect(result.ok).toBe(false);
 
@@ -48,8 +48,8 @@ describe("JSON 通信プロトコル v1", () => {
     requestId: "request-1",
     command: "room.set_ready",
     payload: {
-      ready: true
-    }
+      ready: true,
+    },
   };
 
   it("コマンド、成功、失敗、イベントを往復変換する", () => {
@@ -60,8 +60,8 @@ describe("JSON 通信プロトコル v1", () => {
         kind: "success",
         requestId: "request-1",
         payload: {
-          accepted: true
-        }
+          accepted: true,
+        },
       },
       {
         protocolVersion: PROTOCOL_VERSION,
@@ -69,8 +69,8 @@ describe("JSON 通信プロトコル v1", () => {
         requestId: "request-2",
         error: {
           code: "ROOM_FULL",
-          message: "ルームは満員です。"
-        }
+          message: "ルームは満員です。",
+        },
       },
       {
         protocolVersion: PROTOCOL_VERSION,
@@ -78,9 +78,9 @@ describe("JSON 通信プロトコル v1", () => {
         event: "room.snapshot",
         revision: 8,
         payload: {
-          roomId: "room-1"
-        }
-      }
+          roomId: "room-1",
+        },
+      },
     ];
 
     for (const message of messages) {
@@ -95,12 +95,12 @@ describe("JSON 通信プロトコル v1", () => {
     const retry: ClientCommandEnvelope = {
       ...command,
       payload: {
-        ready: true
-      }
+        ready: true,
+      },
     };
     const anotherRequest: ClientCommandEnvelope = {
       ...command,
-      requestId: "request-2"
+      requestId: "request-2",
     };
 
     expect(isDuplicateRequest(command, retry)).toBe(true);
@@ -119,7 +119,7 @@ describe("JSON 通信プロトコル v1", () => {
       "INVALID_MESSAGE",
       "INVALID_PAYLOAD",
       "UNSUPPORTED_PROTOCOL_VERSION",
-      "UNKNOWN_EVENT"
+      "UNKNOWN_EVENT",
     ]);
 
     for (const code of FLARE_LOBBY_ERROR_CODES) {
@@ -143,11 +143,11 @@ describe("JSON 通信プロトコル v1", () => {
           requestId: "request-1",
           command: "room.set_ready",
           payload: {
-            ready: true
-          }
-        })
+            ready: true,
+          },
+        }),
       ),
-      "UNSUPPORTED_PROTOCOL_VERSION"
+      "UNSUPPORTED_PROTOCOL_VERSION",
     );
 
     expectProtocolError(
@@ -156,10 +156,10 @@ describe("JSON 通信プロトコル v1", () => {
           protocolVersion: PROTOCOL_VERSION,
           kind: "command",
           requestId: "request-1",
-          payload: {}
-        })
+          payload: {},
+        }),
       ),
-      "INVALID_MESSAGE"
+      "INVALID_MESSAGE",
     );
   });
 
@@ -171,15 +171,15 @@ describe("JSON 通信プロトコル v1", () => {
         requestId: "request-1",
         command: "room.set_ready",
         payload: {
-          ready: undefined
-        }
+          ready: undefined,
+        },
       }),
-      "INVALID_PAYLOAD"
+      "INVALID_PAYLOAD",
     );
 
     const error = expectProtocolError(
       decodeProtocolMessage("{not-json"),
-      "INVALID_MESSAGE"
+      "INVALID_MESSAGE",
     );
 
     expect(error.message).toBe("メッセージの形式が正しくありません。");
@@ -192,14 +192,14 @@ describe("JSON 通信プロトコル v1", () => {
       kind: "event",
       event: "room.unknown",
       revision: 1,
-      payload: null
+      payload: null,
     });
 
     expectProtocolError(
       decodeServerMessage(encodedEvent, {
-        knownEventTypes: ["room.snapshot"]
+        knownEventTypes: ["room.snapshot"],
       }),
-      "UNKNOWN_EVENT"
+      "UNKNOWN_EVENT",
     );
   });
 
@@ -211,8 +211,8 @@ describe("JSON 通信プロトコル v1", () => {
         kind: "event",
         event: "room.snapshot",
         revision: 1,
-        payload: null
-      })
+        payload: null,
+      }),
     );
 
     expectProtocolError(decodeServerMessage(encodedCommand), "INVALID_MESSAGE");
@@ -222,20 +222,20 @@ describe("JSON 通信プロトコル v1", () => {
   it("公開エラーをコードと表示文言へ分離してシリアライズする", () => {
     const error = new FlareLobbyError("FORBIDDEN", {
       message: "この操作にはホスト権限が必要です。",
-      requestId: "request-3"
+      requestId: "request-3",
     });
 
     expect(error.code).toBe("FORBIDDEN");
     expect(error.requestId).toBe("request-3");
     expect(error.toJSON()).toEqual({
       code: "FORBIDDEN",
-      message: "この操作にはホスト権限が必要です。"
+      message: "この操作にはホスト権限が必要です。",
     });
     expect(JSON.stringify(error)).toBe(
       JSON.stringify({
         code: "FORBIDDEN",
-        message: "この操作にはホスト権限が必要です。"
-      })
+        message: "この操作にはホスト権限が必要です。",
+      }),
     );
   });
 });

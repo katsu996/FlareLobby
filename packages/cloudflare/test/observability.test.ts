@@ -7,11 +7,11 @@ import {
   createObservabilitySink,
   getObservabilityOperationName,
   observeOperation,
-  readObservabilityContext
+  readObservabilityContext,
 } from "../src/index.js";
 import type {
   FlareLobbyObservabilitySink,
-  FlareLobbyStructuredLogger
+  FlareLobbyStructuredLogger,
 } from "../src/index.js";
 
 interface RecordedPoint {
@@ -23,19 +23,22 @@ interface RecordedPoint {
 function createRecordingSink(
   points: RecordedPoint[],
   lines: string[],
-  configuration: { readonly logSampleRate?: number; readonly analyticsSampleRate?: number } = {}
+  configuration: {
+    readonly logSampleRate?: number;
+    readonly analyticsSampleRate?: number;
+  } = {},
 ): FlareLobbyObservabilitySink {
   const analytics = {
     writeDataPoint(point?: RecordedPoint): void {
       if (point !== undefined) {
         points.push(point);
       }
-    }
+    },
   } as unknown as AnalyticsEngineDataset;
   const logger: FlareLobbyStructuredLogger = {
     log: (...values: readonly unknown[]) => {
       lines.push(String(values[0]));
-    }
+    },
   };
 
   return createObservabilitySink(analytics, configuration, logger);
@@ -47,17 +50,17 @@ describe("観測基盤", () => {
       correlationId: "correlation-1",
       requestId: "request-1",
       sampled: true,
-      analyticsSampled: true
+      analyticsSampled: true,
     });
     const request = attachObservabilityHeaders(
       new Request("https://example.test/v1/custom-rooms"),
-      context
+      context,
     );
     const restored = readObservabilityContext(request);
 
     expect(restored).toEqual(context);
     expect(request.headers.get(FLARE_LOBBY_CORRELATION_ID_HEADER)).toBe(
-      "correlation-1"
+      "correlation-1",
     );
   });
 
@@ -65,16 +68,16 @@ describe("観測基盤", () => {
     expect(
       getObservabilityOperationName(
         new Request("https://example.test/v1/custom-rooms/room-1/join", {
-          method: "POST"
-        })
-      )
+          method: "POST",
+        }),
+      ),
     ).toBe("room.join");
     expect(
       getObservabilityOperationName(
         new Request("https://example.test/v1/custom-rooms/room-1/ws", {
-          method: "GET"
-        })
-      )
+          method: "GET",
+        }),
+      ),
     ).toBe("room.connect");
   });
 
@@ -86,7 +89,7 @@ describe("観測基盤", () => {
       correlationId: "correlation-2",
       requestId: "request-2",
       sampled: true,
-      analyticsSampled: true
+      analyticsSampled: true,
     });
 
     sink.log({
@@ -99,8 +102,8 @@ describe("観測基盤", () => {
         roomKind: "custom",
         password: "secret-password",
         joinToken: "secret-token",
-        messageBody: "ゲームメッセージ本文"
-      } as unknown as Readonly<Record<string, string>>
+        messageBody: "ゲームメッセージ本文",
+      } as unknown as Readonly<Record<string, string>>,
     });
     sink.metric({
       context,
@@ -108,7 +111,7 @@ describe("観測基盤", () => {
       value: 1250,
       operation: "matchmaking.match",
       result: "success",
-      attributes: { waitTimeMs: 1250 }
+      attributes: { waitTimeMs: 1250 },
     });
 
     const output = lines.join("\n") + JSON.stringify(points);
@@ -127,28 +130,28 @@ describe("観測基盤", () => {
     const analytics = {
       writeDataPoint: () => {
         throw new Error("analytics unavailable");
-      }
+      },
     } as unknown as AnalyticsEngineDataset;
     const sink = createObservabilitySink(
       analytics,
       { logSampleRate: 0, analyticsSampleRate: 0 },
-      logger
+      logger,
     );
     const context = createObservabilityContext(undefined, {
       correlationId: "correlation-3",
       requestId: "request-3",
       sampled: false,
-      analyticsSampled: false
+      analyticsSampled: false,
     });
 
     await expect(
-      observeOperation(sink, context, "matchmaking.match", async () => "ok")
+      observeOperation(sink, context, "matchmaking.match", async () => "ok"),
     ).resolves.toBe("ok");
     sink.metric({
       context,
       name: "match_succeeded",
       value: 1,
-      operation: "matchmaking.match"
+      operation: "matchmaking.match",
     });
   });
 });

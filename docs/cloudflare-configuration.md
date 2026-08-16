@@ -26,13 +26,13 @@ const flarelobby = defineFlareLobby<GameApp>({
     maxPlayers: 4,
     defaultSettings: {
       maxPlayers: 4,
-      map: "forest"
-    }
+      map: "forest",
+    },
   },
   matchmakingPools: [],
   authenticate: async (request) => {
     const account = await verifyApplicationAccessToken(
-      request.headers.get("authorization")
+      request.headers.get("authorization"),
     );
 
     return account === null
@@ -46,21 +46,21 @@ const flarelobby = defineFlareLobby<GameApp>({
       roomId.length > 0,
     authorizeSpectate: () => true,
     authorizeHostOperation: () => false,
-    authorizeMatchResult: () => false
+    authorizeMatchResult: () => false,
   },
   inputLimits: {
     maxHttpRequestBytes: 16 * 1024,
     maxWebSocketMessageBytes: 8 * 1024,
     maxMessagesPerMinute: 60,
-    maxRoomCreationsPerMinute: 10
-  }
+    maxRoomCreationsPerMinute: 10,
+  },
 });
 
 export default flarelobby.createGatewayWorker<Env>();
 export {
   RoomDurableObject,
   MatchPoolDurableObject,
-  RateLimitDurableObject
+  RateLimitDurableObject,
 } from "@flarelobby/cloudflare";
 ```
 
@@ -77,14 +77,14 @@ matchmakingPools: [
     matchRoom: {
       settings: { map: "forest" },
       metadata: { playlist: "ranked" },
-      teamIds: ["blue", "red"]
+      teamIds: ["blue", "red"],
     },
     rating: {
       initialRating: 1_500,
-      kFactor: 24
-    }
-  }
-]
+      kFactor: 24,
+    },
+  },
+];
 ```
 
 ## Wrangler 設定
@@ -97,42 +97,48 @@ Room、Match Pool、利用制限の公開クラスは Wrangler から静的に�
   "durable_objects": {
     "bindings": [
       { "name": "FLARE_LOBBY_ROOMS", "class_name": "RoomDurableObject" },
-      { "name": "FLARE_LOBBY_MATCH_POOLS", "class_name": "MatchPoolDurableObject" },
-      { "name": "FLARE_LOBBY_RATE_LIMITS", "class_name": "RateLimitDurableObject" }
-    ]
+      {
+        "name": "FLARE_LOBBY_MATCH_POOLS",
+        "class_name": "MatchPoolDurableObject",
+      },
+      {
+        "name": "FLARE_LOBBY_RATE_LIMITS",
+        "class_name": "RateLimitDurableObject",
+      },
+    ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["RoomDurableObject", "MatchPoolDurableObject"]
+      "new_sqlite_classes": ["RoomDurableObject", "MatchPoolDurableObject"],
     },
     {
       "tag": "v2",
-      "new_sqlite_classes": ["RateLimitDurableObject"]
-    }
+      "new_sqlite_classes": ["RateLimitDurableObject"],
+    },
   ],
   "d1_databases": [
     {
       "binding": "FLARE_LOBBY_DB",
       "database_name": "your-flarelobby-database",
-      "database_id": "D1 の UUID"
-    }
-  ]
+      "database_id": "D1 の UUID",
+    },
+  ],
 }
 ```
 
 `FLARE_LOBBY_DB`、`FLARE_LOBBY_ROOMS`、`FLARE_LOBBY_MATCH_POOLS`、`FLARE_LOBBY_RATE_LIMITS`、`FLARE_LOBBY_TOKEN_SECRET` は必須です。`wrangler types` が生成する `Env` を `createGatewayWorker<Env>()` に渡すことで、これらの Binding を型検査時に要求します。既存の設定検証で返す安定したコードは次のとおりです。
 
-| 不足・不正 | コード |
-| --- | --- |
-| D1 Binding | `D1_BINDING_MISSING` |
-| Room Durable Object Binding | `ROOM_DURABLE_OBJECT_BINDING_MISSING` |
+| 不足・不正                        | コード                                      |
+| --------------------------------- | ------------------------------------------- |
+| D1 Binding                        | `D1_BINDING_MISSING`                        |
+| Room Durable Object Binding       | `ROOM_DURABLE_OBJECT_BINDING_MISSING`       |
 | Match Pool Durable Object Binding | `MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING` |
-| カスタムルーム設定 | `INVALID_CUSTOM_ROOM_CONFIGURATION` |
-| マッチングプール設定 | `INVALID_MATCHMAKING_POOL` |
-| 入力制限 | `INVALID_INPUT_LIMITS` |
-| 認証 Hook | `INVALID_AUTHENTICATION_HOOK` |
-| 観測サンプリング設定 | `INVALID_OBSERVABILITY_CONFIGURATION` |
+| カスタムルーム設定                | `INVALID_CUSTOM_ROOM_CONFIGURATION`         |
+| マッチングプール設定              | `INVALID_MATCHMAKING_POOL`                  |
+| 入力制限                          | `INVALID_INPUT_LIMITS`                      |
+| 認証 Hook                         | `INVALID_AUTHENTICATION_HOOK`               |
+| 観測サンプリング設定              | `INVALID_OBSERVABILITY_CONFIGURATION`       |
 
 `customRooms.finishedRoomRetentionMs` を指定すると、終了済み Room を SQLite から削除するまでの保持期間（ミリ秒）を変更できます。省略時は `DEFAULT_FINISHED_ROOM_RETENTION_MS`（24 時間）です。0 を指定した Room は終了後すぐに削除対象となります。
 
@@ -162,11 +168,11 @@ const snapshot = await room.initialize({
     invitationCode: "4F9K2D",
     visibility: "unlisted",
     settings: { map: "forest" },
-    metadata: { title: "練習ルーム" }
+    metadata: { title: "練習ルーム" },
   },
   host: {
     participantId: "participant-1",
-    playerId: "player-1"
+    playerId: "player-1",
   },
   participants: [
     {
@@ -174,12 +180,12 @@ const snapshot = await room.initialize({
       id: "participant-1",
       player: { id: "player-1" },
       teamId: null,
-      ready: false
-    }
+      ready: false,
+    },
   ],
   minimumPlayers: 2,
   requireAllPlayersReady: true,
-  finishedRoomRetentionMs: 24 * 60 * 60 * 1_000
+  finishedRoomRetentionMs: 24 * 60 * 60 * 1_000,
 });
 
 await room.transition({ status: "preparing" });
@@ -198,9 +204,9 @@ Analytics Engine は `FLARE_LOBBY_ANALYTICS` という任意 Binding です。�
   "analytics_engine_datasets": [
     {
       "binding": "FLARE_LOBBY_ANALYTICS",
-      "dataset": "flarelobby-production"
-    }
-  ]
+      "dataset": "flarelobby-production",
+    },
+  ],
 }
 ```
 

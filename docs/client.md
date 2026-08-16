@@ -11,7 +11,7 @@ import { createFlareLobbyClient } from "@flarelobby/client";
 
 const client = createFlareLobbyClient({
   endpoint: "https://lobby.example.com",
-  getAccessToken: () => auth.getAccessToken()
+  getAccessToken: () => auth.getAccessToken(),
 });
 
 const room = await client.createCustomRoom({ maxPlayers: 4 });
@@ -35,8 +35,8 @@ const result = await client.request<{ readonly accepted: boolean }>(
   {
     method: "POST",
     body: { value: 1 },
-    idempotent: true
-  }
+    idempotent: true,
+  },
 );
 ```
 
@@ -91,7 +91,7 @@ const unsubscribeStatus = room.onStatusChange((status) => {
 ```ts
 const ticket = await client.joinMatchmaking("ranked-1v1", {
   rating: 1500,
-  inputMethod: "keyboard_mouse"
+  inputMethod: "keyboard_mouse",
 });
 
 const unsubscribe = ticket.on("progress", (progress) => {
@@ -99,7 +99,7 @@ const unsubscribe = ticket.on("progress", (progress) => {
     state: progress.ticket.status,
     waitingTimeMs: progress.waitingTimeMs,
     searchRange: progress.searchRange,
-    waitingCount: progress.waitingCount
+    waitingCount: progress.waitingCount,
   });
 });
 
@@ -115,7 +115,7 @@ unsubscribe();
 const controller = new AbortController();
 const ticket = await client.joinMatchmaking("ranked-1v1", {
   signal: controller.signal,
-  reconnect: { maxAttempts: 5 }
+  reconnect: { maxAttempts: 5 },
 });
 
 const waiting = ticket.waitForMatch({ signal: controller.signal });
@@ -132,7 +132,7 @@ await waiting; // 中止時は CANCELLED
 
 ```ts
 const connection = await client.connect("/v1/rooms/room-1/ws", {
-  knownEventTypes: ["room.snapshot"]
+  knownEventTypes: ["room.snapshot"],
 });
 
 const result = await connection.send("room.set_ready", { ready: true });

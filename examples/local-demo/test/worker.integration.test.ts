@@ -12,14 +12,17 @@ interface TicketResponse {
 interface RpsResponse {
   readonly matchId: string;
   readonly ready: boolean;
-  readonly result: { readonly outcome: string; readonly applied: boolean | null } | null;
+  readonly result: {
+    readonly outcome: string;
+    readonly applied: boolean | null;
+  } | null;
   readonly rating?: { readonly value: number };
 }
 
 async function requestAs<T>(
   path: string,
   player: string,
-  init: RequestInit = {}
+  init: RequestInit = {},
 ): Promise<{ readonly response: Response; readonly body: T }> {
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${player}`);
@@ -28,7 +31,7 @@ async function requestAs<T>(
   }
 
   const response = await SELF.fetch(
-    new Request(`https://example.test${path}`, { ...init, headers })
+    new Request(`https://example.test${path}`, { ...init, headers }),
   );
   return { response, body: (await response.json()) as T };
 }
@@ -38,7 +41,9 @@ describe("ローカルじゃんけんサンプルのWorker導線", () => {
     const page = await SELF.fetch("https://example.test/");
     expect(page.status).toBe(200);
     expect(page.headers.get("content-type")).toContain("text/html");
-    await expect(page.text()).resolves.toContain("FlareLobby じゃんけんアリーナ");
+    await expect(page.text()).resolves.toContain(
+      "FlareLobby じゃんけんアリーナ",
+    );
 
     const health = await SELF.fetch("https://example.test/health");
     await expect(health.json()).resolves.toEqual({ status: "ready" });
@@ -56,8 +61,8 @@ describe("ローカルじゃんけんサンプルのWorker導線", () => {
         visibility: "unlisted",
         joinMethod: "invitation",
         maxPlayers: 2,
-        settings: { map: "forest" }
-      })
+        settings: { map: "forest" },
+      }),
     });
     expect(create.response.status).toBe(201);
     expect(create.body.invitationCode).toMatch(/^[A-Z0-9]{6}$/u);
@@ -70,9 +75,9 @@ describe("ローカルじゃんけんサンプルのWorker導線", () => {
         body: JSON.stringify({
           requestId: `sample-custom-join-${crypto.randomUUID()}`,
           invitationCode: create.body.invitationCode,
-          role: "player"
-        })
-      }
+          role: "player",
+        }),
+      },
     );
     expect(join.response.status).toBe(200);
     expect(join.body.roomId).toBe(create.body.roomId);
@@ -88,9 +93,9 @@ describe("ローカルじゃんけんサンプルのWorker導線", () => {
           requestId: `sample-rank-a-${crypto.randomUUID()}`,
           rating: 1_500,
           inputMethod: "keyboard_mouse",
-          ttlMs: 60_000
-        })
-      }
+          ttlMs: 60_000,
+        }),
+      },
     );
     const second = await requestAs<TicketResponse>(
       "/v1/matchmaking/pools/ranked-jp/tickets",
@@ -101,9 +106,9 @@ describe("ローカルじゃんけんサンプルのWorker導線", () => {
           requestId: `sample-rank-b-${crypto.randomUUID()}`,
           rating: 1_500,
           inputMethod: "keyboard_mouse",
-          ttlMs: 60_000
-        })
-      }
+          ttlMs: 60_000,
+        }),
+      },
     );
 
     expect(first.response.status).toBe(201);
@@ -116,21 +121,21 @@ describe("ローカルじゃんけんサンプルのWorker導線", () => {
 
     const firstTicket = await requestAs<TicketResponse>(
       `/v1/matchmaking/pools/ranked-jp/tickets/${encodeURIComponent(first.body.ticket.id)}`,
-      "sample-rank-a"
+      "sample-rank-a",
     );
     expect(firstTicket.body.ticket.result?.matchId).toBe(secondMatchId);
 
     const movePath = `/v1/demo/rps/matches/${encodeURIComponent(secondMatchId)}/move`;
     const firstMove = await requestAs<RpsResponse>(movePath, "sample-rank-a", {
       method: "POST",
-      body: JSON.stringify({ move: "rock" })
+      body: JSON.stringify({ move: "rock" }),
     });
     expect(firstMove.response.status).toBe(200);
     expect(firstMove.body.ready).toBe(false);
 
     const secondMove = await requestAs<RpsResponse>(movePath, "sample-rank-b", {
       method: "POST",
-      body: JSON.stringify({ move: "paper" })
+      body: JSON.stringify({ move: "paper" }),
     });
     expect(secondMove.response.status).toBe(200);
     expect(secondMove.body.ready).toBe(true);
@@ -139,12 +144,13 @@ describe("ローカルじゃんけんサンプルのWorker導線", () => {
 
     const resend = await requestAs<RpsResponse>(movePath, "sample-rank-b", {
       method: "POST",
-      body: JSON.stringify({ move: "paper" })
+      body: JSON.stringify({ move: "paper" }),
     });
     expect(resend.body.result?.applied).toBe(false);
 
-    const rows = await env.FLARE_LOBBY_DB
-      .prepare("SELECT COUNT(*) AS count FROM flarelobby_rating_matches WHERE match_id = ?")
+    const rows = await env.FLARE_LOBBY_DB.prepare(
+      "SELECT COUNT(*) AS count FROM flarelobby_rating_matches WHERE match_id = ?",
+    )
       .bind(secondMatchId)
       .first<{ count: number }>();
     expect(rows?.count).toBe(1);

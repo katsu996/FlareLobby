@@ -1,6 +1,6 @@
 import {
   normalizeMatchmakingSearchPolicy,
-  selectMatchCandidates
+  selectMatchCandidates,
 } from "@flarelobby/core";
 import type {
   MatchCandidate,
@@ -9,26 +9,26 @@ import type {
   MatchmakingSearchPolicy,
   MatchmakingSearchTicket,
   NormalizedMatchmakingSearchPolicy,
-  Timestamp
+  Timestamp,
 } from "@flarelobby/core";
 
 import {
   addMilliseconds,
   createVirtualClock,
-  toEpochMilliseconds
+  toEpochMilliseconds,
 } from "./clock.js";
 import {
   generateSimulationPlayers,
   normalizeNumericDistribution,
   normalizePlayerGenerationOptions,
   normalizeSimulationPlayers,
-  sampleNumericDistribution
+  sampleNumericDistribution,
 } from "./distributions.js";
 import type {
   NormalizedPlayerGenerationOptions,
   NumericDistribution,
   PlayerGenerationOptions,
-  SimulationPlayer
+  SimulationPlayer,
 } from "./distributions.js";
 import { SEEDED_RANDOM_ALGORITHM, SeededRandom } from "./random.js";
 import type { RandomSeed, RandomSource } from "./random.js";
@@ -46,7 +46,7 @@ export const DEFAULT_SIMULATION_POOL: MatchmakingPool = Object.freeze({
   gameId: "simulation",
   seasonId: "simulation",
   mode: "ranked-1v1",
-  region: "jp"
+  region: "jp",
 });
 
 /** シミュレーションのイベント処理上限です。異常に細かい設定を早期に検出します。 */
@@ -274,7 +274,7 @@ interface WorkingEvent {
  */
 export function simulateMatchmaking(
   input: MatchmakingSimulationConfig,
-  dependencies: SimulationDependencies = {}
+  dependencies: SimulationDependencies = {},
 ): MatchmakingSimulationResult {
   assertRecord(input, "シミュレーション設定");
 
@@ -282,11 +282,11 @@ export function simulateMatchmaking(
   const startMs = toEpochMilliseconds(input.startAt ?? 0);
   const durationMs = normalizeDuration(
     input.durationMs ?? DEFAULT_SIMULATION_DURATION_MS,
-    "durationMs"
+    "durationMs",
   );
   const tickMs = normalizePositiveDuration(
     input.tickMs ?? DEFAULT_SIMULATION_TICK_MS,
-    "tickMs"
+    "tickMs",
   );
   const endMs = addMilliseconds(startMs, durationMs);
   const pool = normalizePool(input.pool ?? DEFAULT_SIMULATION_POOL);
@@ -299,7 +299,7 @@ export function simulateMatchmaking(
 
   if (input.players !== undefined && input.playerGeneration !== undefined) {
     throw new TypeError(
-      "固定プレイヤーとプレイヤー生成設定は同時に指定できません。"
+      "固定プレイヤーとプレイヤー生成設定は同時に指定できません。",
     );
   }
 
@@ -310,7 +310,9 @@ export function simulateMatchmaking(
   const clock = dependencies.clock ?? createVirtualClock(startMs);
 
   if (clock.now() > startMs) {
-    throw new RangeError("注入した仮想時計はシミュレーション開始時刻より後です。");
+    throw new RangeError(
+      "注入した仮想時計はシミュレーション開始時刻より後です。",
+    );
   }
   clock.advanceTo(startMs);
 
@@ -318,7 +320,7 @@ export function simulateMatchmaking(
     players,
     random,
     cancellation,
-    ticketTtlMs
+    ticketTtlMs,
   );
   const recordsById = new Map(records.map((record) => [record.id, record]));
   const eventTimes = createEventTimes(
@@ -326,7 +328,7 @@ export function simulateMatchmaking(
     searchPolicy,
     startMs,
     endMs,
-    tickMs
+    tickMs,
   );
   const events: WorkingEvent[] = [];
   const matches: WorkingMatch[] = [];
@@ -345,7 +347,7 @@ export function simulateMatchmaking(
           type: "joined",
           ticketIds: [record.id],
           playerIds: [record.player.id],
-          candidateId: null
+          candidateId: null,
         });
       }
     }
@@ -355,7 +357,10 @@ export function simulateMatchmaking(
         continue;
       }
 
-      if (record.cancellationAtMs !== null && record.cancellationAtMs <= timeMs) {
+      if (
+        record.cancellationAtMs !== null &&
+        record.cancellationAtMs <= timeMs
+      ) {
         record.status = "cancelled";
         record.cancelledAtMs = timeMs;
         sequence += 1;
@@ -365,7 +370,7 @@ export function simulateMatchmaking(
           type: "cancelled",
           ticketIds: [record.id],
           playerIds: [record.player.id],
-          candidateId: null
+          candidateId: null,
         });
         continue;
       }
@@ -380,7 +385,7 @@ export function simulateMatchmaking(
           type: "expired",
           ticketIds: [record.id],
           playerIds: [record.player.id],
-          candidateId: null
+          candidateId: null,
         });
       }
     }
@@ -392,7 +397,7 @@ export function simulateMatchmaking(
       .map((record) => toSearchTicket(record, pool));
     const selected = selectMatchCandidates(waitingTickets, {
       now: timeMs,
-      policy: searchPolicy
+      policy: searchPolicy,
     });
 
     for (const evaluation of selected) {
@@ -430,15 +435,17 @@ export function simulateMatchmaking(
         type: "matched",
         ticketIds: evaluation.candidate.ticketIds,
         playerIds: [first.player.id, second.player.id],
-        candidateId: evaluation.candidate.id
+        candidateId: evaluation.candidate.id,
       });
     }
   }
 
   const ticketResults = records.map(toTicketResult);
-  const matchResults = matches.map((match) => toMatchResult(match, recordsById));
+  const matchResults = matches.map((match) =>
+    toMatchResult(match, recordsById),
+  );
   const unmatchedTickets = ticketResults.filter(
-    (ticket) => ticket.status !== "matched" && ticket.status !== "not_joined"
+    (ticket) => ticket.status !== "matched" && ticket.status !== "not_joined",
   );
   const config = createReplayConfig({
     pool,
@@ -453,7 +460,7 @@ export function simulateMatchmaking(
       input.players === undefined
         ? normalizePlayerGenerationOptions(input.playerGeneration)
         : null,
-    players: input.players === undefined ? null : players
+    players: input.players === undefined ? null : players,
   });
   const statistics = createStatistics(records, matchResults);
   const result: MatchmakingSimulationResult = {
@@ -462,7 +469,7 @@ export function simulateMatchmaking(
     replay: {
       seed: input.seed,
       randomAlgorithm: random.algorithm,
-      config
+      config,
     },
     config,
     startAt: new Date(startMs).toISOString(),
@@ -472,7 +479,7 @@ export function simulateMatchmaking(
     matches: matchResults,
     unmatchedTickets,
     events: events.map(toEvent),
-    statistics
+    statistics,
   };
 
   return deepFreeze(result);
@@ -480,11 +487,11 @@ export function simulateMatchmaking(
 
 /** 結果へ含まれるリプレイ情報から同じシミュレーションを再実行します。 */
 export function replaySimulation(
-  replay: SimulationReplay
+  replay: SimulationReplay,
 ): MatchmakingSimulationResult {
   if (replay.randomAlgorithm !== SEEDED_RANDOM_ALGORITHM) {
     throw new RangeError(
-      `対応していない乱数アルゴリズムです: ${replay.randomAlgorithm}`
+      `対応していない乱数アルゴリズムです: ${replay.randomAlgorithm}`,
     );
   }
 
@@ -505,7 +512,7 @@ export function replaySimulation(
     ...(replayConfig.playerGeneration === null
       ? {}
       : { playerGeneration: replayConfig.playerGeneration }),
-    ...(replayConfig.players === null ? {} : { players: replayConfig.players })
+    ...(replayConfig.players === null ? {} : { players: replayConfig.players }),
   };
 
   return simulateMatchmaking(config);
@@ -515,18 +522,18 @@ export function replaySimulation(
 export function compareSearchPolicies(
   config: MatchmakingSimulationConfig,
   first: SimulationPolicyDefinition,
-  second: SimulationPolicyDefinition
+  second: SimulationPolicyDefinition,
 ): SimulationPolicyComparison {
   assertNonEmptyString(first.name, "比較対象の名前");
   assertNonEmptyString(second.name, "比較対象の名前");
 
   const firstResult = simulateMatchmaking({
     ...config,
-    searchPolicy: first.policy
+    searchPolicy: first.policy,
   });
   const secondResult = simulateMatchmaking({
     ...config,
-    searchPolicy: second.policy
+    searchPolicy: second.policy,
   });
 
   return deepFreeze({
@@ -538,21 +545,21 @@ export function compareSearchPolicies(
         firstResult.statistics.matchedTicketCount,
       unmatchedRate: roundRate(
         secondResult.statistics.unmatchedRate -
-          firstResult.statistics.unmatchedRate
+          firstResult.statistics.unmatchedRate,
       ),
       averageWaitTimeMs: subtractNullableMetric(
         secondResult.statistics.waitTimeMs.average,
-        firstResult.statistics.waitTimeMs.average
+        firstResult.statistics.waitTimeMs.average,
       ),
       p95WaitTimeMs: subtractNullableMetric(
         secondResult.statistics.waitTimeMs.p95,
-        firstResult.statistics.waitTimeMs.p95
+        firstResult.statistics.waitTimeMs.p95,
       ),
       averageRatingDifference: subtractNullableMetric(
         secondResult.statistics.ratingDifference.average,
-        firstResult.statistics.ratingDifference.average
-      )
-    }
+        firstResult.statistics.ratingDifference.average,
+      ),
+    },
   });
 }
 
@@ -560,7 +567,7 @@ function createWorkingTickets(
   players: readonly SimulationPlayer[],
   random: RandomSource,
   cancellation: NormalizedSimulationCancellationPolicy | null,
-  ticketTtlMs: number | null
+  ticketTtlMs: number | null,
 ): WorkingTicket[] {
   const records = players.map((player) => {
     const joinedAtMs = toEpochMilliseconds(player.joinedAt);
@@ -571,15 +578,15 @@ function createWorkingTickets(
             normalizeDuration(
               typeof cancellation.afterMs === "number"
                 ? cancellation.afterMs
-                : Math.round(sampleNumericDistribution(cancellation.afterMs, random)),
-              "cancellation.afterMs"
-            )
+                : Math.round(
+                    sampleNumericDistribution(cancellation.afterMs, random),
+                  ),
+              "cancellation.afterMs",
+            ),
           )
         : null;
     const expiresAtMs =
-      ticketTtlMs === null
-        ? null
-        : addMilliseconds(joinedAtMs, ticketTtlMs);
+      ticketTtlMs === null ? null : addMilliseconds(joinedAtMs, ticketTtlMs);
 
     return {
       id: `ticket:${encodeURIComponent(player.id)}`,
@@ -595,12 +602,12 @@ function createWorkingTickets(
       candidateId: null,
       opponentTicketId: null,
       opponentPlayerId: null,
-      ratingDifference: null
+      ratingDifference: null,
     };
   });
 
   records.sort((left, right) =>
-    left.id < right.id ? -1 : left.id > right.id ? 1 : 0
+    left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
   );
   return records;
 }
@@ -610,7 +617,7 @@ function createEventTimes(
   searchPolicy: NormalizedMatchmakingSearchPolicy,
   startMs: number,
   endMs: number,
-  tickMs: number
+  tickMs: number,
 ): readonly number[] {
   const times = new Set<number>([startMs, endMs]);
   const addIfInRange = (value: number): void => {
@@ -639,7 +646,7 @@ function createEventTimes(
     times.add(tick);
     if (times.size > MAX_SIMULATION_EVENT_COUNT) {
       throw new RangeError(
-        `シミュレーションイベント数が上限 ${MAX_SIMULATION_EVENT_COUNT} 件を超えました。`
+        `シミュレーションイベント数が上限 ${MAX_SIMULATION_EVENT_COUNT} 件を超えました。`,
       );
     }
     tick = addMilliseconds(tick, tickMs);
@@ -647,7 +654,7 @@ function createEventTimes(
 
   if (times.size > MAX_SIMULATION_EVENT_COUNT) {
     throw new RangeError(
-      `シミュレーションイベント数が上限 ${MAX_SIMULATION_EVENT_COUNT} 件を超えました。`
+      `シミュレーションイベント数が上限 ${MAX_SIMULATION_EVENT_COUNT} 件を超えました。`,
     );
   }
 
@@ -656,7 +663,7 @@ function createEventTimes(
 
 function toSearchTicket(
   record: WorkingTicket,
-  pool: MatchmakingPool
+  pool: MatchmakingPool,
 ): MatchmakingSearchTicket {
   return {
     id: record.id,
@@ -665,17 +672,17 @@ function toSearchTicket(
     rating: {
       playerId: record.player.id,
       poolId: pool.id,
-      value: record.player.rating
+      value: record.player.rating,
     },
     queuedAt: record.player.joinedAt,
     region: record.player.region,
-    inputMethod: record.player.inputMethod
+    inputMethod: record.player.inputMethod,
   };
 }
 
 function compareWorkingTickets(
   left: WorkingTicket,
-  right: WorkingTicket
+  right: WorkingTicket,
 ): number {
   if (left.joinedAtMs !== right.joinedAtMs) {
     return left.joinedAtMs - right.joinedAtMs;
@@ -698,13 +705,13 @@ function toTicketResult(record: WorkingTicket): SimulationTicketResult {
     candidateId: record.candidateId,
     opponentTicketId: record.opponentTicketId,
     opponentPlayerId: record.opponentPlayerId,
-    ratingDifference: record.ratingDifference
+    ratingDifference: record.ratingDifference,
   });
 }
 
 function toMatchResult(
   match: WorkingMatch,
-  recordsById: ReadonlyMap<string, WorkingTicket>
+  recordsById: ReadonlyMap<string, WorkingTicket>,
 ): SimulationMatchResult {
   const first = recordsById.get(match.evaluation.candidate.ticketIds[0]);
   const second = recordsById.get(match.evaluation.candidate.ticketIds[1]);
@@ -718,22 +725,22 @@ function toMatchResult(
     quality: match.evaluation.quality,
     ticketIds: match.evaluation.candidate.ticketIds,
     playerIds: [first.player.id, second.player.id] as [string, string],
-    matchedAt: new Date(match.matchedAtMs).toISOString()
+    matchedAt: new Date(match.matchedAtMs).toISOString(),
   });
 }
 
 function createStatistics(
   records: readonly WorkingTicket[],
-  matches: readonly SimulationMatchResult[]
+  matches: readonly SimulationMatchResult[],
 ): SimulationStatistics {
   const joined = records.filter((record) => record.status !== "not_joined");
   const matched = records.filter((record) => record.status === "matched");
   const unmatched = joined.length - matched.length;
   const waits = matched.flatMap((record) =>
-    record.waitTimeMs === null ? [] : [record.waitTimeMs]
+    record.waitTimeMs === null ? [] : [record.waitTimeMs],
   );
   const ratingDifferences = matches.map(
-    (match) => match.quality.ratingDifference
+    (match) => match.quality.ratingDifference,
   );
 
   return Object.freeze({
@@ -742,24 +749,26 @@ function createStatistics(
     matchedTicketCount: matched.length,
     matchCount: matches.length,
     cancelledTicketCount: records.filter(
-      (record) => record.status === "cancelled"
+      (record) => record.status === "cancelled",
     ).length,
     expiredTicketCount: records.filter((record) => record.status === "expired")
       .length,
     waitingTicketCount: records.filter((record) => record.status === "waiting")
       .length,
     notJoinedPlayerCount: records.filter(
-      (record) => record.status === "not_joined"
+      (record) => record.status === "not_joined",
     ).length,
     unmatchedTicketCount: unmatched,
-    unmatchedRate: roundRate(joined.length === 0 ? 0 : unmatched / joined.length),
+    unmatchedRate: roundRate(
+      joined.length === 0 ? 0 : unmatched / joined.length,
+    ),
     waitTimeMs: createDistributionStatistics(waits),
-    ratingDifference: createDistributionStatistics(ratingDifferences)
+    ratingDifference: createDistributionStatistics(ratingDifferences),
   });
 }
 
 function createDistributionStatistics(
-  values: readonly number[]
+  values: readonly number[],
 ): DistributionStatistics {
   if (values.length === 0) {
     return Object.freeze({
@@ -769,7 +778,7 @@ function createDistributionStatistics(
       p95: null,
       p99: null,
       min: null,
-      max: null
+      max: null,
     });
   }
 
@@ -782,11 +791,14 @@ function createDistributionStatistics(
     p95: roundMetric(interpolatePercentile(sorted, 0.95)),
     p99: roundMetric(interpolatePercentile(sorted, 0.99)),
     min: roundMetric(sorted[0]!),
-    max: roundMetric(sorted[sorted.length - 1]!)
+    max: roundMetric(sorted[sorted.length - 1]!),
   });
 }
 
-function interpolatePercentile(sorted: readonly number[], percentile: number): number {
+function interpolatePercentile(
+  sorted: readonly number[],
+  percentile: number,
+): number {
   const position = (sorted.length - 1) * percentile;
   const lowerIndex = Math.floor(position);
   const upperIndex = Math.ceil(position);
@@ -816,7 +828,7 @@ function createReplayConfig(input: {
     ticketTtlMs: input.ticketTtlMs,
     cancellation: input.cancellation,
     playerGeneration: input.generatedPlayers ? input.playerGeneration : null,
-    players: input.generatedPlayers ? null : input.players
+    players: input.generatedPlayers ? null : input.players,
   });
 }
 
@@ -837,12 +849,12 @@ function normalizePool(input: MatchmakingPool): MatchmakingPool {
     gameId: input.gameId,
     seasonId: input.seasonId,
     mode: input.mode,
-    region: input.region
+    region: input.region,
   });
 }
 
 function normalizeCancellationPolicy(
-  input: SimulationCancellationPolicy | undefined
+  input: SimulationCancellationPolicy | undefined,
 ): NormalizedSimulationCancellationPolicy | null {
   if (input === undefined) {
     return null;
@@ -884,7 +896,7 @@ function toOptionalTimestamp(value: number | null): Timestamp | null {
 
 function subtractNullableMetric(
   right: number | null,
-  left: number | null
+  left: number | null,
 ): number | null {
   return right === null || left === null ? null : roundMetric(right - left);
 }
@@ -904,20 +916,23 @@ function toEvent(event: WorkingEvent): SimulationEvent {
     type: event.type,
     ticketIds: event.ticketIds,
     playerIds: event.playerIds,
-    candidateId: event.candidateId
+    candidateId: event.candidateId,
   });
 }
 
 function assertRecord(
   value: unknown,
-  name: string
+  name: string,
 ): asserts value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new TypeError(`${name}はオブジェクトで指定してください。`);
   }
 }
 
-function assertNonEmptyString(value: unknown, name: string): asserts value is string {
+function assertNonEmptyString(
+  value: unknown,
+  name: string,
+): asserts value is string {
   if (typeof value !== "string" || value.length === 0) {
     throw new TypeError(`${name}は空でない文字列で指定してください。`);
   }

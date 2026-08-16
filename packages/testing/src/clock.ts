@@ -40,7 +40,7 @@ export class VirtualClock implements AdvancingClock {
   public advanceBy(milliseconds: number): number {
     if (!isNonNegativeSafeInteger(milliseconds)) {
       throw new RangeError(
-        "仮想時計を進めるミリ秒は 0 以上の安全な整数で指定してください。"
+        "仮想時計を進めるミリ秒は 0 以上の安全な整数で指定してください。",
       );
     }
 
@@ -61,7 +61,7 @@ export class VirtualClock implements AdvancingClock {
 
 /** 仮想時計を生成する関数形式のAPIです。 */
 export function createVirtualClock(
-  initialTime: number | Timestamp = 0
+  initialTime: number | Timestamp = 0,
 ): VirtualClock {
   return new VirtualClock(initialTime);
 }
@@ -71,7 +71,7 @@ export function toEpochMilliseconds(value: number | Timestamp): number {
   if (typeof value === "number") {
     if (!Number.isSafeInteger(value) || !isValidDateMilliseconds(value)) {
       throw new RangeError(
-        "時刻は有効な日付範囲内の安全な整数で指定してください。"
+        "時刻は有効な日付範囲内の安全な整数で指定してください。",
       );
     }
 
@@ -79,7 +79,9 @@ export function toEpochMilliseconds(value: number | Timestamp): number {
   }
 
   if (typeof value !== "string") {
-    throw new TypeError("時刻は Unix epoch milliseconds または文字列で指定してください。");
+    throw new TypeError(
+      "時刻は Unix epoch milliseconds または文字列で指定してください。",
+    );
   }
 
   const parsed = Date.parse(value);

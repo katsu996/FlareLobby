@@ -11,26 +11,24 @@ type ExampleApp = FlareLobbyApp<
 const lobby = defineFlareLobby<ExampleApp>({
   customRooms: {
     maxPlayers: 4,
-    defaultSettings: { map: "forest" }
+    defaultSettings: { map: "forest" },
   },
   matchmakingPools: [],
   authenticate: async (request) => {
     const token = request.headers.get("authorization");
     const subject = await verifyApplicationToken(token);
-    return subject === null
-      ? null
-      : { id: subject, playerId: subject };
+    return subject === null ? null : { id: subject, playerId: subject };
   },
   inputLimits: {
     maxHttpRequestBytes: 16 * 1024,
     maxWebSocketMessageBytes: 8 * 1024,
     maxMessagesPerMinute: 60,
-    maxRoomCreationsPerMinute: 10
-  }
+    maxRoomCreationsPerMinute: 10,
+  },
 });
 
 declare function verifyApplicationToken(
-  authorization: string | null
+  authorization: string | null,
 ): Promise<string | null>;
 
 export default lobby.createGatewayWorker<FlareLobbyBindings>();

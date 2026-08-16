@@ -2,10 +2,7 @@ import { FlareLobbyError } from "@flarelobby/core";
 import type { JsonObject, RoomStatus } from "@flarelobby/core";
 
 /** 公開ルーム一覧へ投影できるカスタムルームの参加方式です。 */
-export type CustomRoomIndexJoinMethod =
-  | "public"
-  | "invitation"
-  | "password";
+export type CustomRoomIndexJoinMethod = "public" | "invitation" | "password";
 
 /** 公開ルーム一覧へ反映する、秘密情報を含まない派生レコードです。 */
 export interface CustomRoomIndexRecord extends JsonObject {
@@ -74,13 +71,13 @@ const INVITATION_INDEX_SCHEMA = `
 
 /** 公開ルーム検索用の D1 派生テーブルを作成します。実行は冪等です。 */
 export async function ensureCustomRoomIndex(
-  database: D1Database
+  database: D1Database,
 ): Promise<void> {
   try {
     await database.batch([
       database.prepare(CUSTOM_ROOM_INDEX_TABLE_SCHEMA),
       database.prepare(CUSTOM_ROOM_INDEX_FILTER_INDEX_SCHEMA),
-      database.prepare(CUSTOM_ROOM_INDEX_CAPACITY_INDEX_SCHEMA)
+      database.prepare(CUSTOM_ROOM_INDEX_CAPACITY_INDEX_SCHEMA),
     ]);
   } catch {
     throw new FlareLobbyError("CONNECTION_FAILED");
@@ -90,7 +87,7 @@ export async function ensureCustomRoomIndex(
 /** 公開ルームの秘密情報を含まない派生レコードを D1 へ反映します。 */
 export async function upsertCustomRoomIndex(
   database: D1Database,
-  record: CustomRoomIndexRecord
+  record: CustomRoomIndexRecord,
 ): Promise<void> {
   await ensureCustomRoomIndex(database);
 
@@ -131,7 +128,7 @@ export async function upsertCustomRoomIndex(
           revision = excluded.revision,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at
-        WHERE excluded.revision >= flarelobby_custom_room_index.revision`
+        WHERE excluded.revision >= flarelobby_custom_room_index.revision`,
       )
       .bind(
         record.roomId,
@@ -148,7 +145,7 @@ export async function upsertCustomRoomIndex(
         record.availableSpectatorSlots,
         record.revision,
         record.createdAt,
-        record.updatedAt
+        record.updatedAt,
       )
       .run();
   } catch {
@@ -159,7 +156,7 @@ export async function upsertCustomRoomIndex(
 /** 公開ルーム一覧からルームを削除します。再実行しても成功します。 */
 export async function deleteCustomRoomIndex(
   database: D1Database,
-  roomId: string
+  roomId: string,
 ): Promise<void> {
   if (!isNonEmptyString(roomId)) {
     throw new FlareLobbyError("INVALID_PAYLOAD");
@@ -169,9 +166,7 @@ export async function deleteCustomRoomIndex(
 
   try {
     await database
-      .prepare(
-        "DELETE FROM flarelobby_custom_room_index WHERE room_id = ?"
-      )
+      .prepare("DELETE FROM flarelobby_custom_room_index WHERE room_id = ?")
       .bind(roomId)
       .run();
   } catch {
@@ -208,7 +203,7 @@ export async function queryCustomRoomIndex(
     readonly minAvailableSlots?: number;
     readonly cursor?: { readonly createdAt: number; readonly roomId: string };
     readonly limit: number;
-  }
+  },
 ): Promise<readonly CustomRoomIndexRecord[]> {
   await ensureCustomRoomIndex(database);
 
@@ -226,9 +221,7 @@ export async function queryCustomRoomIndex(
   }
 
   if (options.states !== undefined && options.states.length > 0) {
-    where.push(
-      `state IN (${options.states.map(() => "?").join(", ")})`
-    );
+    where.push(`state IN (${options.states.map(() => "?").join(", ")})`);
     values.push(...options.states);
   }
 
@@ -242,13 +235,11 @@ export async function queryCustomRoomIndex(
   }
 
   if (options.cursor !== undefined) {
-    where.push(
-      "(created_at < ? OR (created_at = ? AND room_id < ?))"
-    );
+    where.push("(created_at < ? OR (created_at = ? AND room_id < ?))");
     values.push(
       options.cursor.createdAt,
       options.cursor.createdAt,
-      options.cursor.roomId
+      options.cursor.roomId,
     );
   }
 
@@ -276,7 +267,7 @@ export async function queryCustomRoomIndex(
          FROM flarelobby_custom_room_index
          WHERE ${where.join(" AND ")}
          ORDER BY created_at DESC, room_id DESC
-         LIMIT ?`
+         LIMIT ?`,
       )
       .bind(...values)
       .all<CustomRoomIndexRow>();
@@ -296,7 +287,7 @@ export async function queryCustomRoomIndex(
       availableSpectatorSlots: row.availableSpectatorSlots,
       revision: row.revision,
       createdAt: row.createdAt,
-      updatedAt: row.updatedAt
+      updatedAt: row.updatedAt,
     }));
   } catch {
     throw new FlareLobbyError("CONNECTION_FAILED");
@@ -305,7 +296,7 @@ export async function queryCustomRoomIndex(
 
 /** 招待コード解決用の小さな D1 索引を作成します。実行は冪等です。 */
 export async function ensureCustomRoomInvitationIndex(
-  database: D1Database
+  database: D1Database,
 ): Promise<void> {
   try {
     await database.prepare(INVITATION_INDEX_SCHEMA).run();
@@ -318,7 +309,7 @@ export async function ensureCustomRoomInvitationIndex(
 export async function registerCustomRoomInvitation(
   database: D1Database,
   invitationCode: string,
-  roomId: string
+  roomId: string,
 ): Promise<void> {
   await ensureCustomRoomInvitationIndex(database);
 
@@ -327,7 +318,7 @@ export async function registerCustomRoomInvitation(
       .prepare(
         `INSERT OR IGNORE INTO flarelobby_custom_room_invitations
           (invitation_code, room_id, created_at)
-         VALUES (?, ?, ?)`
+         VALUES (?, ?, ?)`,
       )
       .bind(invitationCode, roomId, Date.now())
       .run();
@@ -336,14 +327,14 @@ export async function registerCustomRoomInvitation(
       .prepare(
         `SELECT room_id AS roomId
          FROM flarelobby_custom_room_invitations
-         WHERE invitation_code = ?`
+         WHERE invitation_code = ?`,
       )
       .bind(invitationCode)
       .first<{ roomId: string }>();
 
     if (row?.roomId !== roomId) {
       throw new FlareLobbyError("CONFLICT", {
-        message: "招待コードが既存の Room と競合しました。"
+        message: "招待コードが既存の Room と競合しました。",
       });
     }
   } catch (error) {
@@ -358,7 +349,7 @@ export async function registerCustomRoomInvitation(
 /** 招待コードから Room ID を解決します。 */
 export async function resolveCustomRoomInvitation(
   database: D1Database,
-  invitationCode: string
+  invitationCode: string,
 ): Promise<string | null> {
   await ensureCustomRoomInvitationIndex(database);
 
@@ -367,7 +358,7 @@ export async function resolveCustomRoomInvitation(
       .prepare(
         `SELECT room_id AS roomId
          FROM flarelobby_custom_room_invitations
-         WHERE invitation_code = ?`
+         WHERE invitation_code = ?`,
       )
       .bind(invitationCode)
       .first<{ roomId: string }>();

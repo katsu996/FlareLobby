@@ -3,11 +3,12 @@ import type { FlareLobbyApp } from "@flarelobby/core";
 import { defineFlareLobby } from "../src/index.js";
 import type { FlareLobbyBindings } from "../src/index.js";
 
-type Equal<TLeft, TRight> = (<TValue>() => TValue extends TLeft ? 1 : 2) extends <
-  TValue,
->() => TValue extends TRight ? 1 : 2
-  ? true
-  : false;
+type Equal<TLeft, TRight> =
+  (<TValue>() => TValue extends TLeft ? 1 : 2) extends <
+    TValue,
+  >() => TValue extends TRight ? 1 : 2
+    ? true
+    : false;
 
 type Expect<TCondition extends true> = TCondition;
 
@@ -27,8 +28,8 @@ const minimumConfiguration = defineFlareLobby<ExampleApp>({
     maxPlayers: 2,
     defaultSettings: {
       maxPlayers: 2,
-      map: "forest"
-    }
+      map: "forest",
+    },
   },
   matchmakingPools: [],
   authenticate: () => null,
@@ -36,8 +37,8 @@ const minimumConfiguration = defineFlareLobby<ExampleApp>({
     maxHttpRequestBytes: 4 * 1024,
     maxWebSocketMessageBytes: 2 * 1024,
     maxMessagesPerMinute: 30,
-    maxRoomCreationsPerMinute: 5
-  }
+    maxRoomCreationsPerMinute: 5,
+  },
 });
 
 const fullConfiguration = defineFlareLobby<ExampleApp>({
@@ -45,8 +46,8 @@ const fullConfiguration = defineFlareLobby<ExampleApp>({
     maxPlayers: 4,
     defaultSettings: {
       maxPlayers: 4,
-      map: "desert"
-    }
+      map: "desert",
+    },
   },
   matchmakingPools: [
     {
@@ -54,19 +55,19 @@ const fullConfiguration = defineFlareLobby<ExampleApp>({
       gameId: "example-game",
       seasonId: "season-1",
       mode: "ranked-1v1",
-      region: "jp"
-    }
+      region: "jp",
+    },
   ],
   authenticate: async () => ({
     id: "principal-1",
-    playerId: "player-1"
+    playerId: "player-1",
   }),
   inputLimits: {
     maxHttpRequestBytes: 16 * 1024,
     maxWebSocketMessageBytes: 8 * 1024,
     maxMessagesPerMinute: 60,
-    maxRoomCreationsPerMinute: 10
-  }
+    maxRoomCreationsPerMinute: 10,
+  },
 });
 
 const minimalWorker = minimumConfiguration.createGatewayWorker<Env>();
@@ -87,8 +88,8 @@ const invalidSettings = defineFlareLobby<ExampleApp>({
     defaultSettings: {
       maxPlayers: 2,
       // @ts-expect-error アプリケーション定義にない map 値です。
-      map: "ocean"
-    }
+      map: "ocean",
+    },
   },
   matchmakingPools: [],
   authenticate: () => null,
@@ -96,8 +97,8 @@ const invalidSettings = defineFlareLobby<ExampleApp>({
     maxHttpRequestBytes: 4 * 1024,
     maxWebSocketMessageBytes: 2 * 1024,
     maxMessagesPerMinute: 30,
-    maxRoomCreationsPerMinute: 5
-  }
+    maxRoomCreationsPerMinute: 5,
+  },
 });
 
 void minimalWorker;

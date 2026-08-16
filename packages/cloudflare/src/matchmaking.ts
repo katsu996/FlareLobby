@@ -1,24 +1,19 @@
-import {
-  FlareLobbyError
-} from "@flarelobby/core";
+import { FlareLobbyError } from "@flarelobby/core";
 import type {
   AnyFlareLobbyApp,
   JsonObject,
   JsonValue,
   MatchmakingPool,
   Principal,
-  RoomSnapshot
+  RoomSnapshot,
 } from "@flarelobby/core";
 
 import type {
   FlareLobbyBindings,
   FlareLobbyConfiguration,
-  MatchmakingPoolConfiguration
+  MatchmakingPoolConfiguration,
 } from "./config.js";
-import {
-  getRating as getStoredRating,
-  registerMatchResult
-} from "./rating.js";
+import { getRating as getStoredRating, registerMatchResult } from "./rating.js";
 import type { MatchResultRegistrationInput } from "./rating.js";
 import {
   authorizeGatewayOperation,
@@ -26,20 +21,20 @@ import {
   authenticateGatewayRequest,
   issueJoinToken,
   readValidatedJsonBody,
-  readWebSocketJoinToken
+  readWebSocketJoinToken,
 } from "./security.js";
 import type { AuthenticatedGatewayRequest } from "./security.js";
 import {
   createObservabilitySink,
   observeOperation,
   readObservabilityContext,
-  withObservabilityRequestId
+  withObservabilityRequestId,
 } from "./observability.js";
 import type { FlareLobbyObservabilityContext } from "./observability.js";
 import type {
   MatchPoolInitializationOptions,
   MatchmakingMatchIntent,
-  MatchmakingTicketRecord
+  MatchmakingTicketRecord,
 } from "./match-pool.js";
 
 const MATCHMAKING_JOIN_TOKEN_TTL_MS = 10 * 60 * 1_000;
@@ -67,11 +62,13 @@ export interface MatchmakingTicketGatewayResponse {
 }
 
 interface MatchPoolGatewayStub {
-  initialize(input: MatchPoolInitializationOptions | MatchmakingPool): Promise<MatchmakingPool>;
+  initialize(
+    input: MatchPoolInitializationOptions | MatchmakingPool,
+  ): Promise<MatchmakingPool>;
   getMatchIntent(
     matchIdOrCandidateId:
       | string
-      | { readonly matchId?: string; readonly candidateId?: string }
+      | { readonly matchId?: string; readonly candidateId?: string },
   ): Promise<MatchmakingMatchIntent | null>;
   createTicket(options: {
     readonly gatewayPrincipal: AuthenticatedGatewayRequest["gatewayPrincipal"];
@@ -103,7 +100,7 @@ interface MatchRoomGatewayStub {
 
 /** マッチングイベント WebSocket の URL を Gateway で判定します。 */
 export function getMatchmakingTicketWebSocketRoute(
-  pathname: string
+  pathname: string,
 ): MatchmakingTicketWebSocketRoute | null {
   const segments = decodePathSegments(pathname);
   if (
@@ -121,7 +118,7 @@ export function getMatchmakingTicketWebSocketRoute(
 
   return {
     poolId: segments[3]!,
-    ticketId: segments[5]!
+    ticketId: segments[5]!,
   };
 }
 
@@ -133,7 +130,7 @@ export async function handleMatchmakingRequest<
   request: Request,
   env: TEnv,
   configuration: FlareLobbyConfiguration<TApp>,
-  authenticatedRequest: AuthenticatedGatewayRequest
+  authenticatedRequest: AuthenticatedGatewayRequest,
 ): Promise<Response | null> {
   const route = parseMatchmakingRoute(new URL(request.url).pathname);
   if (route === null || route.action === "eventsWebSocket") {
@@ -143,7 +140,7 @@ export async function handleMatchmakingRequest<
   try {
     const poolConfiguration = findPoolConfiguration(
       configuration.matchmakingPools,
-      route.poolId
+      route.poolId,
     );
     if (poolConfiguration === null) {
       return createErrorResponse(new FlareLobbyError("CONFLICT"));
@@ -152,10 +149,10 @@ export async function handleMatchmakingRequest<
     const pool = await initializeMatchPool(
       env,
       poolConfiguration,
-      authenticatedRequest.observability
+      authenticatedRequest.observability,
     );
     const poolStub = env.FLARE_LOBBY_MATCH_POOLS.getByName(
-      createMatchmakingPoolKey(pool)
+      createMatchmakingPoolKey(pool),
     ) as unknown as MatchPoolGatewayStub;
 
     if (route.action === "rating") {
@@ -167,7 +164,7 @@ export async function handleMatchmakingRequest<
         env.FLARE_LOBBY_DB,
         pool,
         authenticatedRequest.principal.playerId,
-        poolConfiguration.rating
+        poolConfiguration.rating,
       );
       return Response.json({ rating });
     }
@@ -185,7 +182,7 @@ export async function handleMatchmakingRequest<
         poolConfiguration,
         pool,
         poolStub,
-        route.matchId
+        route.matchId,
       );
     }
 
@@ -200,7 +197,7 @@ export async function handleMatchmakingRequest<
         authenticatedRequest,
         poolStub,
         pool,
-        poolConfiguration
+        poolConfiguration,
       );
     }
 
@@ -212,8 +209,8 @@ export async function handleMatchmakingRequest<
     if (ticket === null) {
       return createErrorResponse(
         new FlareLobbyError("CONFLICT", {
-          message: "存在しないマッチングチケットです。"
-        })
+          message: "存在しないマッチングチケットです。",
+        }),
       );
     }
 
@@ -236,7 +233,7 @@ export async function handleMatchmakingRequest<
         configuration,
         authenticatedRequest,
         poolStub,
-        route.ticketId
+        route.ticketId,
       );
     }
 
@@ -247,7 +244,7 @@ export async function handleMatchmakingRequest<
       const headers = new Headers(request.headers);
       headers.set(
         "Authorization",
-        `Bearer ${authenticatedRequest.gatewayPrincipal.token}`
+        `Bearer ${authenticatedRequest.gatewayPrincipal.token}`,
       );
       return await poolStub.fetch(new Request(request, { headers }));
     }
@@ -262,7 +259,7 @@ export async function handleMatchmakingRequest<
         request,
         env,
         authenticatedRequest,
-        ticket
+        ticket,
       );
       return Response.json({ ticket, connection });
     }
@@ -281,7 +278,7 @@ export async function upgradeMatchmakingTicketWebSocket<
   request: Request,
   env: TEnv,
   configuration: FlareLobbyConfiguration<TApp>,
-  route: MatchmakingTicketWebSocketRoute
+  route: MatchmakingTicketWebSocketRoute,
 ): Promise<Response> {
   if (
     request.method !== "GET" ||
@@ -301,7 +298,7 @@ export async function upgradeMatchmakingTicketWebSocket<
   const authenticatedRequest = await authenticateGatewayRequest(
     authenticationRequest,
     configuration.authenticate,
-    env.FLARE_LOBBY_TOKEN_SECRET
+    env.FLARE_LOBBY_TOKEN_SECRET,
   );
 
   if (!authenticatedRequest.ok) {
@@ -310,7 +307,7 @@ export async function upgradeMatchmakingTicketWebSocket<
 
   const poolConfiguration = findPoolConfiguration(
     configuration.matchmakingPools,
-    route.poolId
+    route.poolId,
   );
   if (poolConfiguration === null) {
     return createErrorResponse(new FlareLobbyError("CONFLICT"));
@@ -320,10 +317,10 @@ export async function upgradeMatchmakingTicketWebSocket<
     const pool = await initializeMatchPool(
       env,
       poolConfiguration,
-      authenticatedRequest.value.observability
+      authenticatedRequest.value.observability,
     );
     const poolStub = env.FLARE_LOBBY_MATCH_POOLS.getByName(
-      createMatchmakingPoolKey(pool)
+      createMatchmakingPoolKey(pool),
     ) as unknown as MatchPoolGatewayStub;
     const ticket = await poolStub.getTicket(route.ticketId);
 
@@ -336,7 +333,7 @@ export async function upgradeMatchmakingTicketWebSocket<
 
     headers.set(
       "Authorization",
-      `Bearer ${authenticatedRequest.value.gatewayPrincipal.token}`
+      `Bearer ${authenticatedRequest.value.gatewayPrincipal.token}`,
     );
     return await poolStub.fetch(new Request(request, { headers }));
   } catch (error) {
@@ -351,12 +348,12 @@ async function createTicket<TApp extends AnyFlareLobbyApp>(
   authenticatedRequest: AuthenticatedGatewayRequest,
   poolStub: MatchPoolGatewayStub,
   pool: MatchmakingPool,
-  poolConfiguration: MatchmakingPoolConfiguration
+  poolConfiguration: MatchmakingPoolConfiguration,
 ): Promise<Response> {
   const body = await readValidatedJsonBody(
     request,
     configuration.inputLimits.maxHttpRequestBytes,
-    isJsonObject
+    isJsonObject,
   );
   if (!body.ok) {
     return createErrorResponse(body.error);
@@ -376,7 +373,7 @@ async function createTicket<TApp extends AnyFlareLobbyApp>(
   const inputMethod = readOptionalString(body.value["inputMethod"]);
   const inputMode = readOptionalString(body.value["inputMode"]);
   const searchAttributes = readOptionalJsonObject(
-    body.value["searchAttributes"]
+    body.value["searchAttributes"],
   );
   const expiresAt = readOptionalExpiry(body.value["expiresAt"]);
   const ttlMs = readOptionalNumber(body.value["ttlMs"]);
@@ -388,12 +385,12 @@ async function createTicket<TApp extends AnyFlareLobbyApp>(
         env.FLARE_LOBBY_DB,
         pool,
         authenticatedRequest.principal.playerId,
-        poolConfiguration.rating
+        poolConfiguration.rating,
       )
     ).value;
-    const options = {
-      gatewayPrincipal: authenticatedRequest.gatewayPrincipal,
-      requestId,
+  const options = {
+    gatewayPrincipal: authenticatedRequest.gatewayPrincipal,
+    requestId,
     rating,
     ...(region === undefined ? {} : { region }),
     ...(inputMethod === undefined ? {} : { inputMethod }),
@@ -404,8 +401,8 @@ async function createTicket<TApp extends AnyFlareLobbyApp>(
     pool,
     observability: withObservabilityRequestId(
       authenticatedRequest.observability ?? readObservabilityContext(request),
-      requestId
-    )
+      requestId,
+    ),
   };
   const ticket = await poolStub.createTicket(options);
   return Response.json({ ticket }, { status: 201 });
@@ -416,14 +413,14 @@ async function cancelTicket<TApp extends AnyFlareLobbyApp>(
   configuration: FlareLobbyConfiguration<TApp>,
   authenticatedRequest: AuthenticatedGatewayRequest,
   poolStub: MatchPoolGatewayStub,
-  ticketId: string
+  ticketId: string,
 ): Promise<Response> {
   let body: JsonObject = { ticketId };
   if (request.method !== "DELETE") {
     const parsed = await readValidatedJsonBody(
       request,
       configuration.inputLimits.maxHttpRequestBytes,
-      isJsonObject
+      isJsonObject,
     );
     if (!parsed.ok) {
       return createErrorResponse(parsed.error);
@@ -441,8 +438,8 @@ async function cancelTicket<TApp extends AnyFlareLobbyApp>(
     requestPayload: body,
     observability: withObservabilityRequestId(
       observabilityContext,
-      requestId ?? observabilityContext.requestId
-    )
+      requestId ?? observabilityContext.requestId,
+    ),
   });
   return Response.json({ ticket });
 }
@@ -455,12 +452,12 @@ async function registerGatewayMatchResult<TApp extends AnyFlareLobbyApp>(
   poolConfiguration: MatchmakingPoolConfiguration,
   pool: MatchmakingPool,
   poolStub: MatchPoolGatewayStub,
-  matchId: string
+  matchId: string,
 ): Promise<Response> {
   const authorization = await authorizeGatewayOperation(
     authenticatedRequest,
     configuration.authorization,
-    { operation: "match_result", matchId }
+    { operation: "match_result", matchId },
   );
   if (!authorization.ok) {
     return createErrorResponse(authorization.error);
@@ -469,7 +466,7 @@ async function registerGatewayMatchResult<TApp extends AnyFlareLobbyApp>(
   const body = await readValidatedJsonBody(
     request,
     configuration.inputLimits.maxHttpRequestBytes,
-    isJsonObject
+    isJsonObject,
   );
   if (!body.ok) {
     return createErrorResponse(body.error);
@@ -478,10 +475,14 @@ async function registerGatewayMatchResult<TApp extends AnyFlareLobbyApp>(
   const input = readMatchResultInput(body.value, matchId);
   const observability = withObservabilityRequestId(
     authenticatedRequest.observability ?? readObservabilityContext(request),
-    input.resultId
+    input.resultId,
   );
   const intent = await poolStub.getMatchIntent({ matchId });
-  if (intent === null || intent.status !== "matched" || intent.result === null) {
+  if (
+    intent === null ||
+    intent.status !== "matched" ||
+    intent.result === null
+  ) {
     throw new FlareLobbyError("CONFLICT");
   }
 
@@ -510,15 +511,15 @@ async function registerGatewayMatchResult<TApp extends AnyFlareLobbyApp>(
         {
           ...input,
           playerAId: playerATicket.player.id,
-          playerBId: playerBTicket.player.id
+          playerBId: playerBTicket.player.id,
         },
-        poolConfiguration.rating
-      )
+        poolConfiguration.rating,
+      ),
   );
 
   return Response.json({
     match: registration.match,
-    applied: registration.applied
+    applied: registration.applied,
   });
 }
 
@@ -526,7 +527,7 @@ async function createMatchRoomConnection(
   request: Request,
   env: FlareLobbyBindings,
   authenticatedRequest: AuthenticatedGatewayRequest,
-  ticket: Extract<MatchmakingTicketRecord, { readonly status: "matched" }>
+  ticket: Extract<MatchmakingTicketRecord, { readonly status: "matched" }>,
 ): Promise<MatchmakingRoomConnection> {
   const index = ticket.result.candidate.ticketIds.indexOf(ticket.id);
   if (index < 0) {
@@ -539,14 +540,14 @@ async function createMatchRoomConnection(
     roomId: ticket.result.room.id,
     role: "player",
     participantId,
-    expiresAt: Date.now() + MATCHMAKING_JOIN_TOKEN_TTL_MS
+    expiresAt: Date.now() + MATCHMAKING_JOIN_TOKEN_TTL_MS,
   });
   if (!joinToken.ok) {
     throw joinToken.error;
   }
 
   const room = env.FLARE_LOBBY_ROOMS.getByName(
-    ticket.result.room.id
+    ticket.result.room.id,
   ) as unknown as MatchRoomGatewayStub;
   const snapshot = await room.getSnapshot();
   if (
@@ -564,17 +565,17 @@ async function createMatchRoomConnection(
     role: "player",
     joinToken: joinToken.value,
     websocketUrl: createRoomWebSocketUrl(request, ticket.result.room.id),
-    snapshot
+    snapshot,
   };
 }
 
 async function initializeMatchPool(
   env: FlareLobbyBindings,
   configuration: MatchmakingPoolConfiguration,
-  observability?: FlareLobbyObservabilityContext
+  observability?: FlareLobbyObservabilityContext,
 ): Promise<MatchmakingPool> {
   const stub = env.FLARE_LOBBY_MATCH_POOLS.getByName(
-    createMatchmakingPoolKey(configuration)
+    createMatchmakingPoolKey(configuration),
   ) as unknown as MatchPoolGatewayStub;
   return stub.initialize({
     pool: configuration,
@@ -584,13 +585,13 @@ async function initializeMatchPool(
     ...(configuration.matchRoom === undefined
       ? {}
       : { matchRoom: configuration.matchRoom }),
-    ...(observability === undefined ? {} : { observability })
+    ...(observability === undefined ? {} : { observability }),
   });
 }
 
 function findPoolConfiguration(
   pools: readonly MatchmakingPoolConfiguration[],
-  poolId: string
+  poolId: string,
 ): MatchmakingPoolConfiguration | null {
   return pools.find((pool) => pool.id === poolId) ?? null;
 }
@@ -641,7 +642,7 @@ function parseMatchmakingRoute(pathname: string): MatchmakingRoute | null {
     return {
       poolId: segments[3],
       matchId: segments[5],
-      action: "result"
+      action: "result",
     };
   }
 
@@ -657,7 +658,7 @@ function parseMatchmakingRoute(pathname: string): MatchmakingRoute | null {
     return {
       poolId: segments[3],
       ticketId: segments[5],
-      action: "get"
+      action: "get",
     };
   }
 
@@ -666,28 +667,28 @@ function parseMatchmakingRoute(pathname: string): MatchmakingRoute | null {
     return {
       poolId: segments[3],
       ticketId: segments[5],
-      action
+      action,
     };
   }
   if (action === "connection" && segments.length === 7) {
     return {
       poolId: segments[3],
       ticketId: segments[5],
-      action
+      action,
     };
   }
   if (action === "events" && segments.length === 7) {
     return {
       poolId: segments[3],
       ticketId: segments[5],
-      action
+      action,
     };
   }
   if (action === "events" && segments.length === 8 && segments[7] === "ws") {
     return {
       poolId: segments[3],
       ticketId: segments[5],
-      action: "eventsWebSocket"
+      action: "eventsWebSocket",
     };
   }
 
@@ -718,7 +719,7 @@ function readRequestId(request: Request, body: JsonObject): string | null {
 }
 
 function readRating(
-  value: unknown
+  value: unknown,
 ): number | { readonly value: number } | undefined {
   if (value === undefined) {
     return undefined;
@@ -740,7 +741,7 @@ interface MatchResultPayload {
 
 function readMatchResultInput(
   body: JsonObject,
-  matchId: string
+  matchId: string,
 ): MatchResultPayload {
   const resultId = body["resultId"];
   const result = body["result"];
@@ -794,7 +795,7 @@ function readOptionalJsonObject(value: unknown): JsonObject | undefined {
 
 function ownsTicket(
   ticket: MatchmakingTicketRecord,
-  principal: Principal
+  principal: Principal,
 ): boolean {
   return ticket.player.id === principal.playerId;
 }
@@ -813,7 +814,7 @@ function samePoolValue(value: unknown, pool: MatchmakingPool): boolean {
 function createRoomWebSocketUrl(request: Request, roomId: string): string {
   const url = new URL(
     `/v1/custom-rooms/${encodeURIComponent(roomId)}/ws`,
-    request.url
+    request.url,
   );
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
@@ -850,7 +851,11 @@ function isJsonObject(value: unknown): value is JsonObject {
 }
 
 function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null || typeof value === "boolean" || typeof value === "string") {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "string"
+  ) {
     return true;
   }
   if (typeof value === "number") {
@@ -859,7 +864,10 @@ function isJsonValue(value: unknown): value is JsonValue {
   if (Array.isArray(value)) {
     return value.every((item) => isJsonValue(item));
   }
-  return isRecord(value) && Object.values(value).every((nested) => isJsonValue(nested));
+  return (
+    isRecord(value) &&
+    Object.values(value).every((nested) => isJsonValue(nested))
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -874,6 +882,8 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function isRatingResult(value: unknown): value is MatchResultRegistrationInput["result"] {
+function isRatingResult(
+  value: unknown,
+): value is MatchResultRegistrationInput["result"] {
   return value === 0 || value === 0.5 || value === 1;
 }

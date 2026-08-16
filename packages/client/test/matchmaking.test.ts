@@ -3,12 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createFlareLobbyClient,
   type FetchImplementation,
-  type WebSocketConstructor
+  type WebSocketConstructor,
 } from "../src/index.js";
 import type {
   MatchmakingPool,
   MatchmakingTicket as CoreMatchmakingTicket,
-  RoomSnapshot
+  RoomSnapshot,
 } from "@flarelobby/core";
 
 class FakeWebSocket {
@@ -85,7 +85,7 @@ const pool: MatchmakingPool = {
   gameId: "game-1",
   seasonId: "season-1",
   mode: "ranked-1v1",
-  region: "jp"
+  region: "jp",
 };
 
 function waitingTicket(): CoreMatchmakingTicket {
@@ -100,7 +100,7 @@ function waitingTicket(): CoreMatchmakingTicket {
     region: pool.region,
     inputMethod: "keyboard_mouse",
     searchAttributes: {},
-    expiresAt: "2026-08-11T00:01:00.000Z"
+    expiresAt: "2026-08-11T00:01:00.000Z",
   } as CoreMatchmakingTicket;
 }
 
@@ -115,7 +115,7 @@ function matchedTicket(): CoreMatchmakingTicket {
         id: "candidate-1",
         pool,
         ticketIds: ["ticket-1", "ticket-2"],
-        createdAt: "2026-08-11T00:00:05.000Z"
+        createdAt: "2026-08-11T00:00:05.000Z",
       },
       room: {
         id: "room_match-1",
@@ -123,10 +123,10 @@ function matchedTicket(): CoreMatchmakingTicket {
         matchId: "match-1",
         pool,
         settings: {},
-        metadata: {}
+        metadata: {},
       },
-      createdAt: "2026-08-11T00:00:05.000Z"
-    }
+      createdAt: "2026-08-11T00:00:05.000Z",
+    },
   } as CoreMatchmakingTicket;
 }
 
@@ -140,8 +140,8 @@ function matchRoomSnapshot(): RoomSnapshot {
         id: "participant_match-1_1",
         player: { id: "player-1" },
         teamId: "blue",
-        ready: false
-      }
+        ready: false,
+      },
     ],
     teams: [{ id: "blue" }, { id: "red" }],
     room: {
@@ -150,8 +150,8 @@ function matchRoomSnapshot(): RoomSnapshot {
       matchId: "match-1",
       pool,
       settings: {},
-      metadata: {}
-    }
+      metadata: {},
+    },
   };
 }
 
@@ -169,7 +169,7 @@ function createFetch(): {
       state.ticket = {
         ...waitingTicket(),
         status: "cancelled",
-        cancelledAt: "2026-08-11T00:00:01.000Z"
+        cancelledAt: "2026-08-11T00:00:01.000Z",
       } as CoreMatchmakingTicket;
       return Response.json({ ticket: state.ticket });
     }
@@ -182,13 +182,13 @@ function createFetch(): {
           role: "player",
           joinToken: "join-token",
           websocketUrl: "wss://example.test/v1/custom-rooms/room_match-1/ws",
-          snapshot: matchRoomSnapshot()
-        }
+          snapshot: matchRoomSnapshot(),
+        },
       });
     }
     if (url.endsWith("/rating")) {
       return Response.json({
-        rating: { playerId: "player-1", poolId: pool.id, value: 1_500 }
+        rating: { playerId: "player-1", poolId: pool.id, value: 1_500 },
       });
     }
     throw new Error(`unexpected request: ${init?.method ?? "GET"} ${url}`);
@@ -196,10 +196,7 @@ function createFetch(): {
   return { fetch, state };
 }
 
-function event(
-  ticket: CoreMatchmakingTicket,
-  sequence: number
-): string {
+function event(ticket: CoreMatchmakingTicket, sequence: number): string {
   return JSON.stringify({
     protocolVersion: 1,
     kind: "event",
@@ -211,8 +208,8 @@ function event(
       activeCount: ticket.status === "waiting" ? 1 : 0,
       sequence,
       occurredAt: "2026-08-11T00:00:05.000Z",
-      searchWidth: 75
-    }
+      searchWidth: 75,
+    },
   });
 }
 
@@ -225,11 +222,11 @@ describe("@flarelobby/client matchmaking", () => {
       getAccessToken: () => "access-token",
       fetch,
       webSocket,
-      requestIdFactory: () => "request-create"
+      requestIdFactory: () => "request-create",
     });
 
     const ticket = await client.joinMatchmaking("ranked-1v1", {
-      rating: 1_500
+      rating: 1_500,
     });
     expect(ticket.id).toBe("ticket-1");
     expect(ticket.status).toBe("waiting");
@@ -243,8 +240,8 @@ describe("@flarelobby/client matchmaking", () => {
       expect.objectContaining({
         waitingCount: 1,
         searchWidth: 75,
-        ticket: expect.objectContaining({ status: "waiting" })
-      })
+        ticket: expect.objectContaining({ status: "waiting" }),
+      }),
     );
   });
 
@@ -256,13 +253,13 @@ describe("@flarelobby/client matchmaking", () => {
       getAccessToken: () => "access-token",
       fetch,
       webSocket,
-      requestIdFactory: () => "request-rating"
+      requestIdFactory: () => "request-rating",
     });
 
     await expect(client.getRating(pool)).resolves.toEqual({
       playerId: "player-1",
       poolId: pool.id,
-      value: 1_500
+      value: 1_500,
     });
   });
 
@@ -274,7 +271,7 @@ describe("@flarelobby/client matchmaking", () => {
       getAccessToken: () => "access-token",
       fetch,
       webSocket,
-      requestIdFactory: () => "request-match"
+      requestIdFactory: () => "request-match",
     });
     const ticket = await client.joinMatchmaking(pool, { rating: 1_500 });
     const wait = ticket.waitForMatch();
@@ -296,7 +293,7 @@ describe("@flarelobby/client matchmaking", () => {
       getAccessToken: () => "access-token",
       fetch,
       webSocket,
-      requestIdFactory: () => "request-find"
+      requestIdFactory: () => "request-find",
     });
 
     const find = client.findMatch(pool);
@@ -317,7 +314,7 @@ describe("@flarelobby/client matchmaking", () => {
       getAccessToken: () => "access-token",
       fetch,
       webSocket,
-      requestIdFactory: () => "request-abort"
+      requestIdFactory: () => "request-abort",
     });
     const ticket = await client.joinMatchmaking(pool);
     const controller = new AbortController();
@@ -326,12 +323,16 @@ describe("@flarelobby/client matchmaking", () => {
 
     await expect(wait).rejects.toMatchObject({ code: "CANCELLED" });
     expect(
-      vi.mocked(fetch).mock.calls.some(
-        ([input, init]) =>
-          input.toString().endsWith(
-            "/v1/matchmaking/pools/ranked-1v1/tickets/ticket-1/cancel"
-          ) && init?.method === "POST"
-      )
+      vi
+        .mocked(fetch)
+        .mock.calls.some(
+          ([input, init]) =>
+            input
+              .toString()
+              .endsWith(
+                "/v1/matchmaking/pools/ranked-1v1/tickets/ticket-1/cancel",
+              ) && init?.method === "POST",
+        ),
     ).toBe(true);
     expect(ticket.status).toBe("cancelled");
   });
@@ -344,7 +345,7 @@ describe("@flarelobby/client matchmaking", () => {
       getAccessToken: () => "access-token",
       fetch,
       webSocket,
-      requestIdFactory: () => "request-cancel"
+      requestIdFactory: () => "request-cancel",
     });
     const ticket = await client.joinMatchmaking(pool);
     const listener = vi.fn();
@@ -356,7 +357,9 @@ describe("@flarelobby/client matchmaking", () => {
     expect(ticket.status).toBe("cancelled");
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener).toHaveBeenCalledWith(
-      expect.objectContaining({ ticket: expect.objectContaining({ status: "cancelled" }) })
+      expect.objectContaining({
+        ticket: expect.objectContaining({ status: "cancelled" }),
+      }),
     );
   });
 
@@ -368,15 +371,15 @@ describe("@flarelobby/client matchmaking", () => {
       getAccessToken: () => "access-token",
       fetch,
       webSocket,
-      requestIdFactory: () => `request-${FakeWebSocket.instances.length}`
+      requestIdFactory: () => `request-${FakeWebSocket.instances.length}`,
     });
     const ticket = await client.joinMatchmaking(pool, {
       reconnect: {
         maxAttempts: 1,
         baseDelayMs: 0,
         maxDelayMs: 0,
-        jitterRatio: 0
-      }
+        jitterRatio: 0,
+      },
     });
     const listener = vi.fn();
     ticket.on("progress", listener);

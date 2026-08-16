@@ -1,13 +1,10 @@
-import {
-  FlareLobbyError,
-  decodeClientCommand
-} from "@flarelobby/core";
+import { FlareLobbyError, decodeClientCommand } from "@flarelobby/core";
 import type {
   ClientCommandEnvelope,
   FlareLobbyErrorCode,
   Principal,
   ProtocolResult,
-  RoomId
+  RoomId,
 } from "@flarelobby/core";
 import { readObservabilityContext } from "./observability.js";
 import type { FlareLobbyObservabilityContext } from "./observability.js";
@@ -17,7 +14,7 @@ export type FlareLobbyAuthenticationResult = Principal;
 
 /** Gateway Worker が利用者の認証済み主体を取得する Hook です。 */
 export type FlareLobbyAuthenticationHook = (
-  request: Request
+  request: Request,
 ) =>
   | FlareLobbyAuthenticationResult
   | null
@@ -40,7 +37,7 @@ export interface FlareLobbyAuthorizationContext {
 
 /** 認可 Hook の共通契約です。`true` のときだけ操作を許可します。 */
 export type FlareLobbyAuthorizationHook = (
-  context: FlareLobbyAuthorizationContext
+  context: FlareLobbyAuthorizationContext,
 ) => boolean | Promise<boolean>;
 
 /** 操作種別ごとに利用者が差し替えられる認可 Hook です。 */
@@ -60,7 +57,7 @@ export interface FlareLobbyAuthorizationRequest {
 
 /** 利用者が差し替えられる HTTP 本文・Query・コマンドの検証関数です。 */
 export type FlareLobbyInputValidator<TValue> = (
-  value: unknown
+  value: unknown,
 ) => value is TValue;
 
 /** 参加用と再開用の用途を区別するトークンの種別です。 */
@@ -145,7 +142,7 @@ export interface AuthenticatedGatewayRequest {
 /** 分散した利用制限 Durable Object に記録する操作の種別です。 */
 export const FLARE_LOBBY_RATE_LIMIT_SCOPES = [
   "websocket_message",
-  "room_creation"
+  "room_creation",
 ] as const;
 
 /** 分散した利用制限 Durable Object に記録する操作の種別です。 */
@@ -211,7 +208,7 @@ export function normalizePrincipal(value: unknown): Principal | null {
  */
 export async function authenticateRequest(
   request: Request,
-  authenticate: FlareLobbyAuthenticationHook
+  authenticate: FlareLobbyAuthenticationHook,
 ): Promise<Principal | null> {
   try {
     return normalizePrincipal(await authenticate(request));
@@ -225,7 +222,7 @@ export async function authenticateGatewayRequest(
   request: Request,
   authenticate: FlareLobbyAuthenticationHook,
   tokenSecret: string,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<ProtocolResult<AuthenticatedGatewayRequest>> {
   const principal = await authenticateRequest(request, authenticate);
 
@@ -236,7 +233,7 @@ export async function authenticateGatewayRequest(
   const gatewayPrincipal = await createGatewayPrincipalEnvelope(
     tokenSecret,
     principal,
-    now
+    now,
   );
 
   if (!gatewayPrincipal.ok) {
@@ -247,8 +244,8 @@ export async function authenticateGatewayRequest(
     Object.freeze({
       principal,
       gatewayPrincipal: gatewayPrincipal.value,
-      observability: readObservabilityContext(request)
-    })
+      observability: readObservabilityContext(request),
+    }),
   );
 }
 
@@ -259,7 +256,7 @@ export async function authenticateGatewayRequest(
 export async function authorizeGatewayOperation(
   request: AuthenticatedGatewayRequest,
   authorization: FlareLobbyAuthorizationHooks | undefined,
-  target: FlareLobbyAuthorizationRequest
+  target: FlareLobbyAuthorizationRequest,
 ): Promise<ProtocolResult<void>> {
   const hook = selectAuthorizationHook(authorization, target.operation);
 
@@ -269,7 +266,7 @@ export async function authorizeGatewayOperation(
 
   const context = Object.freeze({
     ...target,
-    principal: request.principal
+    principal: request.principal,
   });
 
   try {
@@ -287,7 +284,7 @@ export async function authorizeGatewayOperation(
 export async function readValidatedJsonBody<TValue>(
   request: Request,
   maxBytes: number,
-  validator: FlareLobbyInputValidator<TValue>
+  validator: FlareLobbyInputValidator<TValue>,
 ): Promise<ProtocolResult<TValue>> {
   const bytes = await readRequestBodyWithinLimit(request, maxBytes);
 
@@ -300,8 +297,8 @@ export async function readValidatedJsonBody<TValue>(
   try {
     value = JSON.parse(
       new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
-        bytes.value
-      )
+        bytes.value,
+      ),
     );
   } catch {
     return protocolFailure("INVALID_MESSAGE");
@@ -313,7 +310,7 @@ export async function readValidatedJsonBody<TValue>(
 /** Query を共通の検証関数へ渡し、不正値を安定した公開エラーへ変換します。 */
 export function validateQuery<TValue>(
   request: Request,
-  validator: FlareLobbyInputValidator<TValue>
+  validator: FlareLobbyInputValidator<TValue>,
 ): ProtocolResult<TValue> {
   return validateInput(new URL(request.url).searchParams, validator);
 }
@@ -322,7 +319,7 @@ export function validateQuery<TValue>(
 export function validateWebSocketCommand(
   message: string | ArrayBuffer,
   maxBytes: number,
-  validator?: FlareLobbyInputValidator<ClientCommandEnvelope>
+  validator?: FlareLobbyInputValidator<ClientCommandEnvelope>,
 ): ProtocolResult<ClientCommandEnvelope> {
   const decoded = decodeWebSocketMessage(message, maxBytes);
 
@@ -343,7 +340,7 @@ export function validateWebSocketCommand(
 
 /** WebSocket subprotocol から参加用トークンを読み取ります。トークン自体は公開しません。 */
 export function readWebSocketJoinToken(
-  request: Request
+  request: Request,
 ): ProtocolResult<string> {
   const header = request.headers.get("Sec-WebSocket-Protocol");
 
@@ -356,7 +353,7 @@ export function readWebSocketJoinToken(
     .map((protocol) => protocol.trim())
     .filter((protocol) => protocol.length > 0);
   const authProtocols = protocols.filter((protocol) =>
-    protocol.startsWith(FLARE_LOBBY_WEBSOCKET_AUTH_PROTOCOL_PREFIX)
+    protocol.startsWith(FLARE_LOBBY_WEBSOCKET_AUTH_PROTOCOL_PREFIX),
   );
 
   if (authProtocols.length !== 1) {
@@ -364,7 +361,7 @@ export function readWebSocketJoinToken(
   }
 
   const encodedToken = authProtocols[0]?.slice(
-    FLARE_LOBBY_WEBSOCKET_AUTH_PROTOCOL_PREFIX.length
+    FLARE_LOBBY_WEBSOCKET_AUTH_PROTOCOL_PREFIX.length,
   );
 
   if (!isNonEmptyString(encodedToken)) {
@@ -373,17 +370,14 @@ export function readWebSocketJoinToken(
 
   const tokenBytes = decodeBase64Url(encodedToken);
 
-  if (
-    tokenBytes === null ||
-    encodeBase64Url(tokenBytes) !== encodedToken
-  ) {
+  if (tokenBytes === null || encodeBase64Url(tokenBytes) !== encodedToken) {
     return protocolFailure("UNAUTHENTICATED");
   }
 
   try {
     const token = new TextDecoder("utf-8", {
       fatal: true,
-      ignoreBOM: false
+      ignoreBOM: false,
     }).decode(tokenBytes);
 
     return isNonEmptyString(token)
@@ -397,7 +391,7 @@ export function readWebSocketJoinToken(
 /** 参加用の期限付きトークンを発行します。 */
 export async function issueJoinToken(
   tokenSecret: string,
-  options: FlareLobbyRoomTokenIssueOptions
+  options: FlareLobbyRoomTokenIssueOptions,
 ): Promise<ProtocolResult<string>> {
   return issueRoomToken(tokenSecret, "join", options);
 }
@@ -405,7 +399,7 @@ export async function issueJoinToken(
 /** 再開用の期限付きトークンを発行します。 */
 export async function issueResumeToken(
   tokenSecret: string,
-  options: FlareLobbyRoomTokenIssueOptions
+  options: FlareLobbyRoomTokenIssueOptions,
 ): Promise<ProtocolResult<string>> {
   return issueRoomToken(tokenSecret, "resume", options);
 }
@@ -414,7 +408,7 @@ export async function issueResumeToken(
 export async function verifyJoinToken(
   tokenSecret: string,
   token: string,
-  options: FlareLobbyRoomTokenVerificationOptions
+  options: FlareLobbyRoomTokenVerificationOptions,
 ): Promise<ProtocolResult<FlareLobbyRoomTokenClaims>> {
   return verifyRoomToken(tokenSecret, token, "join", options);
 }
@@ -423,7 +417,7 @@ export async function verifyJoinToken(
 export async function verifyWebSocketJoinToken(
   tokenSecret: string,
   token: string,
-  options: FlareLobbyWebSocketJoinTokenVerificationOptions
+  options: FlareLobbyWebSocketJoinTokenVerificationOptions,
 ): Promise<ProtocolResult<FlareLobbyRoomTokenClaims>> {
   return verifyWebSocketRoomTokenPurpose(tokenSecret, token, "join", options);
 }
@@ -432,7 +426,7 @@ export async function verifyWebSocketJoinToken(
 export async function verifyWebSocketResumeToken(
   tokenSecret: string,
   token: string,
-  options: FlareLobbyWebSocketJoinTokenVerificationOptions
+  options: FlareLobbyWebSocketJoinTokenVerificationOptions,
 ): Promise<ProtocolResult<FlareLobbyRoomTokenClaims>> {
   return verifyWebSocketRoomTokenPurpose(tokenSecret, token, "resume", options);
 }
@@ -441,13 +435,13 @@ export async function verifyWebSocketResumeToken(
 export async function verifyWebSocketRoomToken(
   tokenSecret: string,
   token: string,
-  options: FlareLobbyWebSocketRoomTokenVerificationOptions
+  options: FlareLobbyWebSocketRoomTokenVerificationOptions,
 ): Promise<ProtocolResult<FlareLobbyRoomTokenClaims>> {
   const join = await verifyWebSocketRoomTokenPurpose(
     tokenSecret,
     token,
     "join",
-    options
+    options,
   );
 
   if (join.ok) {
@@ -461,7 +455,7 @@ async function verifyWebSocketRoomTokenPurpose(
   tokenSecret: string,
   token: string,
   purpose: FlareLobbyRoomTokenPurpose,
-  options: FlareLobbyWebSocketRoomTokenVerificationOptions
+  options: FlareLobbyWebSocketRoomTokenVerificationOptions,
 ): Promise<ProtocolResult<FlareLobbyRoomTokenClaims>> {
   const now = options.now ?? Date.now();
 
@@ -501,8 +495,8 @@ async function verifyWebSocketRoomTokenPurpose(
       nonce: payload.nonce,
       ...(payload.participantId === undefined
         ? {}
-        : { participantId: payload.participantId })
-    })
+        : { participantId: payload.participantId }),
+    }),
   );
 }
 
@@ -510,7 +504,7 @@ async function verifyWebSocketRoomTokenPurpose(
 export async function verifyResumeToken(
   tokenSecret: string,
   token: string,
-  options: FlareLobbyRoomTokenVerificationOptions
+  options: FlareLobbyRoomTokenVerificationOptions,
 ): Promise<ProtocolResult<FlareLobbyRoomTokenClaims>> {
   return verifyRoomToken(tokenSecret, token, "resume", options);
 }
@@ -519,11 +513,15 @@ export async function verifyResumeToken(
 export async function createGatewayPrincipalEnvelope(
   tokenSecret: string,
   principalInput: Principal,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<ProtocolResult<GatewayPrincipalEnvelope>> {
   const principal = normalizePrincipal(principalInput);
 
-  if (principal === null || !isSafeTimestamp(now) || !isUsableSecret(tokenSecret)) {
+  if (
+    principal === null ||
+    !isSafeTimestamp(now) ||
+    !isUsableSecret(tokenSecret)
+  ) {
     return protocolFailure("UNAUTHENTICATED");
   }
 
@@ -533,13 +531,13 @@ export async function createGatewayPrincipalEnvelope(
     principalId: principal.id,
     playerId: principal.playerId,
     expiresAt: now + GATEWAY_PRINCIPAL_TTL_MS,
-    nonce: createTokenNonce()
+    nonce: createTokenNonce(),
   };
 
   return protocolSuccess(
     Object.freeze({
-      token: await createSignedToken(tokenSecret, payload)
-    })
+      token: await createSignedToken(tokenSecret, payload),
+    }),
   );
 }
 
@@ -547,9 +545,13 @@ export async function createGatewayPrincipalEnvelope(
 export async function verifyGatewayPrincipalEnvelope(
   tokenSecret: string,
   envelope: GatewayPrincipalEnvelope,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<Principal | null> {
-  if (!isUsableSecret(tokenSecret) || !isRecord(envelope) || !isNonEmptyString(envelope["token"])) {
+  if (
+    !isUsableSecret(tokenSecret) ||
+    !isRecord(envelope) ||
+    !isNonEmptyString(envelope["token"])
+  ) {
     return null;
   }
 
@@ -566,7 +568,7 @@ export async function verifyGatewayPrincipalEnvelope(
 
   return normalizePrincipal({
     id: payload.principalId,
-    playerId: payload.playerId
+    playerId: payload.playerId,
   });
 }
 
@@ -585,7 +587,7 @@ export function createErrorResponse(error: FlareLobbyError): Response {
 async function issueRoomToken(
   tokenSecret: string,
   purpose: FlareLobbyRoomTokenPurpose,
-  options: FlareLobbyRoomTokenIssueOptions
+  options: FlareLobbyRoomTokenIssueOptions,
 ): Promise<ProtocolResult<string>> {
   const principal = normalizePrincipal(options.principal);
   const now = options.now ?? Date.now();
@@ -618,7 +620,7 @@ async function issueRoomToken(
     nonce,
     ...(options.participantId === undefined
       ? {}
-      : { participantId: options.participantId })
+      : { participantId: options.participantId }),
   };
 
   return protocolSuccess(await createSignedToken(tokenSecret, payload));
@@ -628,7 +630,7 @@ async function verifyRoomToken(
   tokenSecret: string,
   token: string,
   purpose: FlareLobbyRoomTokenPurpose,
-  options: FlareLobbyRoomTokenVerificationOptions
+  options: FlareLobbyRoomTokenVerificationOptions,
 ): Promise<ProtocolResult<FlareLobbyRoomTokenClaims>> {
   const principal = normalizePrincipal(options.principal);
   const now = options.now ?? Date.now();
@@ -671,14 +673,14 @@ async function verifyRoomToken(
       nonce: payload.nonce,
       ...(payload.participantId === undefined
         ? {}
-        : { participantId: payload.participantId })
-    })
+        : { participantId: payload.participantId }),
+    }),
   );
 }
 
 async function readRequestBodyWithinLimit(
   request: Request,
-  maxBytes: number
+  maxBytes: number,
 ): Promise<ProtocolResult<Uint8Array>> {
   if (!isPositiveSafeInteger(maxBytes)) {
     return protocolFailure("INVALID_MESSAGE");
@@ -696,7 +698,7 @@ async function readRequestBodyWithinLimit(
     if (!Number.isSafeInteger(declaredLength) || declaredLength > maxBytes) {
       return protocolFailure(
         "INVALID_MESSAGE",
-        "要求本文が許可された上限を超えています。"
+        "要求本文が許可された上限を超えています。",
       );
     }
   }
@@ -728,7 +730,7 @@ async function readRequestBodyWithinLimit(
 
         return protocolFailure(
           "INVALID_MESSAGE",
-          "要求本文が許可された上限を超えています。"
+          "要求本文が許可された上限を超えています。",
         );
       }
 
@@ -753,7 +755,7 @@ async function readRequestBodyWithinLimit(
 
 function decodeWebSocketMessage(
   message: string | ArrayBuffer,
-  maxBytes: number
+  maxBytes: number,
 ): ProtocolResult<string> {
   if (!isPositiveSafeInteger(maxBytes)) {
     return protocolFailure("INVALID_MESSAGE");
@@ -763,7 +765,7 @@ function decodeWebSocketMessage(
     if (textEncoder.encode(message).byteLength > maxBytes) {
       return protocolFailure(
         "INVALID_MESSAGE",
-        "WebSocket メッセージが許可された上限を超えています。"
+        "WebSocket メッセージが許可された上限を超えています。",
       );
     }
 
@@ -773,13 +775,15 @@ function decodeWebSocketMessage(
   if (message.byteLength > maxBytes) {
     return protocolFailure(
       "INVALID_MESSAGE",
-      "WebSocket メッセージが許可された上限を超えています。"
+      "WebSocket メッセージが許可された上限を超えています。",
     );
   }
 
   try {
     return protocolSuccess(
-      new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(message)
+      new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
+        message,
+      ),
     );
   } catch {
     return protocolFailure("INVALID_MESSAGE");
@@ -789,7 +793,7 @@ function decodeWebSocketMessage(
 function validateInput<TValue>(
   value: unknown,
   validator: FlareLobbyInputValidator<TValue>,
-  requestId?: string
+  requestId?: string,
 ): ProtocolResult<TValue> {
   try {
     return validator(value)
@@ -802,7 +806,7 @@ function validateInput<TValue>(
 
 function selectAuthorizationHook(
   authorization: FlareLobbyAuthorizationHooks | undefined,
-  operation: FlareLobbyAuthorizationOperation
+  operation: FlareLobbyAuthorizationOperation,
 ): FlareLobbyAuthorizationHook | undefined {
   if (authorization === undefined) {
     return undefined;
@@ -822,10 +826,10 @@ function selectAuthorizationHook(
 
 async function createSignedToken(
   tokenSecret: string,
-  payload: SignedTokenPayload
+  payload: SignedTokenPayload,
 ): Promise<string> {
   const encodedPayload = encodeBase64Url(
-    textEncoder.encode(JSON.stringify(payload))
+    textEncoder.encode(JSON.stringify(payload)),
   );
   const signature = await signTokenSegment(tokenSecret, encodedPayload);
 
@@ -834,7 +838,7 @@ async function createSignedToken(
 
 async function verifySignedToken(
   tokenSecret: string,
-  token: string
+  token: string,
 ): Promise<SignedTokenPayload | null> {
   if (!isNonEmptyString(token)) {
     return null;
@@ -854,10 +858,7 @@ async function verifySignedToken(
 
   const signature = decodeBase64Url(encodedSignature);
 
-  if (
-    signature === null ||
-    encodeBase64Url(signature) !== encodedSignature
-  ) {
+  if (signature === null || encodeBase64Url(signature) !== encodedSignature) {
     return null;
   }
 
@@ -866,7 +867,7 @@ async function verifySignedToken(
     "HMAC",
     key,
     signature,
-    textEncoder.encode(`${TOKEN_SIGNATURE_CONTEXT}.${encodedPayload}`)
+    textEncoder.encode(`${TOKEN_SIGNATURE_CONTEXT}.${encodedPayload}`),
   );
 
   if (!isValid) {
@@ -882,8 +883,8 @@ async function verifySignedToken(
   try {
     const parsed: unknown = JSON.parse(
       new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
-        payloadBytes
-      )
+        payloadBytes,
+      ),
     );
 
     return parseSignedTokenPayload(parsed);
@@ -894,13 +895,13 @@ async function verifySignedToken(
 
 async function signTokenSegment(
   tokenSecret: string,
-  encodedPayload: string
+  encodedPayload: string,
 ): Promise<Uint8Array> {
   const key = await importSigningKey(tokenSecret, ["sign"]);
   const signature = await crypto.subtle.sign(
     "HMAC",
     key,
-    textEncoder.encode(`${TOKEN_SIGNATURE_CONTEXT}.${encodedPayload}`)
+    textEncoder.encode(`${TOKEN_SIGNATURE_CONTEXT}.${encodedPayload}`),
   );
 
   return new Uint8Array(signature);
@@ -908,14 +909,14 @@ async function signTokenSegment(
 
 function importSigningKey(
   tokenSecret: string,
-  usages: string[]
+  usages: string[],
 ): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     "raw",
     textEncoder.encode(tokenSecret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    usages
+    usages,
   );
 }
 
@@ -961,7 +962,7 @@ function parseSignedTokenPayload(value: unknown): SignedTokenPayload | null {
       roomId,
       expiresAt,
       nonce,
-      ...(participantId === undefined ? {} : { participantId })
+      ...(participantId === undefined ? {} : { participantId }),
     };
   }
 
@@ -978,7 +979,7 @@ function parseSignedTokenPayload(value: unknown): SignedTokenPayload | null {
       principalId,
       playerId,
       expiresAt,
-      nonce
+      nonce,
     };
   }
 
@@ -1041,7 +1042,7 @@ function protocolSuccess<TValue>(value: TValue): ProtocolResult<TValue> {
 function protocolFailure<TValue>(
   code: FlareLobbyErrorCode,
   message?: string,
-  requestId?: string
+  requestId?: string,
 ): ProtocolResult<TValue> {
   return {
     ok: false,
@@ -1051,9 +1052,9 @@ function protocolFailure<TValue>(
         ? {}
         : {
             ...(message === undefined ? {} : { message }),
-            ...(requestId === undefined ? {} : { requestId })
-          }
-    )
+            ...(requestId === undefined ? {} : { requestId }),
+          },
+    ),
   };
 }
 
@@ -1078,7 +1079,7 @@ function isUsableSecret(value: unknown): value is string {
 }
 
 function isRoomParticipantRole(
-  value: unknown
+  value: unknown,
 ): value is FlareLobbyRoomParticipantRole {
   return value === "player" || value === "spectator";
 }

@@ -3,18 +3,21 @@ import { describe, expect, it } from "vitest";
 import {
   FlareLobbyConfigurationError,
   createGatewayWorker,
-  defineFlareLobby
+  defineFlareLobby,
 } from "../src/index.js";
-import type { FlareLobbyBindings, FlareLobbyConfigurationErrorCode } from "../src/index.js";
+import type {
+  FlareLobbyBindings,
+  FlareLobbyConfigurationErrorCode,
+} from "../src/index.js";
 
 function createValidConfiguration() {
   return {
     customRooms: {
       maxPlayers: 4,
       defaultSettings: {
-        map: "forest"
+        map: "forest",
       },
-      finishedRoomRetentionMs: 60_000
+      finishedRoomRetentionMs: 60_000,
     },
     matchmakingPools: [
       {
@@ -22,25 +25,25 @@ function createValidConfiguration() {
         gameId: "example-game",
         seasonId: "season-1",
         mode: "ranked-1v1",
-        region: "jp"
-      }
+        region: "jp",
+      },
     ],
     authenticate: () => ({
       id: "principal-1",
-      playerId: "player-1"
+      playerId: "player-1",
     }),
     inputLimits: {
       maxHttpRequestBytes: 16 * 1024,
       maxWebSocketMessageBytes: 8 * 1024,
       maxMessagesPerMinute: 60,
-      maxRoomCreationsPerMinute: 10
-    }
+      maxRoomCreationsPerMinute: 10,
+    },
   };
 }
 
 function expectConfigurationError(
   action: () => unknown,
-  code: FlareLobbyConfigurationErrorCode
+  code: FlareLobbyConfigurationErrorCode,
 ): void {
   try {
     action();
@@ -74,12 +77,12 @@ describe("defineFlareLobby", () => {
 
     configuration.matchmakingPools[0] = {
       ...pool,
-      region: ""
+      region: "",
     };
 
     expectConfigurationError(
       () => defineFlareLobby(configuration),
-      "INVALID_MATCHMAKING_POOL"
+      "INVALID_MATCHMAKING_POOL",
     );
   });
 
@@ -95,7 +98,7 @@ describe("defineFlareLobby", () => {
 
     expectConfigurationError(
       () => defineFlareLobby(configuration),
-      "INVALID_MATCHMAKING_POOL"
+      "INVALID_MATCHMAKING_POOL",
     );
   });
 
@@ -105,7 +108,7 @@ describe("defineFlareLobby", () => {
 
     expectConfigurationError(
       () => defineFlareLobby(configuration),
-      "INVALID_INPUT_LIMITS"
+      "INVALID_INPUT_LIMITS",
     );
   });
 
@@ -115,7 +118,7 @@ describe("defineFlareLobby", () => {
 
     expectConfigurationError(
       () => defineFlareLobby(configuration),
-      "INVALID_CUSTOM_ROOM_CONFIGURATION"
+      "INVALID_CUSTOM_ROOM_CONFIGURATION",
     );
   });
 
@@ -124,19 +127,19 @@ describe("defineFlareLobby", () => {
       { resumeTokenTtlMs: 0 },
       { disconnectGracePeriodMs: -1 },
       { eventHistoryLimit: 0 },
-      { processedCommandRetentionMs: 0 }
+      { processedCommandRetentionMs: 0 },
     ] as const;
 
     for (const customRooms of invalidConfigurations) {
       const configuration = createValidConfiguration();
       configuration.customRooms = {
         ...configuration.customRooms,
-        ...customRooms
+        ...customRooms,
       };
 
       expectConfigurationError(
         () => defineFlareLobby(configuration),
-        "INVALID_CUSTOM_ROOM_CONFIGURATION"
+        "INVALID_CUSTOM_ROOM_CONFIGURATION",
       );
     }
   });
@@ -144,30 +147,30 @@ describe("defineFlareLobby", () => {
   it("観測サンプリング率を 0 以上 1 以下に制限する", () => {
     const configuration = {
       ...createValidConfiguration(),
-      observability: { logSampleRate: 1.1 }
+      observability: { logSampleRate: 1.1 },
     };
 
     expectConfigurationError(
       () => defineFlareLobby(configuration),
-      "INVALID_OBSERVABILITY_CONFIGURATION"
+      "INVALID_OBSERVABILITY_CONFIGURATION",
     );
   });
 
   it("必須 D1 Binding の不足を安全なエラー応答として検出する", async () => {
     const worker = createGatewayWorker<FlareLobbyBindings>(
-      createValidConfiguration()
+      createValidConfiguration(),
     );
     const response = await worker.fetch(
       new Request("https://example.test/"),
       {} as FlareLobbyBindings,
-      {} as ExecutionContext
+      {} as ExecutionContext,
     );
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
       code: "D1_BINDING_MISSING",
       message:
-        "FlareLobby の D1 Binding（FLARE_LOBBY_DB）が設定されていません。"
+        "FlareLobby の D1 Binding（FLARE_LOBBY_DB）が設定されていません。",
     });
   });
 });

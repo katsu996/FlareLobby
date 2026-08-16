@@ -1,7 +1,4 @@
-import {
-  FlareLobbyError,
-  getMatchmakingSearchWidth
-} from "@flarelobby/core";
+import { FlareLobbyError, getMatchmakingSearchWidth } from "@flarelobby/core";
 import type {
   AnyFlareLobbyApp,
   FlareLobbyApp,
@@ -14,20 +11,20 @@ import type {
   Rating,
   RequestId,
   ServerEventEnvelope,
-  Timestamp
+  Timestamp,
 } from "@flarelobby/core";
 
 import type {
   ClientRequestOptions,
   ClientWebSocketOptions,
-  FlareLobbyWebSocketConnection
+  FlareLobbyWebSocketConnection,
 } from "./client.js";
 import {
   createRoomHandle,
   type CustomRoomTransport,
   type PlayerRoom,
   type RoomConnectionResult,
-  type RoomReconnectOptions
+  type RoomReconnectOptions,
 } from "./custom-room.js";
 
 const MATCHMAKING_EVENT = "matchmaking.ticket";
@@ -62,14 +59,12 @@ export interface MatchmakingTicketRequestOptions {
 }
 
 /** チケット取消時の公開オプションです。 */
-export interface MatchmakingTicketCancelOptions
-  extends MatchmakingTicketRequestOptions {
+export interface MatchmakingTicketCancelOptions extends MatchmakingTicketRequestOptions {
   readonly requestId?: RequestId;
 }
 
 /** `waitForMatch()` の公開オプションです。 */
-export interface MatchmakingWaitForMatchOptions
-  extends MatchmakingTicketRequestOptions {}
+export interface MatchmakingWaitForMatchOptions extends MatchmakingTicketRequestOptions {}
 
 /** Client SDK が公開する、サーバー保存値を含むチケット状態です。 */
 export type MatchmakingTicketSnapshot<
@@ -85,7 +80,10 @@ export type MatchmakingTicketSnapshot<
 
 /** 成立済みチケットが保持する対戦結果です。 */
 export type MatchmakingResult<TApp extends AnyFlareLobbyApp = FlareLobbyApp> =
-  Extract<MatchmakingTicketSnapshot<TApp>, { readonly status: "matched" }> extends {
+  Extract<
+    MatchmakingTicketSnapshot<TApp>,
+    { readonly status: "matched" }
+  > extends {
     readonly result: infer TResult;
   }
     ? TResult
@@ -121,7 +119,7 @@ export type MatchmakingTicketConnectionStatus =
 
 /** チケット接続状態の購読者です。 */
 export type MatchmakingTicketConnectionStatusListener = (
-  status: MatchmakingTicketConnectionStatus
+  status: MatchmakingTicketConnectionStatus,
 ) => void;
 
 /**
@@ -146,14 +144,20 @@ export interface MatchmakingTicket<
   readonly result: MatchmakingResult<TApp> | undefined;
   on(
     eventName: "progress",
-    listener: MatchmakingProgressListener<TApp>
+    listener: MatchmakingProgressListener<TApp>,
   ): () => void;
-  onStatusChange(listener: MatchmakingTicketConnectionStatusListener): () => void;
-  refresh(options?: MatchmakingTicketRequestOptions): Promise<MatchmakingTicketSnapshot<TApp>>;
-  cancel(
-    options?: MatchmakingTicketCancelOptions
+  onStatusChange(
+    listener: MatchmakingTicketConnectionStatusListener,
+  ): () => void;
+  refresh(
+    options?: MatchmakingTicketRequestOptions,
   ): Promise<MatchmakingTicketSnapshot<TApp>>;
-  waitForMatch(options?: MatchmakingWaitForMatchOptions): Promise<PlayerRoom<TApp>>;
+  cancel(
+    options?: MatchmakingTicketCancelOptions,
+  ): Promise<MatchmakingTicketSnapshot<TApp>>;
+  waitForMatch(
+    options?: MatchmakingWaitForMatchOptions,
+  ): Promise<PlayerRoom<TApp>>;
 }
 
 export interface MatchmakingClientApi<
@@ -161,20 +165,22 @@ export interface MatchmakingClientApi<
 > {
   joinMatchmaking(
     pool: MatchmakingPoolReference,
-    options?: MatchmakingJoinOptions
+    options?: MatchmakingJoinOptions,
   ): Promise<MatchmakingTicket<TApp>>;
   findMatch(
     pool: MatchmakingPoolReference,
-    options?: MatchmakingJoinOptions
+    options?: MatchmakingJoinOptions,
   ): Promise<PlayerRoom<TApp>>;
   getRating(
     pool: MatchmakingPoolReference,
-    options?: MatchmakingTicketRequestOptions
+    options?: MatchmakingTicketRequestOptions,
   ): Promise<Rating>;
   dispose(): void;
 }
 
-interface MatchmakingTransport<TApp extends AnyFlareLobbyApp> extends CustomRoomTransport<TApp> {
+interface MatchmakingTransport<
+  TApp extends AnyFlareLobbyApp,
+> extends CustomRoomTransport<TApp> {
   readonly requestIdFactory: () => RequestId;
 }
 
@@ -232,44 +238,45 @@ export function createMatchmakingApi<
     findMatch: async (pool, options = {}) => {
       const ticket = await joinMatchmaking<TApp>(transport, pool, options);
       tickets.add(ticket);
-      return ticket.waitForMatch(options.signal === undefined ? {} : {
-        signal: options.signal
-      });
+      return ticket.waitForMatch(
+        options.signal === undefined
+          ? {}
+          : {
+              signal: options.signal,
+            },
+      );
     },
-    getRating: (pool, options = {}) =>
-      getRating(transport, pool, options),
+    getRating: (pool, options = {}) => getRating(transport, pool, options),
     dispose: () => {
       for (const ticket of tickets) {
         ticket.dispose();
       }
       tickets.clear();
-    }
+    },
   };
 }
 
 async function joinMatchmaking<TApp extends AnyFlareLobbyApp>(
   transport: MatchmakingTransport<TApp>,
   poolReference: MatchmakingPoolReference,
-  options: MatchmakingJoinOptions
+  options: MatchmakingJoinOptions,
 ): Promise<MatchmakingTicketImpl<TApp>> {
   throwIfAborted(options.signal);
   const pool = normalizePoolReference(poolReference);
   const poolId = typeof pool === "string" ? pool : pool.id;
-  const requestId = options.requestId ?? createRequestId(transport.requestIdFactory);
+  const requestId =
+    options.requestId ?? createRequestId(transport.requestIdFactory);
   const path = createPoolPath(poolId, "/tickets");
   const body = compactJsonObject({
     requestId,
-    pool:
-      typeof pool === "string"
-        ? undefined
-        : (pool as unknown as JsonValue),
+    pool: typeof pool === "string" ? undefined : (pool as unknown as JsonValue),
     rating: toJsonValue(options.rating),
     region: options.region,
     inputMethod: options.inputMethod,
     inputMode: options.inputMode,
     searchAttributes: options.searchAttributes,
     expiresAt: options.expiresAt,
-    ttlMs: options.ttlMs
+    ttlMs: options.ttlMs,
   });
 
   let response: unknown;
@@ -278,7 +285,7 @@ async function joinMatchmaking<TApp extends AnyFlareLobbyApp>(
       method: "POST",
       body,
       requestId,
-      ...requestSignalOptions(options.signal)
+      ...requestSignalOptions(options.signal),
     });
   } catch (error) {
     if (!isCancelledError(error) || options.signal?.aborted !== true) {
@@ -292,7 +299,7 @@ async function joinMatchmaking<TApp extends AnyFlareLobbyApp>(
       response = await transport.request<unknown>(path, {
         method: "POST",
         body,
-        requestId
+        requestId,
       });
     } catch {
       throw new FlareLobbyError("CANCELLED");
@@ -305,7 +312,7 @@ async function joinMatchmaking<TApp extends AnyFlareLobbyApp>(
     parsed.ticket,
     poolId,
     parsed.connection,
-    options.reconnect
+    options.reconnect,
   );
 
   try {
@@ -327,13 +334,13 @@ async function joinMatchmaking<TApp extends AnyFlareLobbyApp>(
 async function getRating<TApp extends AnyFlareLobbyApp>(
   transport: MatchmakingTransport<TApp>,
   poolReference: MatchmakingPoolReference,
-  options: MatchmakingTicketRequestOptions
+  options: MatchmakingTicketRequestOptions,
 ): Promise<Rating> {
   const pool = normalizePoolReference(poolReference);
   const poolId = typeof pool === "string" ? pool : pool.id;
   const raw = await transport.request<unknown>(
     createPoolPath(poolId, "/rating"),
-    requestSignalOptions(options.signal)
+    requestSignalOptions(options.signal),
   );
   const value = isRecord(raw) && isRecord(raw["rating"]) ? raw["rating"] : raw;
 
@@ -350,25 +357,29 @@ async function getRating<TApp extends AnyFlareLobbyApp>(
   return deepFreeze({
     playerId: value["playerId"],
     poolId: value["poolId"],
-    value: value["value"]
+    value: value["value"],
   });
 }
 
-class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
-  implements MatchmakingTicket<TApp>
-{
+class MatchmakingTicketImpl<
+  TApp extends AnyFlareLobbyApp,
+> implements MatchmakingTicket<TApp> {
   private snapshotState: MatchmakingTicketSnapshot<TApp>;
   private readonly poolId: string;
   private readonly transport: MatchmakingTransport<TApp>;
   private readonly reconnectOptions: NormalizedReconnectOptions;
   private readonly roomReconnectOptions: RoomReconnectOptions | undefined;
-  private readonly progressListeners = new Set<MatchmakingProgressListener<TApp>>();
-  private readonly statusListeners = new Set<MatchmakingTicketConnectionStatusListener>();
+  private readonly progressListeners = new Set<
+    MatchmakingProgressListener<TApp>
+  >();
+  private readonly statusListeners =
+    new Set<MatchmakingTicketConnectionStatusListener>();
   private readonly waiters = new Set<TicketWaiter<TApp>>();
   private connection: FlareLobbyWebSocketConnection<TApp> | undefined;
   private unsubscribeConnectionEvents: () => void = (): void => undefined;
   private unsubscribeConnectionClose: () => void = (): void => undefined;
-  private connectionStatusState: MatchmakingTicketConnectionStatus = "disconnected";
+  private connectionStatusState: MatchmakingTicketConnectionStatus =
+    "disconnected";
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private reconnectAttempt = 0;
   private lastSequence = 0;
@@ -385,7 +396,7 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
     snapshot: MatchmakingTicketSnapshot<TApp>,
     poolId: string,
     connection: MatchRoomConnection<TApp> | undefined,
-    reconnectOptions: RoomReconnectOptions | undefined
+    reconnectOptions: RoomReconnectOptions | undefined,
   ) {
     this.transport = transport;
     this.snapshotState = snapshot;
@@ -426,7 +437,9 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
       return 0;
     }
 
-    const end = isTerminalStatus(this.status) ? getTerminalAtMs(this.snapshotState) : Date.now();
+    const end = isTerminalStatus(this.status)
+      ? getTerminalAtMs(this.snapshotState)
+      : Date.now();
     return Math.max(0, end - this.queuedAtMs);
   }
 
@@ -444,13 +457,18 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
 
   public get result(): MatchmakingResult<TApp> | undefined {
     return this.status === "matched"
-      ? (this.snapshotState as Extract<MatchmakingTicketSnapshot<TApp>, { readonly status: "matched" }>).result
+      ? (
+          this.snapshotState as Extract<
+            MatchmakingTicketSnapshot<TApp>,
+            { readonly status: "matched" }
+          >
+        ).result
       : undefined;
   }
 
   public on(
     eventName: "progress",
-    listener: MatchmakingProgressListener<TApp>
+    listener: MatchmakingProgressListener<TApp>,
   ): () => void {
     if (eventName !== "progress" || typeof listener !== "function") {
       throw new FlareLobbyError("INVALID_PAYLOAD");
@@ -462,7 +480,9 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
     };
   }
 
-  public onStatusChange(listener: MatchmakingTicketConnectionStatusListener): () => void {
+  public onStatusChange(
+    listener: MatchmakingTicketConnectionStatusListener,
+  ): () => void {
     if (typeof listener !== "function") {
       throw new FlareLobbyError("INVALID_PAYLOAD");
     }
@@ -482,12 +502,12 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
   }
 
   public async refresh(
-    options: MatchmakingTicketRequestOptions = {}
+    options: MatchmakingTicketRequestOptions = {},
   ): Promise<MatchmakingTicketSnapshot<TApp>> {
     throwIfAborted(options.signal);
     const raw = await this.transport.request<unknown>(
       createTicketPath(this.poolId, this.id),
-      requestSignalOptions(options.signal)
+      requestSignalOptions(options.signal),
     );
     const parsed = parseTicketEnvelope<TApp>(raw);
     this.inlineConnection = parsed.connection ?? this.inlineConnection;
@@ -496,24 +516,25 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
   }
 
   public cancel(
-    options: MatchmakingTicketCancelOptions = {}
+    options: MatchmakingTicketCancelOptions = {},
   ): Promise<MatchmakingTicketSnapshot<TApp>> {
     if (this.cancelPromise !== undefined) {
       return this.cancelPromise;
     }
 
-    const requestId = options.requestId ?? createRequestId(this.transport.requestIdFactory);
+    const requestId =
+      options.requestId ?? createRequestId(this.transport.requestIdFactory);
     const request = this.transport.request<unknown>(
       `${createTicketPath(this.poolId, this.id)}/cancel`,
       {
         method: "POST",
         body: {
           requestId,
-          ticketId: this.id
+          ticketId: this.id,
         },
         requestId,
-        ...requestSignalOptions(options.signal)
-      }
+        ...requestSignalOptions(options.signal),
+      },
     );
 
     this.cancelPromise = request
@@ -534,7 +555,7 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
   }
 
   public waitForMatch(
-    options: MatchmakingWaitForMatchOptions = {}
+    options: MatchmakingWaitForMatchOptions = {},
   ): Promise<PlayerRoom<TApp>> {
     if (options.signal?.aborted === true) {
       return this.cancelForAbort(options.signal);
@@ -553,7 +574,7 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
         resolve,
         reject,
         ...(options.signal === undefined ? {} : { signal: options.signal }),
-        aborted: false
+        aborted: false,
       };
       const onAbort = (): void => {
         if (waiter.aborted) {
@@ -562,9 +583,11 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
 
         waiter.aborted = true;
         this.removeWaiter(waiter);
-        void this.cancelIfNoWaiters().catch(() => undefined).finally(() => {
-          reject(new FlareLobbyError("CANCELLED"));
-        });
+        void this.cancelIfNoWaiters()
+          .catch(() => undefined)
+          .finally(() => {
+            reject(new FlareLobbyError("CANCELLED"));
+          });
       };
       waiter.abortListener = onAbort;
       this.waiters.add(waiter);
@@ -598,7 +621,7 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
     this.setConnectionStatus("connecting");
     const connection = await this.transport.connect(
       this.createEventPath(),
-      this.eventConnectionOptions(signal)
+      this.eventConnectionOptions(signal),
     );
 
     if (this.stopped) {
@@ -614,7 +637,7 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
   private eventConnectionOptions(signal?: AbortSignal): ClientWebSocketOptions {
     return {
       knownEventTypes: [MATCHMAKING_EVENT],
-      ...(signal === undefined ? {} : { signal })
+      ...(signal === undefined ? {} : { signal }),
     };
   }
 
@@ -623,7 +646,9 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
     return `${createTicketPath(this.poolId, this.id)}/events/ws${after}`;
   }
 
-  private attachConnection(connection: FlareLobbyWebSocketConnection<TApp>): void {
+  private attachConnection(
+    connection: FlareLobbyWebSocketConnection<TApp>,
+  ): void {
     this.unsubscribeConnectionEvents();
     this.unsubscribeConnectionClose();
     this.connection = connection;
@@ -661,7 +686,7 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
   private applyTicket(
     ticket: MatchmakingTicketSnapshot<TApp>,
     sequence: number,
-    event: MatchmakingTicketEventPayload<TApp> | undefined
+    event: MatchmakingTicketEventPayload<TApp> | undefined,
   ): void {
     if (ticket.id !== this.id || ticket.pool.id !== this.poolId) {
       throw new FlareLobbyError("CONNECTION_FAILED");
@@ -693,7 +718,10 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
     }
 
     this.snapshotState = ticket;
-    if (event?.searchWidth !== undefined && isFiniteNonNegativeNumber(event.searchWidth)) {
+    if (
+      event?.searchWidth !== undefined &&
+      isFiniteNonNegativeNumber(event.searchWidth)
+    ) {
       this.searchWidthState = event.searchWidth;
     } else {
       this.searchWidthState = getCurrentSearchWidth(ticket, this.queuedAtMs);
@@ -709,9 +737,9 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
           waitingCount: 0,
           activeCount: 0,
           sequence: terminalSequence,
-          occurredAt: new Date(getTerminalAtMs(ticket)).toISOString()
+          occurredAt: new Date(getTerminalAtMs(ticket)).toISOString(),
         },
-        terminalSequence
+        terminalSequence,
       );
     }
 
@@ -722,7 +750,7 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
 
   private notifyProgress(
     event: MatchmakingTicketEventPayload<TApp>,
-    sequence: number
+    sequence: number,
   ): void {
     const waitingTimeMs = this.waitingTimeMs;
     const progress = deepFreeze({
@@ -733,7 +761,7 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
       searchWidth: this.searchWidthState,
       searchRange: this.searchWidthState,
       sequence,
-      occurredAt: event.occurredAt
+      occurredAt: event.occurredAt,
     });
 
     for (const listener of this.progressListeners) {
@@ -794,8 +822,8 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
           connection,
           "player",
           signal,
-          this.roomReconnectOptions
-        )
+          this.roomReconnectOptions,
+        ),
       )
       .then((room) => room as PlayerRoom<TApp>)
       .catch((error) => {
@@ -807,7 +835,7 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
   }
 
   private async loadMatchRoomConnection(
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<RoomConnectionResult<TApp>> {
     const inline = this.inlineConnection;
     if (inline !== undefined) {
@@ -816,7 +844,7 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
 
     const raw = await this.transport.request<unknown>(
       `${createTicketPath(this.poolId, this.id)}/connection`,
-      requestSignalOptions(signal)
+      requestSignalOptions(signal),
     );
     const parsed = parseTicketEnvelope<TApp>(raw);
     this.inlineConnection = parsed.connection;
@@ -829,14 +857,16 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
   }
 
   private cancelForAbort(signal: AbortSignal): Promise<PlayerRoom<TApp>> {
-    return this.cancelIfNoWaiters(true).then(() => {
-      throw new FlareLobbyError("CANCELLED");
-    }).catch((error) => {
-      if (signal.aborted) {
+    return this.cancelIfNoWaiters(true)
+      .then(() => {
         throw new FlareLobbyError("CANCELLED");
-      }
-      throw error;
-    });
+      })
+      .catch((error) => {
+        if (signal.aborted) {
+          throw new FlareLobbyError("CANCELLED");
+        }
+        throw error;
+      });
   }
 
   private async cancelIfNoWaiters(force = false): Promise<void> {
@@ -860,7 +890,7 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
     this.rejectWaiters(
       this.status === "cancelled"
         ? new FlareLobbyError("CANCELLED")
-        : new FlareLobbyError("CONFLICT")
+        : new FlareLobbyError("CONFLICT"),
     );
   }
 
@@ -876,9 +906,13 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
 
   private handleConnectionClosed(
     connection: FlareLobbyWebSocketConnection<TApp>,
-    error: FlareLobbyError
+    error: FlareLobbyError,
   ): void {
-    if (this.stopped || connection !== this.connection || isTerminalStatus(this.status)) {
+    if (
+      this.stopped ||
+      connection !== this.connection ||
+      isTerminalStatus(this.status)
+    ) {
       return;
     }
 
@@ -913,7 +947,10 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
       await this.connect();
       this.reconnectAttempt = 0;
     } catch (error) {
-      if (this.stopped || !isRetryableReconnectError(normalizeClientError(error).code)) {
+      if (
+        this.stopped ||
+        !isRetryableReconnectError(normalizeClientError(error).code)
+      ) {
         this.setConnectionStatus("disconnected");
         return;
       }
@@ -921,7 +958,7 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
       if (this.reconnectAttempt < this.reconnectOptions.maxAttempts) {
         this.handleConnectionClosed(
           this.connection as FlareLobbyWebSocketConnection<TApp>,
-          new FlareLobbyError("CONNECTION_FAILED")
+          new FlareLobbyError("CONNECTION_FAILED"),
         );
       } else {
         this.setConnectionStatus("disconnected");
@@ -952,7 +989,7 @@ class MatchmakingTicketImpl<TApp extends AnyFlareLobbyApp>
   private reconnectDelay(attempt: number): number {
     const exponential = Math.min(
       this.reconnectOptions.maxDelayMs,
-      this.reconnectOptions.baseDelayMs * 2 ** attempt
+      this.reconnectOptions.baseDelayMs * 2 ** attempt,
     );
     const jitter =
       this.reconnectOptions.jitterRatio === 0
@@ -986,7 +1023,7 @@ function createTicketPath(poolId: string, ticketId: string): string {
 }
 
 function normalizePoolReference(
-  value: MatchmakingPoolReference
+  value: MatchmakingPoolReference,
 ): MatchmakingPool | string {
   if (typeof value === "string") {
     if (!isNonEmptyString(value)) {
@@ -1012,12 +1049,12 @@ function normalizePoolReference(
     gameId: value["gameId"],
     seasonId: value["seasonId"],
     mode: value["mode"],
-    region: value["region"]
+    region: value["region"],
   });
 }
 
 function parseTicketEnvelope<TApp extends AnyFlareLobbyApp>(
-  value: unknown
+  value: unknown,
 ): ParsedTicketEnvelope<TApp> {
   if (!isRecord(value)) {
     throw new FlareLobbyError("CONNECTION_FAILED");
@@ -1028,7 +1065,8 @@ function parseTicketEnvelope<TApp extends AnyFlareLobbyApp>(
   const connectionValue =
     isRecord(value) && Object.hasOwn(value, "connection")
       ? value["connection"]
-      : isRecord(rawTicket) && isRecord(rawTicket["result"]) &&
+      : isRecord(rawTicket) &&
+          isRecord(rawTicket["result"]) &&
           Object.hasOwn(rawTicket["result"], "connection")
         ? rawTicket["result"]["connection"]
         : undefined;
@@ -1039,12 +1077,12 @@ function parseTicketEnvelope<TApp extends AnyFlareLobbyApp>(
 
   return {
     ticket,
-    ...(connection === undefined ? {} : { connection })
+    ...(connection === undefined ? {} : { connection }),
   };
 }
 
 function parseTicketEventPayload<TApp extends AnyFlareLobbyApp>(
-  value: unknown
+  value: unknown,
 ): MatchmakingTicketEventPayload<TApp> | null {
   if (!isRecord(value)) {
     return null;
@@ -1075,12 +1113,12 @@ function parseTicketEventPayload<TApp extends AnyFlareLobbyApp>(
     sequence,
     occurredAt,
     ...(isFiniteNonNegativeNumber(searchWidth) ? { searchWidth } : {}),
-    ...(connection === undefined ? {} : { connection })
+    ...(connection === undefined ? {} : { connection }),
   };
 }
 
 function parseTicket<TApp extends AnyFlareLobbyApp>(
-  value: unknown
+  value: unknown,
 ): MatchmakingTicketSnapshot<TApp> {
   const parsed = parseTicketSafely<TApp>(value);
   if (parsed === null) {
@@ -1090,7 +1128,7 @@ function parseTicket<TApp extends AnyFlareLobbyApp>(
 }
 
 function parseTicketSafely<TApp extends AnyFlareLobbyApp>(
-  value: unknown
+  value: unknown,
 ): MatchmakingTicketSnapshot<TApp> | null {
   if (
     !isRecord(value) ||
@@ -1124,10 +1162,7 @@ function parseTicketSafely<TApp extends AnyFlareLobbyApp>(
     return null;
   }
 
-  if (
-    value["status"] === "waiting" &&
-    !isNonEmptyString(value["queuedAt"])
-  ) {
+  if (value["status"] === "waiting" && !isNonEmptyString(value["queuedAt"])) {
     return null;
   }
 
@@ -1135,7 +1170,7 @@ function parseTicketSafely<TApp extends AnyFlareLobbyApp>(
 }
 
 function parseRoomConnection<TApp extends AnyFlareLobbyApp>(
-  value: unknown
+  value: unknown,
 ): MatchRoomConnection<TApp> | undefined {
   if (
     !isRecord(value) ||
@@ -1154,12 +1189,12 @@ function parseRoomConnection<TApp extends AnyFlareLobbyApp>(
     role: "player",
     joinToken: value["joinToken"],
     websocketUrl: value["websocketUrl"],
-    snapshot: value["snapshot"] as RoomConnectionResult<TApp>["snapshot"]
+    snapshot: value["snapshot"] as RoomConnectionResult<TApp>["snapshot"],
   };
 }
 
 function getQueuedAtMs<TApp extends AnyFlareLobbyApp>(
-  ticket: MatchmakingTicketSnapshot<TApp>
+  ticket: MatchmakingTicketSnapshot<TApp>,
 ): number | undefined {
   if (ticket.status === "waiting" && isNonEmptyString(ticket.queuedAt)) {
     const value = Date.parse(ticket.queuedAt);
@@ -1171,7 +1206,7 @@ function getQueuedAtMs<TApp extends AnyFlareLobbyApp>(
 }
 
 function getTerminalAtMs<TApp extends AnyFlareLobbyApp>(
-  ticket: MatchmakingTicketSnapshot<TApp>
+  ticket: MatchmakingTicketSnapshot<TApp>,
 ): number {
   const value =
     ticket.status === "matched"
@@ -1186,39 +1221,38 @@ function getTerminalAtMs<TApp extends AnyFlareLobbyApp>(
 
 function getCurrentSearchWidth<TApp extends AnyFlareLobbyApp>(
   ticket: MatchmakingTicketSnapshot<TApp>,
-  queuedAtMs: number | undefined
+  queuedAtMs: number | undefined,
 ): number {
   if (queuedAtMs === undefined) {
     return 0;
   }
-  return getMatchmakingSearchWidth(undefined, Math.max(0, Date.now() - queuedAtMs));
+  return getMatchmakingSearchWidth(
+    undefined,
+    Math.max(0, Date.now() - queuedAtMs),
+  );
 }
 
 function normalizeReconnectOptions(
-  options: RoomReconnectOptions | undefined
+  options: RoomReconnectOptions | undefined,
 ): NormalizedReconnectOptions {
   const maxAttempts = normalizeReconnectInteger(
     options?.maxAttempts,
     DEFAULT_RECONNECT_MAX_ATTEMPTS,
-    0
+    0,
   );
   const baseDelayMs = normalizeReconnectInteger(
     options?.baseDelayMs,
     DEFAULT_RECONNECT_BASE_DELAY_MS,
-    0
+    0,
   );
   const maxDelayMs = normalizeReconnectInteger(
     options?.maxDelayMs,
     Math.max(DEFAULT_RECONNECT_MAX_DELAY_MS, baseDelayMs),
-    baseDelayMs
+    baseDelayMs,
   );
   const jitterRatio = options?.jitterRatio ?? DEFAULT_RECONNECT_JITTER_RATIO;
 
-  if (
-    !isFiniteNumber(jitterRatio) ||
-    jitterRatio < 0 ||
-    jitterRatio > 1
-  ) {
+  if (!isFiniteNumber(jitterRatio) || jitterRatio < 0 || jitterRatio > 1) {
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }
 
@@ -1228,7 +1262,7 @@ function normalizeReconnectOptions(
 function normalizeReconnectInteger(
   value: number | undefined,
   fallback: number,
-  minimum: number
+  minimum: number,
 ): number {
   const normalized = value ?? fallback;
   if (
@@ -1274,7 +1308,9 @@ function normalizeClientError(error: unknown): FlareLobbyError {
     : new FlareLobbyError("CONNECTION_FAILED");
 }
 
-function requestSignalOptions(signal: AbortSignal | undefined): ClientRequestOptions {
+function requestSignalOptions(
+  signal: AbortSignal | undefined,
+): ClientRequestOptions {
   return signal === undefined ? {} : { signal };
 }
 
@@ -1297,7 +1333,7 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 function compactJsonObject(
-  values: Readonly<Record<string, JsonValue | undefined>>
+  values: Readonly<Record<string, JsonValue | undefined>>,
 ): JsonObject {
   const result: Record<string, JsonValue> = {};
   for (const [key, value] of Object.entries(values)) {
@@ -1339,7 +1375,9 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && typeof value === "number" && value >= 0;
 }
 
-function isMatchmakingTicketStatus(value: unknown): value is MatchmakingTicketStatus {
+function isMatchmakingTicketStatus(
+  value: unknown,
+): value is MatchmakingTicketStatus {
   return (
     value === "creating" ||
     value === "waiting" ||
@@ -1351,7 +1389,11 @@ function isMatchmakingTicketStatus(value: unknown): value is MatchmakingTicketSt
 }
 
 function isRoomSnapshot(value: unknown): boolean {
-  if (!isRecord(value) || !isRecord(value["room"]) || !isRecord(value["state"])) {
+  if (
+    !isRecord(value) ||
+    !isRecord(value["room"]) ||
+    !isRecord(value["state"])
+  ) {
     return false;
   }
 
@@ -1365,7 +1407,10 @@ function isRoomSnapshot(value: unknown): boolean {
   );
 }
 
-function deepFreeze<TValue>(value: TValue, seen = new WeakSet<object>()): TValue {
+function deepFreeze<TValue>(
+  value: TValue,
+  seen = new WeakSet<object>(),
+): TValue {
   if (typeof value !== "object" || value === null || seen.has(value)) {
     return value;
   }

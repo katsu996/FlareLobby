@@ -10,14 +10,15 @@ import type {
   RoomState,
   RoomStatus,
   ServerEventEnvelope,
-  ServerFailureEnvelope
+  ServerFailureEnvelope,
 } from "../src/index.js";
 
-type Equal<TLeft, TRight> = (<TValue>() => TValue extends TLeft ? 1 : 2) extends <
-  TValue,
->() => TValue extends TRight ? 1 : 2
-  ? true
-  : false;
+type Equal<TLeft, TRight> =
+  (<TValue>() => TValue extends TLeft ? 1 : 2) extends <
+    TValue,
+  >() => TValue extends TRight ? 1 : 2
+    ? true
+    : false;
 
 type Expect<TCondition extends true> = TCondition;
 
@@ -50,7 +51,7 @@ const pool = {
   gameId: "example-game",
   seasonId: "season-1",
   mode: "ranked-1v1",
-  region: "jp"
+  region: "jp",
 } satisfies MatchmakingPool;
 
 const snapshot: RoomSnapshot<ExampleApp> = {
@@ -61,48 +62,48 @@ const snapshot: RoomSnapshot<ExampleApp> = {
     visibility: "public",
     settings: {
       maxPlayers: 2,
-      map: "forest"
+      map: "forest",
     },
     metadata: {
-      title: "練習部屋"
-    }
+      title: "練習部屋",
+    },
   },
   revision: 3,
   state: {
-    status: "waiting"
+    status: "waiting",
   },
   participants: [
     {
       kind: "player",
       id: "participant-1",
       player: {
-        id: "player-1"
+        id: "player-1",
       },
       teamId: "blue",
-      ready: false
-    }
+      ready: false,
+    },
   ],
   teams: [
     {
-      id: "blue"
-    }
+      id: "blue",
+    },
   ],
   host: {
     participantId: "participant-1",
-    playerId: "player-1"
-  }
+    playerId: "player-1",
+  },
 };
 
 const matchedTicket: MatchmakingTicket<ExampleApp> = {
   id: "ticket-1",
   pool,
   player: {
-    id: "player-1"
+    id: "player-1",
   },
   rating: {
     playerId: "player-1",
     poolId: "ranked-1v1-jp",
-    value: 1500
+    value: 1500,
   },
   createdAt: "2026-08-10T00:00:00.000Z",
   status: "matched",
@@ -113,7 +114,7 @@ const matchedTicket: MatchmakingTicket<ExampleApp> = {
       id: "candidate-1",
       pool,
       ticketIds: ["ticket-1", "ticket-2"],
-      createdAt: "2026-08-10T00:00:30.000Z"
+      createdAt: "2026-08-10T00:00:30.000Z",
     },
     room: {
       id: "room-2",
@@ -122,21 +123,21 @@ const matchedTicket: MatchmakingTicket<ExampleApp> = {
       pool,
       settings: {
         maxPlayers: 2,
-        map: "forest"
+        map: "forest",
       },
       metadata: {
-        title: "ランク戦"
-      }
+        title: "ランク戦",
+      },
     },
-    createdAt: "2026-08-10T00:01:00.000Z"
-  }
+    createdAt: "2026-08-10T00:01:00.000Z",
+  },
 };
 
 const message: GameMessage<ExampleApp> = {
   name: "move",
   payload: {
-    direction: "north"
-  }
+    direction: "north",
+  },
 };
 
 type _appCanBeInferredFromSnapshot = Expect<
@@ -158,52 +159,52 @@ readonlySnapshot.participants.push({
   kind: "spectator",
   id: "participant-2",
   player: {
-    id: "player-2"
-  }
+    id: "player-2",
+  },
 });
 
 // @ts-expect-error ルーム設定は読み取り専用です。
 readonlySnapshot.room.settings.map = "desert";
 
 // @ts-expect-error 終了済み状態には finishedAt が必要です。
-const invalidFinishedState: RoomState = {
-  status: "finished"
+const _invalidFinishedState: RoomState = {
+  status: "finished",
 };
 
 // @ts-expect-error ルーム状態には存在しない値です。
-const invalidRoomStatus: RoomStatus = "cancelled";
+const _invalidRoomStatus: RoomStatus = "cancelled";
 
 // @ts-expect-error 成立済みチケットには結果が必要です。
 const invalidMatchedTicket: MatchmakingTicket<ExampleApp> = {
   id: "ticket-1",
   pool,
   player: {
-    id: "player-1"
+    id: "player-1",
   },
   rating: {
     playerId: "player-1",
     poolId: "ranked-1v1-jp",
-    value: 1500
+    value: 1500,
   },
   createdAt: "2026-08-10T00:00:00.000Z",
   status: "matched",
-  matchedAt: "2026-08-10T00:01:00.000Z"
+  matchedAt: "2026-08-10T00:01:00.000Z",
 };
 
 const invalidMessageName: GameMessage<ExampleApp> = {
   // @ts-expect-error 定義されていないゲーム固有メッセージです。
   name: "teleport",
   payload: {
-    direction: "north"
-  }
+    direction: "north",
+  },
 };
 
 const invalidMessagePayload: GameMessage<ExampleApp> = {
   name: "move",
   payload: {
     // @ts-expect-error move の Payload に数値の direction は指定できません。
-    direction: 1
-  }
+    direction: 1,
+  },
 };
 
 const protocolCommand: ClientCommandEnvelope<
@@ -215,22 +216,20 @@ const protocolCommand: ClientCommandEnvelope<
   requestId: "request-1",
   command: "room.set_ready",
   payload: {
-    ready: true
-  }
+    ready: true,
+  },
 };
 
-const protocolEvent: ServerEventEnvelope<
-  "room.snapshot",
-  { roomId: string }
-> = {
-  protocolVersion: 1,
-  kind: "event",
-  event: "room.snapshot",
-  revision: 4,
-  payload: {
-    roomId: "room-1"
-  }
-};
+const protocolEvent: ServerEventEnvelope<"room.snapshot", { roomId: string }> =
+  {
+    protocolVersion: 1,
+    kind: "event",
+    event: "room.snapshot",
+    revision: 4,
+    payload: {
+      roomId: "room-1",
+    },
+  };
 
 const protocolFailure: ServerFailureEnvelope = {
   protocolVersion: 1,
@@ -238,8 +237,8 @@ const protocolFailure: ServerFailureEnvelope = {
   requestId: "request-1",
   error: {
     code: "ROOM_FULL",
-    message: "ルームは満員です。"
-  }
+    message: "ルームは満員です。",
+  },
 };
 
 const knownErrorCode: FlareLobbyErrorCode = "CANCELLED";
@@ -249,7 +248,7 @@ const invalidProtocolEvent: ServerEventEnvelope = {
   protocolVersion: 1,
   kind: "event",
   event: "room.snapshot",
-  payload: null
+  payload: null,
 };
 
 // @ts-expect-error 公開エラーコード以外は指定できません。

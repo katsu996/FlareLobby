@@ -3,7 +3,7 @@ import {
   encodeProtocolMessage,
   FlareLobbyError,
   isFlareLobbyErrorCode,
-  PROTOCOL_VERSION
+  PROTOCOL_VERSION,
 } from "@flarelobby/core";
 import type {
   AnyFlareLobbyApp,
@@ -16,7 +16,7 @@ import type {
   Revision,
   RequestId,
   ServerEventEnvelope,
-  ServerMessage
+  ServerMessage,
 } from "@flarelobby/core";
 import { createCustomRoomApi } from "./custom-room.js";
 import type {
@@ -29,7 +29,7 @@ import type {
   PlayerRoom,
   RoomReconnectOptions,
   Room,
-  SpectatorRoom
+  SpectatorRoom,
 } from "./custom-room.js";
 import { createMatchmakingApi } from "./matchmaking.js";
 import type {
@@ -37,7 +37,7 @@ import type {
   MatchmakingJoinOptions,
   MatchmakingPoolReference,
   MatchmakingTicket,
-  MatchmakingTicketRequestOptions
+  MatchmakingTicketRequestOptions,
 } from "./matchmaking.js";
 
 const WEBSOCKET_OPEN = 1;
@@ -48,7 +48,7 @@ const AUTHENTICATION_PROTOCOL_PREFIX = "flarelobby.auth.";
 /** 標準 fetch を差し替えるための関数契約です。 */
 export type FetchImplementation = (
   input: RequestInfo | URL,
-  init?: RequestInit
+  init?: RequestInit,
 ) => Promise<Response>;
 
 /** 標準 WebSocket を差し替えるためのコンストラクター契約です。 */
@@ -59,7 +59,7 @@ export type WebSocketConstructor = {
 /** WebSocket コンストラクターを関数として差し替える契約です。 */
 export type WebSocketFactory = (
   url: string,
-  protocols: readonly string[]
+  protocols: readonly string[],
 ) => WebSocket;
 
 /** HTTP 要求の共通オプションです。 */
@@ -93,7 +93,7 @@ export interface ClientCommandOptions {
 
 /** クライアントの初期化設定です。 */
 export interface FlareLobbyClientOptions<
-  TApp extends AnyFlareLobbyApp = FlareLobbyApp,
+  _TApp extends AnyFlareLobbyApp = FlareLobbyApp,
 > {
   readonly endpoint: string | URL;
   readonly getAccessToken: () => string | Promise<string>;
@@ -110,19 +110,17 @@ export interface FlareLobbyClientOptions<
 }
 
 /** WebSocket イベントを受け取るコールバックです。 */
-export type ClientEventListener = (
-  event: ServerEventEnvelope
-) => void;
+export type ClientEventListener = (event: ServerEventEnvelope) => void;
 
 /** 接続済み WebSocket の共通操作です。 */
 export interface FlareLobbyWebSocketConnection<
-  TApp extends AnyFlareLobbyApp = FlareLobbyApp,
+  _TApp extends AnyFlareLobbyApp = FlareLobbyApp,
 > {
   readonly closed: boolean;
   send<TResponse = JsonValue>(
     command: string,
     payload: JsonValue,
-    options?: ClientCommandOptions
+    options?: ClientCommandOptions,
   ): Promise<TResponse>;
   onEvent(listener: ClientEventListener): () => void;
   onClose(listener: (error: FlareLobbyError) => void): () => void;
@@ -137,44 +135,42 @@ export interface FlareLobbyClient<
   readonly disposed: boolean;
   request<TResponse = JsonValue>(
     path: string | URL,
-    options?: ClientRequestOptions
+    options?: ClientRequestOptions,
   ): Promise<TResponse>;
   connect(
     path: string | URL,
-    options?: ClientWebSocketOptions
+    options?: ClientWebSocketOptions,
   ): Promise<FlareLobbyWebSocketConnection<TApp>>;
   /** `connect()` の説明的な別名です。 */
   connectWebSocket(
     path: string | URL,
-    options?: ClientWebSocketOptions
+    options?: ClientWebSocketOptions,
   ): Promise<FlareLobbyWebSocketConnection<TApp>>;
   createCustomRoom(
-    options?: CustomRoomCreationOptions<TApp>
+    options?: CustomRoomCreationOptions<TApp>,
   ): Promise<HostRoom<TApp>>;
   joinCustomRoom(code: string): Promise<PlayerRoom<TApp>>;
   joinCustomRoom(
-    options: CustomRoomJoinOptions & { readonly role: "spectator" }
+    options: CustomRoomJoinOptions & { readonly role: "spectator" },
   ): Promise<SpectatorRoom<TApp>>;
   joinCustomRoom(
-    options: CustomRoomJoinOptions & { readonly role?: "player" }
+    options: CustomRoomJoinOptions & { readonly role?: "player" },
   ): Promise<PlayerRoom<TApp>>;
-  joinCustomRoom(
-    options: CustomRoomJoinOptions
-  ): Promise<Room<TApp>>;
+  joinCustomRoom(options: CustomRoomJoinOptions): Promise<Room<TApp>>;
   listCustomRooms(
-    query?: CustomRoomListQuery
+    query?: CustomRoomListQuery,
   ): Promise<CustomRoomListPage<TApp>>;
   joinMatchmaking(
     pool: MatchmakingPoolReference,
-    options?: MatchmakingJoinOptions
+    options?: MatchmakingJoinOptions,
   ): Promise<MatchmakingTicket<TApp>>;
   findMatch(
     pool: MatchmakingPoolReference,
-    options?: MatchmakingJoinOptions
+    options?: MatchmakingJoinOptions,
   ): Promise<import("./custom-room.js").PlayerRoom<TApp>>;
   getRating(
     pool: MatchmakingPoolReference,
-    options?: MatchmakingTicketRequestOptions
+    options?: MatchmakingTicketRequestOptions,
   ): Promise<import("@flarelobby/core").Rating>;
   dispose(): void;
   /** `dispose()` の説明的な別名です。 */
@@ -184,9 +180,7 @@ export interface FlareLobbyClient<
 /** 認証、HTTP、WebSocket の共通基盤を初期化します。 */
 export function createFlareLobbyClient<
   TApp extends AnyFlareLobbyApp = FlareLobbyApp,
->(
-  options: FlareLobbyClientOptions<TApp>
-): FlareLobbyClient<TApp> {
+>(options: FlareLobbyClientOptions<TApp>): FlareLobbyClient<TApp> {
   return new FlareLobbyClientImpl(options);
 }
 
@@ -209,7 +203,7 @@ class FlareLobbyClientImpl<
   public constructor(options: FlareLobbyClientOptions<TApp>) {
     if (!isRecord(options) || typeof options.getAccessToken !== "function") {
       throw new FlareLobbyError("INVALID_PAYLOAD", {
-        message: "endpoint と getAccessToken を指定してください。"
+        message: "endpoint と getAccessToken を指定してください。",
       });
     }
 
@@ -227,7 +221,7 @@ class FlareLobbyClientImpl<
         this.connectWithToken(path, options, token),
       ...(options.reconnect === undefined
         ? {}
-        : { reconnectOptions: options.reconnect })
+        : { reconnectOptions: options.reconnect }),
     });
     this.matchmakingApi = createMatchmakingApi<TApp>({
       request: this.request.bind(this),
@@ -237,7 +231,7 @@ class FlareLobbyClientImpl<
       requestIdFactory: this.requestIdFactory,
       ...(options.reconnect === undefined
         ? {}
-        : { reconnectOptions: options.reconnect })
+        : { reconnectOptions: options.reconnect }),
     });
   }
 
@@ -247,7 +241,7 @@ class FlareLobbyClientImpl<
 
   public async request<TResponse = JsonValue>(
     path: string | URL,
-    options: ClientRequestOptions = {}
+    options: ClientRequestOptions = {},
   ): Promise<TResponse> {
     this.assertActive();
     throwIfAborted(options.signal);
@@ -293,7 +287,7 @@ class FlareLobbyClientImpl<
         method: options.method ?? "GET",
         headers,
         ...(body === undefined ? {} : { body }),
-        ...(options.signal === undefined ? {} : { signal: options.signal })
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
       });
     } catch (error) {
       if (options.signal?.aborted || isAbortError(error)) {
@@ -322,7 +316,7 @@ class FlareLobbyClientImpl<
 
   public async connect(
     path: string | URL,
-    options: ClientWebSocketOptions = {}
+    options: ClientWebSocketOptions = {},
   ): Promise<FlareLobbyWebSocketConnection<TApp>> {
     return this.connectWithToken(path, options);
   }
@@ -330,7 +324,7 @@ class FlareLobbyClientImpl<
   private async connectWithToken(
     path: string | URL,
     options: ClientWebSocketOptions = {},
-    token?: string
+    token?: string,
   ): Promise<FlareLobbyWebSocketConnection<TApp>> {
     this.assertActive();
     throwIfAborted(options.signal);
@@ -338,7 +332,7 @@ class FlareLobbyClientImpl<
     const url = resolveWebSocketUrl(
       this.endpointUrl,
       path,
-      options.lastRevision
+      options.lastRevision,
     );
     const authenticationToken =
       token === undefined ? await this.readAccessToken() : token;
@@ -346,14 +340,14 @@ class FlareLobbyClientImpl<
 
     const protocols = createWebSocketProtocols(
       options.protocols,
-      authenticationToken
+      authenticationToken,
     );
     const socket = this.createWebSocket(url, protocols);
     const connection = new FlareLobbyWebSocketConnectionImpl(
       socket,
       this.requestIdFactory,
       options.knownEventTypes,
-      () => this.connections.delete(connection)
+      () => this.connections.delete(connection),
     );
     this.connections.add(connection);
 
@@ -369,56 +363,54 @@ class FlareLobbyClientImpl<
 
   public connectWebSocket(
     path: string | URL,
-    options: ClientWebSocketOptions = {}
+    options: ClientWebSocketOptions = {},
   ): Promise<FlareLobbyWebSocketConnection<TApp>> {
     return this.connect(path, options);
   }
 
   public createCustomRoom(
-    options: CustomRoomCreationOptions<TApp> = {}
+    options: CustomRoomCreationOptions<TApp> = {},
   ): Promise<HostRoom<TApp>> {
     return this.customRoomApi.createCustomRoom(options);
   }
 
   public joinCustomRoom(code: string): Promise<PlayerRoom<TApp>>;
   public joinCustomRoom(
-    options: CustomRoomJoinOptions & { readonly role: "spectator" }
+    options: CustomRoomJoinOptions & { readonly role: "spectator" },
   ): Promise<SpectatorRoom<TApp>>;
   public joinCustomRoom(
-    options: CustomRoomJoinOptions & { readonly role?: "player" }
+    options: CustomRoomJoinOptions & { readonly role?: "player" },
   ): Promise<PlayerRoom<TApp>>;
+  public joinCustomRoom(options: CustomRoomJoinOptions): Promise<Room<TApp>>;
   public joinCustomRoom(
-    options: CustomRoomJoinOptions
-  ): Promise<Room<TApp>>;
-  public joinCustomRoom(
-    codeOrOptions: string | CustomRoomJoinOptions
+    codeOrOptions: string | CustomRoomJoinOptions,
   ): Promise<Room<TApp>> {
     return this.customRoomApi.joinCustomRoom(codeOrOptions);
   }
 
   public listCustomRooms(
-    query: CustomRoomListQuery = {}
+    query: CustomRoomListQuery = {},
   ): Promise<CustomRoomListPage<TApp>> {
     return this.customRoomApi.listCustomRooms(query);
   }
 
   public joinMatchmaking(
     pool: MatchmakingPoolReference,
-    options: MatchmakingJoinOptions = {}
+    options: MatchmakingJoinOptions = {},
   ): Promise<MatchmakingTicket<TApp>> {
     return this.matchmakingApi.joinMatchmaking(pool, options);
   }
 
   public findMatch(
     pool: MatchmakingPoolReference,
-    options: MatchmakingJoinOptions = {}
+    options: MatchmakingJoinOptions = {},
   ): Promise<import("./custom-room.js").PlayerRoom<TApp>> {
     return this.matchmakingApi.findMatch(pool, options);
   }
 
   public getRating(
     pool: MatchmakingPoolReference,
-    options: MatchmakingTicketRequestOptions = {}
+    options: MatchmakingTicketRequestOptions = {},
   ): Promise<import("@flarelobby/core").Rating> {
     return this.matchmakingApi.getRating(pool, options);
   }
@@ -447,7 +439,7 @@ class FlareLobbyClientImpl<
   }
 
   private resolveHttpRequestId(
-    options: ClientRequestOptions
+    options: ClientRequestOptions,
   ): RequestId | undefined {
     const requestId =
       options.requestId ??
@@ -455,7 +447,7 @@ class FlareLobbyClientImpl<
 
     if (requestId !== undefined && !isNonEmptyString(requestId)) {
       throw new FlareLobbyError("INVALID_PAYLOAD", {
-        message: "requestId は空でない文字列で指定してください。"
+        message: "requestId は空でない文字列で指定してください。",
       });
     }
 
@@ -494,8 +486,7 @@ class FlareLobbyClientImpl<
       }
 
       const constructor =
-        this.webSocketConstructor ??
-        getDefaultWebSocketConstructor();
+        this.webSocketConstructor ?? getDefaultWebSocketConstructor();
 
       if (constructor === undefined) {
         throw new Error("WebSocket is unavailable");
@@ -515,18 +506,14 @@ interface PendingCommand {
   readonly abortListener: (() => void) | undefined;
 }
 
-class FlareLobbyWebSocketConnectionImpl
-  implements FlareLobbyWebSocketConnection
-{
+class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection {
   private readonly socket: WebSocket;
   private readonly requestIdFactory: () => RequestId;
   private readonly knownEventTypes: readonly ProtocolEventType[] | undefined;
   private readonly onClosed: () => void;
   private readonly pending = new Map<RequestId, PendingCommand>();
   private readonly eventListeners = new Set<ClientEventListener>();
-  private readonly closeListeners = new Set<
-    (error: FlareLobbyError) => void
-  >();
+  private readonly closeListeners = new Set<(error: FlareLobbyError) => void>();
   private readonly queuedEvents: ServerEventEnvelope[] = [];
   private readonly openPromise: Promise<void>;
   private resolveOpen!: () => void;
@@ -560,7 +547,7 @@ class FlareLobbyWebSocketConnectionImpl
       this.knownEventTypes === undefined
         ? decodeServerMessage(data)
         : decodeServerMessage(data, {
-            knownEventTypes: this.knownEventTypes
+            knownEventTypes: this.knownEventTypes,
           });
 
     if (!decoded.ok) {
@@ -583,7 +570,7 @@ class FlareLobbyWebSocketConnectionImpl
     this.terminate(
       this.closedByClient
         ? new FlareLobbyError("CANCELLED")
-        : errorForWebSocketCloseCode((event as CloseEvent).code)
+        : errorForWebSocketCloseCode((event as CloseEvent).code),
     );
   };
 
@@ -591,7 +578,7 @@ class FlareLobbyWebSocketConnectionImpl
     socket: WebSocket,
     requestIdFactory: () => RequestId,
     knownEventTypes: readonly ProtocolEventType[] | undefined,
-    onClosed: () => void
+    onClosed: () => void,
   ) {
     this.socket = socket;
     this.requestIdFactory = requestIdFactory;
@@ -647,7 +634,7 @@ class FlareLobbyWebSocketConnectionImpl
       signal.addEventListener("abort", onAbort, { once: true });
       this.openPromise.then(
         () => settle(resolve),
-        (error: FlareLobbyError) => settle(() => reject(error))
+        (error: FlareLobbyError) => settle(() => reject(error)),
       );
     });
   }
@@ -655,7 +642,7 @@ class FlareLobbyWebSocketConnectionImpl
   public async send<TResponse = JsonValue>(
     command: string,
     payload: JsonValue,
-    options: ClientCommandOptions = {}
+    options: ClientCommandOptions = {},
   ): Promise<TResponse> {
     if (this.closedState || this.socket.readyState !== WEBSOCKET_OPEN) {
       throw this.closedError ?? new FlareLobbyError("CONNECTION_FAILED");
@@ -663,7 +650,7 @@ class FlareLobbyWebSocketConnectionImpl
 
     if (!isNonEmptyString(command)) {
       throw new FlareLobbyError("INVALID_PAYLOAD", {
-        message: "command は空でない文字列で指定してください。"
+        message: "command は空でない文字列で指定してください。",
       });
     }
 
@@ -675,7 +662,7 @@ class FlareLobbyWebSocketConnectionImpl
       kind: "command",
       requestId,
       command,
-      payload
+      payload,
     };
     const encoded = encodeProtocolMessage(message);
 
@@ -718,12 +705,12 @@ class FlareLobbyWebSocketConnectionImpl
         resolve: resolvePending,
         reject: rejectPending,
         signal: options.signal,
-        abortListener
+        abortListener,
       });
 
       if (options.signal !== undefined && abortListener !== undefined) {
         options.signal.addEventListener("abort", abortListener, {
-          once: true
+          once: true,
         });
         if (options.signal.aborted) {
           abortListener();
@@ -781,7 +768,7 @@ class FlareLobbyWebSocketConnectionImpl
     const value = requestId ?? this.requestIdFactory();
     if (!isNonEmptyString(value)) {
       throw new FlareLobbyError("INVALID_PAYLOAD", {
-        message: "requestId は空でない文字列で指定してください。"
+        message: "requestId は空でない文字列で指定してください。",
       });
     }
     return value;
@@ -800,18 +787,13 @@ class FlareLobbyWebSocketConnectionImpl
 
     if (message.kind === "failure") {
       if (message.requestId === null) {
-        this.terminate(
-          FlareLobbyError.fromPayload(message.error),
-          1002
-        );
+        this.terminate(FlareLobbyError.fromPayload(message.error), 1002);
         return;
       }
 
       this.pending
         .get(message.requestId)
-        ?.reject(
-          FlareLobbyError.fromPayload(message.error, message.requestId)
-        );
+        ?.reject(FlareLobbyError.fromPayload(message.error, message.requestId));
       return;
     }
 
@@ -843,7 +825,7 @@ class FlareLobbyWebSocketConnectionImpl
   private terminate(
     error: FlareLobbyError,
     closeCode?: number,
-    closeReason?: string
+    closeReason?: string,
   ): void {
     if (this.closedState) {
       return;
@@ -905,7 +887,7 @@ function normalizeEndpoint(endpoint: string | URL): URL {
     return url;
   } catch {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "endpoint は http または https の URL で指定してください。"
+      message: "endpoint は http または https の URL で指定してください。",
     });
   }
 }
@@ -923,7 +905,7 @@ function resolveHttpUrl(endpoint: URL, path: string | URL): URL {
     !isSameEndpoint(url, endpoint)
   ) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "接続先と同じ HTTP エンドポイントを指定してください。"
+      message: "接続先と同じ HTTP エンドポイントを指定してください。",
     });
   }
 
@@ -933,7 +915,7 @@ function resolveHttpUrl(endpoint: URL, path: string | URL): URL {
 function resolveWebSocketUrl(
   endpoint: URL,
   path: string | URL,
-  lastRevision?: Revision
+  lastRevision?: Revision,
 ): URL {
   let url: URL;
   try {
@@ -953,7 +935,7 @@ function resolveWebSocketUrl(
     !isSameEndpoint(url, endpoint)
   ) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "接続先と同じ WebSocket エンドポイントを指定してください。"
+      message: "接続先と同じ WebSocket エンドポイントを指定してください。",
     });
   }
 
@@ -962,7 +944,7 @@ function resolveWebSocketUrl(
     (!Number.isSafeInteger(lastRevision) || lastRevision < 0)
   ) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "lastRevision は 0 以上の安全な整数で指定してください。"
+      message: "lastRevision は 0 以上の安全な整数で指定してください。",
     });
   }
 
@@ -990,7 +972,7 @@ function effectivePort(url: URL): string {
 
 function createWebSocketProtocols(
   protocols: string | readonly string[] | undefined,
-  token: string
+  token: string,
 ): readonly string[] {
   const requested =
     protocols === undefined
@@ -1001,16 +983,18 @@ function createWebSocketProtocols(
 
   if (requested.some((protocol) => !isNonEmptyString(protocol))) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "WebSocket の protocol は空でない文字列で指定してください。"
+      message: "WebSocket の protocol は空でない文字列で指定してください。",
     });
   }
 
   const encodedToken = encodeBase64Url(token);
-  return [...new Set([
-    DEFAULT_WEBSOCKET_PROTOCOL,
-    ...requested,
-    `${AUTHENTICATION_PROTOCOL_PREFIX}${encodedToken}`
-  ])];
+  return [
+    ...new Set([
+      DEFAULT_WEBSOCKET_PROTOCOL,
+      ...requested,
+      `${AUTHENTICATION_PROTOCOL_PREFIX}${encodedToken}`,
+    ]),
+  ];
 }
 
 function encodeBase64Url(value: string): string {
@@ -1045,7 +1029,7 @@ function getDefaultWebSocketConstructor(): WebSocketConstructor | undefined {
 
 async function readResponseBody(
   response: Response,
-  requestId: RequestId | undefined
+  requestId: RequestId | undefined,
 ): Promise<
   | { readonly ok: true; readonly value: unknown }
   | { readonly ok: false; readonly error: FlareLobbyError }
@@ -1056,7 +1040,7 @@ async function readResponseBody(
   } catch {
     return {
       ok: false,
-      error: createErrorWithRequestId("CONNECTION_FAILED", requestId)
+      error: createErrorWithRequestId("CONNECTION_FAILED", requestId),
     };
   }
 
@@ -1069,7 +1053,7 @@ async function readResponseBody(
   } catch {
     return {
       ok: false,
-      error: createErrorWithRequestId("INVALID_MESSAGE", requestId)
+      error: createErrorWithRequestId("INVALID_MESSAGE", requestId),
     };
   }
 }
@@ -1079,7 +1063,7 @@ function normalizeHttpError(
   body:
     | { readonly ok: true; readonly value: unknown }
     | { readonly ok: false; readonly error: FlareLobbyError },
-  requestId: RequestId | undefined
+  requestId: RequestId | undefined,
 ): FlareLobbyError {
   if (!body.ok) {
     return body.error;
@@ -1131,7 +1115,7 @@ function isResponseLike(value: unknown): value is Response {
 
 function normalizeClientError(
   error: unknown,
-  fallbackCode: "CONNECTION_FAILED" | "CANCELLED"
+  fallbackCode: "CONNECTION_FAILED" | "CANCELLED",
 ): FlareLobbyError {
   return error instanceof FlareLobbyError
     ? error
@@ -1145,10 +1129,7 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 function isAbortError(error: unknown): boolean {
-  return (
-    isRecord(error) &&
-    error["name"] === "AbortError"
-  );
+  return isRecord(error) && error["name"] === "AbortError";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1191,7 +1172,7 @@ function createRequestId(): RequestId {
 
 function createErrorWithRequestId(
   code: FlareLobbyErrorCode,
-  requestId: RequestId | undefined
+  requestId: RequestId | undefined,
 ): FlareLobbyError {
   return requestId === undefined
     ? new FlareLobbyError(code)

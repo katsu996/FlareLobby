@@ -41,7 +41,7 @@ const requiredFiles = [
   "examples/local-demo/src/index.ts",
   ".github/ISSUE_TEMPLATE/bug_report.md",
   ".github/ISSUE_TEMPLATE/feature_request.md",
-  ".github/pull_request_template.md"
+  ".github/pull_request_template.md",
 ];
 
 for (const file of requiredFiles) read(file);
@@ -71,14 +71,16 @@ function exportedNames(entryPath) {
   for (const match of entry.matchAll(/export\s+\*\s+from\s+["'](.+?)["']/gu)) {
     const target = match[1];
     if (target !== undefined && target.endsWith(".js")) {
-      files.push(read(resolve(dirname(entryPath), target.replace(/\.js$/u, ".ts"))));
+      files.push(
+        read(resolve(dirname(entryPath), target.replace(/\.js$/u, ".ts"))),
+      );
     }
   }
 
   const names = new Set();
   for (const content of files) {
     for (const match of content.matchAll(
-      /export\s+(?:type\s+)?\{([\s\S]*?)\}(?:\s+from\s+[^;]+)?;/gu
+      /export\s+(?:type\s+)?\{([\s\S]*?)\}(?:\s+from\s+[^;]+)?;/gu,
     )) {
       for (const raw of (match[1] ?? "").split(",")) {
         const name = raw
@@ -93,7 +95,7 @@ function exportedNames(entryPath) {
     }
 
     for (const match of content.matchAll(
-      /export\s+(?:declare\s+)?(?:type|interface|const|function|class)\s+([A-Za-z_$][\w$]*)/gu
+      /export\s+(?:declare\s+)?(?:type|interface|const|function|class)\s+([A-Za-z_$][\w$]*)/gu,
     )) {
       if (match[1] !== undefined) names.add(match[1]);
     }
@@ -107,13 +109,19 @@ const publicEntries = [
   "packages/core/src/index.ts",
   "packages/client/src/index.ts",
   "packages/cloudflare/src/index.ts",
-  "packages/testing/src/index.ts"
+  "packages/testing/src/index.ts",
 ];
 
 for (const entry of publicEntries) {
   for (const name of exportedNames(entry)) {
-    if (!new RegExp(`\\b${name.replace(/[$]/gu, "\\$")}\\b`, "u").test(apiReference)) {
-      errors.push(`APIリファレンスに公開 Export がありません: ${name} (${entry})`);
+    if (
+      !new RegExp(`\\b${name.replace(/[$]/gu, "\\$")}\\b`, "u").test(
+        apiReference,
+      )
+    ) {
+      errors.push(
+        `APIリファレンスに公開 Export がありません: ${name} (${entry})`,
+      );
     }
   }
 }
@@ -122,7 +130,7 @@ function sourceStringValues(relativePath, constantName) {
   const content = read(relativePath);
   const match = new RegExp(
     `${constantName}\\s*=\\s*\\[([\\s\\S]*?)\\]\\s*as\\s+const`,
-    "u"
+    "u",
   ).exec(content);
   return match === null
     ? []
@@ -130,11 +138,14 @@ function sourceStringValues(relativePath, constantName) {
 }
 
 for (const code of [
-  ...sourceStringValues("packages/core/src/protocol.ts", "FLARE_LOBBY_ERROR_CODES"),
+  ...sourceStringValues(
+    "packages/core/src/protocol.ts",
+    "FLARE_LOBBY_ERROR_CODES",
+  ),
   ...sourceStringValues(
     "packages/cloudflare/src/config.ts",
-    "FLARE_LOBBY_CONFIGURATION_ERROR_CODES"
-  )
+    "FLARE_LOBBY_CONFIGURATION_ERROR_CODES",
+  ),
 ]) {
   if (code !== undefined && !apiReference.includes(`\`${code}\``)) {
     errors.push(`APIリファレンスにエラーコードがありません: ${code}`);
@@ -165,14 +176,17 @@ const markdownFiles = [
   "packages/cloudflare/README.md",
   "packages/client/README.md",
   "packages/testing/README.md",
-  "examples/README.md"
+  "examples/README.md",
 ];
 
 for (const markdownFile of markdownFiles) {
   const content = read(markdownFile);
   for (const match of content.matchAll(/\]\((\.[^)#]+)(?:#[^)]+)?\)/gu)) {
     const target = match[1];
-    if (target !== undefined && !existsSync(resolve(root, dirname(markdownFile), target))) {
+    if (
+      target !== undefined &&
+      !existsSync(resolve(root, dirname(markdownFile), target))
+    ) {
       errors.push(`${markdownFile} のリンク先がありません: ${target}`);
     }
   }

@@ -42,7 +42,7 @@ export class SeededRandom implements RandomSource {
   public nextInt(maxExclusive: number): number {
     if (!Number.isSafeInteger(maxExclusive) || maxExclusive <= 0) {
       throw new RangeError(
-        "乱数の上限は 1 以上の安全な整数で指定してください。"
+        "乱数の上限は 1 以上の安全な整数で指定してください。",
       );
     }
 
@@ -78,7 +78,9 @@ function assertSeed(seed: RandomSeed): void {
     (typeof seed === "number" && !Number.isSafeInteger(seed)) ||
     (typeof seed === "string" && seed.length === 0)
   ) {
-    throw new TypeError("乱数種は空でない文字列または安全な整数で指定してください。");
+    throw new TypeError(
+      "乱数種は空でない文字列または安全な整数で指定してください。",
+    );
   }
 }
 

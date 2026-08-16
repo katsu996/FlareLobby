@@ -4,7 +4,7 @@ import type { RoomSnapshot } from "@flarelobby/core";
 import {
   createFlareLobbyClient,
   type FetchImplementation,
-  type WebSocketConstructor
+  type WebSocketConstructor,
 } from "../src/index.js";
 
 class FakeWebSocket {
@@ -16,7 +16,7 @@ class FakeWebSocket {
 
   public constructor(
     public readonly url: string,
-    public readonly protocols?: string | string[]
+    public readonly protocols?: string | string[],
   ) {
     FakeWebSocket.instances.push(this);
     queueMicrotask(() => {
@@ -58,15 +58,15 @@ class FakeWebSocket {
       "close",
       new CloseEvent("close", {
         code: code ?? 1000,
-        reason: reason ?? ""
-      })
+        reason: reason ?? "",
+      }),
     );
   }
 
   public receive(value: unknown): void {
     this.emit(
       "message",
-      new MessageEvent("message", { data: JSON.stringify(value) })
+      new MessageEvent("message", { data: JSON.stringify(value) }),
     );
   }
 
@@ -93,11 +93,11 @@ function createSnapshot(revision: number): RoomSnapshot {
       invitationCode: "ABC123",
       visibility: "public",
       settings: { map: "forest" },
-      metadata: { name: "練習ルーム" }
+      metadata: { name: "練習ルーム" },
     },
     host: {
       participantId: "participant-owner",
-      playerId: "owner-player"
+      playerId: "owner-player",
     },
     participants: [
       {
@@ -105,10 +105,10 @@ function createSnapshot(revision: number): RoomSnapshot {
         id: "participant-owner",
         player: { id: "owner-player" },
         teamId: null,
-        ready: false
-      }
+        ready: false,
+      },
     ],
-    teams: [{ id: "red" }, { id: "blue" }]
+    teams: [{ id: "red" }, { id: "blue" }],
   } as RoomSnapshot;
 }
 
@@ -121,7 +121,7 @@ function creationResponse(): Response {
     invitationCode: "ABC123",
     joinToken: "join-token-owner",
     websocketUrl: "wss://example.test/v1/custom-rooms/room-1/ws",
-    snapshot: createSnapshot(0)
+    snapshot: createSnapshot(0),
   });
 }
 
@@ -135,14 +135,14 @@ function createClient(fetchImplementation: FetchImplementation) {
       maxAttempts: 3,
       baseDelayMs: 100,
       maxDelayMs: 250,
-      jitterRatio: 0
-    }
+      jitterRatio: 0,
+    },
   });
 }
 
 function snapshotEvent(
   revision: number,
-  options: { readonly resumeToken?: string } = {}
+  options: { readonly resumeToken?: string } = {},
 ) {
   return {
     protocolVersion: 1,
@@ -159,10 +159,10 @@ function snapshotEvent(
             resume: {
               participantId: "participant-owner",
               role: "player",
-              resumed: true
-            }
-          })
-    }
+              resumed: true,
+            },
+          }),
+    },
   };
 }
 
@@ -193,7 +193,7 @@ describe("Room の状態購読と自動再接続", () => {
 
     expect(listener).toHaveBeenCalledTimes(2);
     expect(listener).toHaveBeenLastCalledWith(
-      expect.objectContaining({ revision: 2 })
+      expect.objectContaining({ revision: 2 }),
     );
     expect(room.snapshot.revision).toBe(2);
 
@@ -237,8 +237,8 @@ describe("Room の状態購読と自動再接続", () => {
       payload: {
         name: "chat.message",
         payload: { text: "こんにちは" },
-        sender: { participantId: "participant-owner", role: "player" }
-      }
+        sender: { participantId: "participant-owner", role: "player" },
+      },
     });
 
     expect(snapshots).toHaveBeenCalledTimes(1);
@@ -247,8 +247,8 @@ describe("Room の状態購読と自動再接続", () => {
       expect.objectContaining({
         name: "chat.message",
         payload: { text: "こんにちは" },
-        revision: 1
-      })
+        revision: 1,
+      }),
     );
     expect(room.snapshot.revision).toBe(1);
   });
@@ -278,10 +278,10 @@ describe("Room の状態購読と自動再接続", () => {
 
     const reconnectSocket = FakeWebSocket.instances[1];
     expect(reconnectSocket?.url).toBe(
-      "wss://example.test/v1/custom-rooms/room-1/ws?lastRevision=1"
+      "wss://example.test/v1/custom-rooms/room-1/ws?lastRevision=1",
     );
     expect(reconnectSocket?.protocols).toContain(
-      `flarelobby.auth.${btoa("resume-token")}`
+      `flarelobby.auth.${btoa("resume-token")}`,
     );
     expect(room.connectionStatus).toBe("connected");
     expect(statuses).toEqual(["reconnecting", "connected"]);
@@ -311,7 +311,7 @@ describe("Room の状態購読と自動再接続", () => {
       protocolVersion: 1,
       kind: "failure",
       requestId: null,
-      error: { code: "UNAUTHENTICATED", message: "認証が必要です。" }
+      error: { code: "UNAUTHENTICATED", message: "認証が必要です。" },
     });
 
     expect(room.connectionStatus).toBe("disconnected");
@@ -345,7 +345,7 @@ describe("Room の状態購読と自動再接続", () => {
     expect(FakeWebSocket.instances).toHaveLength(4);
     expect(room.connectionStatus).toBe("connected");
     expect(FakeWebSocket.instances[3]?.protocols).toContain(
-      `flarelobby.auth.${btoa("resume-token")}`
+      `flarelobby.auth.${btoa("resume-token")}`,
     );
   });
 

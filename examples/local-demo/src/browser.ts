@@ -4,12 +4,12 @@ import type {
   HostRoom,
   MatchmakingTicket,
   PlayerRoom,
-  Room
+  Room,
 } from "@flarelobby/client";
 import type {
   FlareLobbyApp,
   MatchmakingPool,
-  RoomSnapshot
+  RoomSnapshot,
 } from "@flarelobby/core";
 
 type Move = "rock" | "paper" | "scissors";
@@ -31,14 +31,12 @@ interface RpsResultResponse {
   readonly ready: boolean;
   readonly yourMove: Move | null;
   readonly opponentMove: Move | null;
-  readonly result:
-    | {
-        readonly value: 0 | 0.5 | 1;
-        readonly outcome: "win" | "draw" | "lose";
-        readonly resultId: string;
-        readonly applied: boolean | null;
-      }
-    | null;
+  readonly result: {
+    readonly value: 0 | 0.5 | 1;
+    readonly outcome: "win" | "draw" | "lose";
+    readonly resultId: string;
+    readonly applied: boolean | null;
+  } | null;
   readonly rating?: { readonly value: number };
 }
 
@@ -47,13 +45,13 @@ const RANKED_POOL = {
   gameId: "local-demo",
   seasonId: "season-1",
   mode: "ranked-1v1",
-  region: "jp"
+  region: "jp",
 } satisfies MatchmakingPool;
 
 const MOVE_LABELS: Readonly<Record<Move, string>> = {
   rock: "グー",
   paper: "パー",
-  scissors: "チョキ"
+  scissors: "チョキ",
 };
 
 const loginScreen = element<HTMLElement>("login-screen");
@@ -74,7 +72,6 @@ const customReady = element<HTMLButtonElement>("custom-ready");
 const customStart = element<HTMLButtonElement>("custom-start");
 const customMoveActions = element<HTMLElement>("custom-move-actions");
 const customResult = element<HTMLElement>("custom-result");
-const rankedMoveActions = element<HTMLElement>("ranked-move-actions");
 const rankedResult = element<HTMLElement>("ranked-result");
 const rankedResend = element<HTMLButtonElement>("ranked-resend");
 const rankedStatus = element<HTMLElement>("ranked-status");
@@ -118,11 +115,24 @@ element<HTMLButtonElement>("show-ranked").addEventListener("click", () => {
   showMode("ranked");
   void refreshRating();
 });
-element<HTMLButtonElement>("custom-back").addEventListener("click", () => showMode());
-element<HTMLButtonElement>("ranked-back").addEventListener("click", () => showMode());
-element<HTMLButtonElement>("logout").addEventListener("click", () => void logout());
-element<HTMLButtonElement>("custom-leave").addEventListener("click", () => void leaveRoom());
-element<HTMLButtonElement>("ranked-leave").addEventListener("click", () => void leaveRoom());
+element<HTMLButtonElement>("custom-back").addEventListener("click", () =>
+  showMode(),
+);
+element<HTMLButtonElement>("ranked-back").addEventListener("click", () =>
+  showMode(),
+);
+element<HTMLButtonElement>("logout").addEventListener(
+  "click",
+  () => void logout(),
+);
+element<HTMLButtonElement>("custom-leave").addEventListener(
+  "click",
+  () => void leaveRoom(),
+);
+element<HTMLButtonElement>("ranked-leave").addEventListener(
+  "click",
+  () => void leaveRoom(),
+);
 customReady.addEventListener("click", () => void toggleReady());
 customStart.addEventListener("click", () => void startCustomMatch());
 rankedJoin.addEventListener("click", () => void joinRankedQueue());
@@ -133,16 +143,24 @@ rankedResend.addEventListener("click", () => {
   }
 });
 
-element<HTMLFormElement>("custom-create-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  void createCustomRoom();
-});
-element<HTMLFormElement>("custom-join-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  void joinCustomRoom();
-});
+element<HTMLFormElement>("custom-create-form").addEventListener(
+  "submit",
+  (event) => {
+    event.preventDefault();
+    void createCustomRoom();
+  },
+);
+element<HTMLFormElement>("custom-join-form").addEventListener(
+  "submit",
+  (event) => {
+    event.preventDefault();
+    void joinCustomRoom();
+  },
+);
 
-for (const button of document.querySelectorAll<HTMLButtonElement>("[data-custom-move]")) {
+for (const button of document.querySelectorAll<HTMLButtonElement>(
+  "[data-custom-move]",
+)) {
   button.addEventListener("click", () => {
     const move = button.dataset["customMove"];
     if (isMove(move)) {
@@ -151,7 +169,9 @@ for (const button of document.querySelectorAll<HTMLButtonElement>("[data-custom-
   });
 }
 
-for (const button of document.querySelectorAll<HTMLButtonElement>("[data-ranked-move]")) {
+for (const button of document.querySelectorAll<HTMLButtonElement>(
+  "[data-ranked-move]",
+)) {
   button.addEventListener("click", () => {
     const move = button.dataset["rankedMove"];
     if (isMove(move)) {
@@ -169,8 +189,8 @@ function startSession(value: string): void {
       maxAttempts: 8,
       baseDelayMs: 250,
       maxDelayMs: 5_000,
-      jitterRatio: 0.2
-    }
+      jitterRatio: 0.2,
+    },
   });
   playerId = value;
   localStorage.setItem("flarelobby-demo-player", value);
@@ -192,17 +212,22 @@ function showMode(mode?: "custom" | "ranked"): void {
 async function createCustomRoom(): Promise<void> {
   const current = getClient();
   try {
-    const name = element<HTMLInputElement>("custom-name").value.trim() || "じゃんけんルーム";
+    const name =
+      element<HTMLInputElement>("custom-name").value.trim() ||
+      "じゃんけんルーム";
     const room = await current.createCustomRoom({
       requestId: createRequestId("custom-create"),
       name,
       visibility: "unlisted",
       joinMethod: "invitation",
       maxPlayers: 2,
-      settings: { map: "forest" }
+      settings: { map: "forest" },
     });
     await openRoom(room, "custom");
-    setNotice("ルームを作成しました。招待コードをもう1つのブラウザへ共有してください。", "success");
+    setNotice(
+      "ルームを作成しました。招待コードをもう1つのブラウザへ共有してください。",
+      "success",
+    );
   } catch (error) {
     showError(error);
   }
@@ -216,10 +241,13 @@ async function joinCustomRoom(): Promise<void> {
     const room = await current.joinCustomRoom({
       requestId: createRequestId("custom-join"),
       invitationCode: code,
-      role: "player"
+      role: "player",
     });
     await openRoom(room, "custom");
-    setNotice("招待ルームへ参加しました。準備ボタンを押してください。", "success");
+    setNotice(
+      "招待ルームへ参加しました。準備ボタンを押してください。",
+      "success",
+    );
   } catch (error) {
     showError(error);
   }
@@ -237,7 +265,7 @@ async function joinRankedQueue(): Promise<void> {
     const ticket = await current.joinMatchmaking(RANKED_POOL, {
       requestId: createRequestId("ranked-ticket"),
       inputMethod: "keyboard_mouse",
-      ttlMs: 60_000
+      ttlMs: 60_000,
     });
     activeTicket = ticket;
     const stopProgress = ticket.on("progress", (progress) => {
@@ -245,7 +273,10 @@ async function joinRankedQueue(): Promise<void> {
       rankedProgress.textContent = `待機 ${Math.round(progress.waitingTimeMs / 1_000)}秒 / 検索幅 ±${Math.round(progress.searchWidth)} / 待機 ${progress.waitingCount}人`;
     });
     roomUnsubscribers.push(stopProgress);
-    setNotice("ランクキューに参加しました。もう1つのブラウザでも参加してください。", "success");
+    setNotice(
+      "ランクキューに参加しました。もう1つのブラウザでも参加してください。",
+      "success",
+    );
     const room = await ticket.waitForMatch();
     stopProgress();
     activeTicket = undefined;
@@ -282,7 +313,10 @@ async function cancelRankedQueue(): Promise<void> {
   }
 }
 
-async function openRoom(room: Room<DemoApp>, mode: "custom" | "ranked"): Promise<void> {
+async function openRoom(
+  room: Room<DemoApp>,
+  mode: "custom" | "ranked",
+): Promise<void> {
   await leaveRoom(false);
   activeRoom = room;
   activeMode = mode;
@@ -290,25 +324,29 @@ async function openRoom(room: Room<DemoApp>, mode: "custom" | "ranked"): Promise
   customMoves.clear();
   roomUnsubscribers = [];
   roomUnsubscribers.push(room.subscribe(renderRoom));
-  roomUnsubscribers.push(room.onStatusChange((status) => {
-    const label = `通信状態: ${status}`;
-    if (mode === "custom") {
-      customConnection.textContent = label;
-    } else {
-      rankedConnection.textContent = label;
-    }
-  }));
+  roomUnsubscribers.push(
+    room.onStatusChange((status) => {
+      const label = `通信状態: ${status}`;
+      if (mode === "custom") {
+        customConnection.textContent = label;
+      } else {
+        rankedConnection.textContent = label;
+      }
+    }),
+  );
 
   const playerRoom = room as DemoPlayerRoom;
   if (mode === "custom") {
-    roomUnsubscribers.push(playerRoom.onMessage("rps.move", (message) => {
-      const move = message.payload.move;
-      const sender = message.sender?.participantId;
-      if (sender !== undefined && isMove(move)) {
-        customMoves.set(sender, move);
-        renderCustomResult();
-      }
-    }));
+    roomUnsubscribers.push(
+      playerRoom.onMessage("rps.move", (message) => {
+        const move = message.payload.move;
+        const sender = message.sender?.participantId;
+        if (sender !== undefined && isMove(move)) {
+          customMoves.set(sender, move);
+          renderCustomResult();
+        }
+      }),
+    );
   }
 
   customRoomInfo.classList.toggle("hidden", mode !== "custom");
@@ -334,7 +372,7 @@ function renderRoom(snapshot: RoomSnapshot<DemoApp>): void {
   }
 
   const ownParticipant = snapshot.participants.find(
-    (participant) => participant.id === room.participantId
+    (participant) => participant.id === room.participantId,
   );
   const ownReady = ownParticipant?.kind === "player" && ownParticipant.ready;
   customReady.textContent = ownReady ? "準備を解除" : "準備する";
@@ -342,9 +380,10 @@ function renderRoom(snapshot: RoomSnapshot<DemoApp>): void {
   customStart.disabled =
     room.role !== "host" ||
     snapshot.state.status !== "waiting" ||
-    snapshot.participants.filter((participant) => participant.kind === "player").length < 2 ||
+    snapshot.participants.filter((participant) => participant.kind === "player")
+      .length < 2 ||
     !snapshot.participants.every(
-      (participant) => participant.kind !== "player" || participant.ready
+      (participant) => participant.kind !== "player" || participant.ready,
     );
   customRoomId.textContent = `Room ID: ${snapshot.room.id}`;
   customInvitationCode.textContent =
@@ -357,13 +396,16 @@ function renderRoom(snapshot: RoomSnapshot<DemoApp>): void {
       label.textContent = `${displayPlayer(participant.player.id)}${participant.id === room.participantId ? "（自分）" : ""}`;
       const state = document.createElement("span");
       state.className = "small muted";
-      state.textContent = participant.kind === "player"
-        ? participant.ready ? "準備完了" : "待機中"
-        : "観戦者";
+      state.textContent =
+        participant.kind === "player"
+          ? participant.ready
+            ? "準備完了"
+            : "待機中"
+          : "観戦者";
       item.appendChild(label);
       item.appendChild(state);
       return item;
-    })
+    }),
   );
 
   if (activeMode === "custom") {
@@ -379,14 +421,16 @@ async function toggleReady(): Promise<void> {
   }
 
   const ownParticipant = room.snapshot.participants.find(
-    (participant) => participant.id === room.participantId
+    (participant) => participant.id === room.participantId,
   );
   if (ownParticipant?.kind !== "player") {
     return;
   }
 
   try {
-    await room.setReady(!ownParticipant.ready, { requestId: createRequestId("custom-ready") });
+    await room.setReady(!ownParticipant.ready, {
+      requestId: createRequestId("custom-ready"),
+    });
   } catch (error) {
     showError(error);
   }
@@ -416,7 +460,11 @@ async function submitCustomMove(move: Move): Promise<void> {
   }
 
   try {
-    await room.send("rps.move", { move }, { requestId: createRequestId("custom-move") });
+    await room.send(
+      "rps.move",
+      { move },
+      { requestId: createRequestId("custom-move") },
+    );
     customMoves.set(room.participantId, move);
     renderCustomResult();
   } catch (error) {
@@ -432,13 +480,16 @@ function renderCustomResult(): void {
 
   const ownMove = customMoves.get(room.participantId);
   const opponent = room.snapshot.participants.find(
-    (participant) => participant.kind === "player" && participant.id !== room.participantId
+    (participant) =>
+      participant.kind === "player" && participant.id !== room.participantId,
   );
-  const opponentMove = opponent === undefined ? undefined : customMoves.get(opponent.id);
+  const opponentMove =
+    opponent === undefined ? undefined : customMoves.get(opponent.id);
   if (ownMove === undefined || opponentMove === undefined) {
-    customResult.textContent = ownMove === undefined
-      ? "手を選ぶと、相手の入力を待ちます。"
-      : `${MOVE_LABELS[ownMove]}を選択しました。相手の手を待っています。`;
+    customResult.textContent =
+      ownMove === undefined
+        ? "手を選ぶと、相手の入力を待ちます。"
+        : `${MOVE_LABELS[ownMove]}を選択しました。相手の手を待っています。`;
     return;
   }
 
@@ -460,8 +511,11 @@ async function submitRankedMove(move: Move, resend: boolean): Promise<void> {
       `/v1/demo/rps/matches/${encodeURIComponent(room.matchId)}/move`,
       {
         method: "POST",
-        body: { move, requestId: createRequestId(resend ? "ranked-resend" : "ranked-move") }
-      }
+        body: {
+          move,
+          requestId: createRequestId(resend ? "ranked-resend" : "ranked-move"),
+        },
+      },
     );
     renderRankedResult(response);
     if (response.result !== null) {
@@ -497,7 +551,7 @@ async function refreshRankedState(matchId: string): Promise<void> {
 
   try {
     const response = await getClient().request<RpsResultResponse>(
-      `/v1/demo/rps/matches/${encodeURIComponent(matchId)}`
+      `/v1/demo/rps/matches/${encodeURIComponent(matchId)}`,
     );
     renderRankedResult(response);
     if (response.result !== null) {
@@ -512,19 +566,24 @@ async function refreshRankedState(matchId: string): Promise<void> {
 
 function renderRankedResult(response: RpsResultResponse): void {
   if (response.result === null) {
-    rankedResult.textContent = response.yourMove === null
-      ? "手を選ぶと、相手の入力を待ちます。"
-      : `${MOVE_LABELS[response.yourMove]}を送信しました。相手の手を待っています。`;
+    rankedResult.textContent =
+      response.yourMove === null
+        ? "手を選ぶと、相手の入力を待ちます。"
+        : `${MOVE_LABELS[response.yourMove]}を送信しました。相手の手を待っています。`;
     return;
   }
 
   const labels = `${MOVE_LABELS[response.yourMove ?? "rock"]} vs ${MOVE_LABELS[response.opponentMove ?? "rock"]}`;
-  const outcome = response.result.outcome === "draw"
-    ? "引き分け"
-    : response.result.outcome === "win" ? "あなたの勝ち" : "あなたの負け";
-  const applied = response.result.applied === false
-    ? "（再送。ELOは二重更新されていません）"
-    : "（ELOを更新しました）";
+  const outcome =
+    response.result.outcome === "draw"
+      ? "引き分け"
+      : response.result.outcome === "win"
+        ? "あなたの勝ち"
+        : "あなたの負け";
+  const applied =
+    response.result.applied === false
+      ? "（再送。ELOは二重更新されていません）"
+      : "（ELOを更新しました）";
   rankedResult.textContent = `${labels}：${outcome} ${applied}`;
 }
 
@@ -577,7 +636,9 @@ async function logout(): Promise<void> {
 }
 
 function setRankedMoveButtonsDisabled(disabled: boolean): void {
-  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-ranked-move]")) {
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    "[data-ranked-move]",
+  )) {
     button.disabled = disabled;
   }
 }
@@ -589,14 +650,20 @@ function getClient(): DemoClient {
   return client;
 }
 
-function setNotice(message: string, tone: "success" | "danger" = "success"): void {
+function setNotice(
+  message: string,
+  tone: "success" | "danger" = "success",
+): void {
   notice.textContent = message;
   notice.className = `status ${tone}`;
 }
 
 function showError(error: unknown): void {
   const value = error as { readonly message?: unknown };
-  setNotice(typeof value.message === "string" ? value.message : "通信に失敗しました。", "danger");
+  setNotice(
+    typeof value.message === "string" ? value.message : "通信に失敗しました。",
+    "danger",
+  );
 }
 
 function isCancelled(error: unknown): boolean {

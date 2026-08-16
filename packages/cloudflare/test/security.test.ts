@@ -12,12 +12,12 @@ import {
   validateQuery,
   validateWebSocketCommand,
   verifyJoinToken,
-  verifyResumeToken
+  verifyResumeToken,
 } from "../src/index.js";
 import type {
   ClientCommandEnvelope,
   Principal,
-  ProtocolResult
+  ProtocolResult,
 } from "@flarelobby/core";
 
 const TOKEN_SECRET = "flarelobby-test-token-secret";
@@ -32,7 +32,12 @@ function expectProtocolValue<TValue>(result: ProtocolResult<TValue>): TValue {
 
 function expectProtocolError<TValue>(
   result: ProtocolResult<TValue>,
-  code: "UNAUTHENTICATED" | "FORBIDDEN" | "INVALID_MESSAGE" | "INVALID_PAYLOAD" | "CONFLICT"
+  code:
+    | "UNAUTHENTICATED"
+    | "FORBIDDEN"
+    | "INVALID_MESSAGE"
+    | "INVALID_PAYLOAD"
+    | "CONFLICT",
 ): void {
   expect(result.ok).toBe(false);
 
@@ -49,57 +54,57 @@ function createAuthenticatedRequest(principal: Principal) {
   return authenticateGatewayRequest(
     new Request("https://example.test/rooms", {
       method: "POST",
-      body: JSON.stringify({ playerId: "client-claimed-player" })
+      body: JSON.stringify({ playerId: "client-claimed-player" }),
     }),
     () => principal,
-    TOKEN_SECRET
+    TOKEN_SECRET,
   );
 }
 
 describe("認証・認可・入力検証・利用制限の共通基盤", () => {
   it("未認証要求を Gateway Worker の保護対象パスで拒否する", async () => {
     const response = await SELF.fetch("https://example.test/rooms", {
-      method: "POST"
+      method: "POST",
     });
 
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({
       code: "UNAUTHENTICATED",
-      message: "認証が必要です。"
+      message: "認証が必要です。",
     });
   });
 
   it("クライアント申告の playerId ではなく認証 Hook の主体を正規化する", async () => {
     const principal = {
       id: "principal-trusted",
-      playerId: "player-trusted"
+      playerId: "player-trusted",
     } as const;
     const authenticated = expectProtocolValue(
-      await createAuthenticatedRequest(principal)
+      await createAuthenticatedRequest(principal),
     );
 
     expect(authenticated.principal).toEqual(principal);
     expect(authenticated.principal.playerId).not.toBe("client-claimed-player");
 
     const room = env.FLARE_LOBBY_ROOMS.getByName(
-      `security-room-${crypto.randomUUID()}`
+      `security-room-${crypto.randomUUID()}`,
     );
     const matchPool = env.FLARE_LOBBY_MATCH_POOLS.getByName(
-      `security-pool-${crypto.randomUUID()}`
+      `security-pool-${crypto.randomUUID()}`,
     );
 
     await expect(
-      room.resolveGatewayPrincipal(authenticated.gatewayPrincipal)
+      room.resolveGatewayPrincipal(authenticated.gatewayPrincipal),
     ).resolves.toEqual(principal);
     await expect(
-      matchPool.resolveGatewayPrincipal(authenticated.gatewayPrincipal)
+      matchPool.resolveGatewayPrincipal(authenticated.gatewayPrincipal),
     ).resolves.toEqual(principal);
 
     const token = authenticated.gatewayPrincipal.token;
     const tampered = `${token.slice(0, -1)}${token.endsWith("A") ? "B" : "A"}`;
 
     await expect(
-      room.resolveGatewayPrincipal({ token: tampered })
+      room.resolveGatewayPrincipal({ token: tampered }),
     ).resolves.toBeNull();
   });
 
@@ -107,16 +112,16 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
     const authenticated = expectProtocolValue(
       await createAuthenticatedRequest({
         id: "principal-authorized",
-        playerId: "player-authorized"
-      })
+        playerId: "player-authorized",
+      }),
     );
 
     expectProtocolError(
       await authorizeGatewayOperation(authenticated, undefined, {
         operation: "join",
-        roomId: "room-1"
+        roomId: "room-1",
       }),
-      "FORBIDDEN"
+      "FORBIDDEN",
     );
 
     const allowed = await authorizeGatewayOperation(
@@ -124,12 +129,12 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
       {
         authorizeJoin: async (context) =>
           context.principal.id === "principal-authorized" &&
-          context.roomId === "room-1"
+          context.roomId === "room-1",
       },
       {
         operation: "join",
-        roomId: "room-1"
-      }
+        roomId: "room-1",
+      },
     );
 
     expectProtocolValue(allowed);
@@ -140,11 +145,11 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
       new Request("https://example.test/rooms", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: "練習部屋" })
+        body: JSON.stringify({ title: "練習部屋" }),
       }),
       256,
       (value): value is { title: string } =>
-        isRecord(value) && typeof value["title"] === "string"
+        isRecord(value) && typeof value["title"] === "string",
     );
 
     expectProtocolValue(body);
@@ -152,11 +157,11 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
     const malformedBody = await readValidatedJsonBody(
       new Request("https://example.test/rooms", {
         method: "POST",
-        body: "{invalid-json"
+        body: "{invalid-json",
       }),
       256,
       (value): value is { title: string } =>
-        isRecord(value) && typeof value["title"] === "string"
+        isRecord(value) && typeof value["title"] === "string",
     );
 
     expectProtocolError(malformedBody, "INVALID_MESSAGE");
@@ -164,11 +169,11 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
     const oversizedBody = await readValidatedJsonBody(
       new Request("https://example.test/rooms", {
         method: "POST",
-        body: JSON.stringify({ title: "x".repeat(256) })
+        body: JSON.stringify({ title: "x".repeat(256) }),
       }),
       32,
       (value): value is { title: string } =>
-        isRecord(value) && typeof value["title"] === "string"
+        isRecord(value) && typeof value["title"] === "string",
     );
 
     expectProtocolError(oversizedBody, "INVALID_MESSAGE");
@@ -176,7 +181,8 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
     const invalidQuery = validateQuery(
       new Request("https://example.test/rooms?limit=not-a-number"),
       (value): value is URLSearchParams =>
-        value instanceof URLSearchParams && /^\d+$/u.test(value.get("limit") ?? "")
+        value instanceof URLSearchParams &&
+        /^\d+$/u.test(value.get("limit") ?? ""),
     );
 
     expectProtocolError(invalidQuery, "INVALID_PAYLOAD");
@@ -186,7 +192,7 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
       kind: "command",
       requestId: "request-security-1",
       command: "room.set_ready",
-      payload: { ready: true }
+      payload: { ready: true },
     };
     const validWebSocketCommand = validateWebSocketCommand(
       JSON.stringify(command),
@@ -194,14 +200,14 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
       (value): value is ClientCommandEnvelope =>
         isRecord(value) &&
         isRecord(value["payload"]) &&
-        value["payload"]["ready"] === true
+        value["payload"]["ready"] === true,
     );
 
     expectProtocolValue(validWebSocketCommand);
 
     const oversizedWebSocketCommand = validateWebSocketCommand(
       "x".repeat(1_025),
-      1_024
+      1_024,
     );
 
     expectProtocolError(oversizedWebSocketCommand, "INVALID_MESSAGE");
@@ -214,16 +220,16 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
         principal,
         roomId: "room-token",
         expiresAt: 2_000,
-        now: 1_000
-      })
+        now: 1_000,
+      }),
     );
     const anotherToken = expectProtocolValue(
       await issueJoinToken(TOKEN_SECRET, {
         principal,
         roomId: "room-token",
         expiresAt: 2_000,
-        now: 1_000
-      })
+        now: 1_000,
+      }),
     );
 
     expect(anotherToken).not.toBe(token);
@@ -232,17 +238,17 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
       await verifyJoinToken(TOKEN_SECRET, token, {
         principal,
         roomId: "room-token",
-        now: 1_500
-      })
+        now: 1_500,
+      }),
     );
 
     expectProtocolError(
       await verifyResumeToken(TOKEN_SECRET, token, {
         principal,
         roomId: "room-token",
-        now: 1_500
+        now: 1_500,
       }),
-      "UNAUTHENTICATED"
+      "UNAUTHENTICATED",
     );
 
     const resumeToken = expectProtocolValue(
@@ -250,33 +256,33 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
         principal,
         roomId: "room-token",
         expiresAt: 2_000,
-        now: 1_000
-      })
+        now: 1_000,
+      }),
     );
 
     expectProtocolValue(
       await verifyResumeToken(TOKEN_SECRET, resumeToken, {
         principal,
         roomId: "room-token",
-        now: 1_500
-      })
+        now: 1_500,
+      }),
     );
 
     expectProtocolError(
       await verifyJoinToken(TOKEN_SECRET, token, {
         principal: { id: "different-principal", playerId: "different-player" },
         roomId: "room-token",
-        now: 1_500
+        now: 1_500,
       }),
-      "UNAUTHENTICATED"
+      "UNAUTHENTICATED",
     );
     expectProtocolError(
       await verifyJoinToken(TOKEN_SECRET, token, {
         principal,
         roomId: "room-token",
-        now: 2_000
+        now: 2_000,
       }),
-      "UNAUTHENTICATED"
+      "UNAUTHENTICATED",
     );
 
     const spectatorToken = expectProtocolValue(
@@ -286,8 +292,8 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
         role: "spectator",
         participantId: "participant-token",
         expiresAt: 2_000,
-        now: 1_000
-      })
+        now: 1_000,
+      }),
     );
 
     expectProtocolValue(
@@ -296,8 +302,8 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
         roomId: "room-token",
         role: "spectator",
         participantId: "participant-token",
-        now: 1_500
-      })
+        now: 1_500,
+      }),
     );
     expectProtocolError(
       await verifyJoinToken(TOKEN_SECRET, spectatorToken, {
@@ -305,9 +311,9 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
         roomId: "room-token",
         role: "player",
         participantId: "participant-token",
-        now: 1_500
+        now: 1_500,
       }),
-      "UNAUTHENTICATED"
+      "UNAUTHENTICATED",
     );
     expectProtocolError(
       await verifyJoinToken(TOKEN_SECRET, spectatorToken, {
@@ -315,9 +321,9 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
         roomId: "room-token",
         role: "spectator",
         participantId: "different-participant",
-        now: 1_500
+        now: 1_500,
       }),
-      "UNAUTHENTICATED"
+      "UNAUTHENTICATED",
     );
 
     const tampered = `${token.slice(0, -1)}${token.endsWith("A") ? "B" : "A"}`;
@@ -326,9 +332,9 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
       await verifyJoinToken(TOKEN_SECRET, tampered, {
         principal,
         roomId: "room-token",
-        now: 1_500
+        now: 1_500,
       }),
-      "UNAUTHENTICATED"
+      "UNAUTHENTICATED",
     );
   });
 
@@ -337,41 +343,41 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
       maxHttpRequestBytes: 1_024,
       maxWebSocketMessageBytes: 1_024,
       maxMessagesPerMinute: 2,
-      maxRoomCreationsPerMinute: 1
+      maxRoomCreationsPerMinute: 1,
     } as const;
     const firstPrincipal = expectProtocolValue(
       await createAuthenticatedRequest({
         id: `principal-rate-${crypto.randomUUID()}`,
-        playerId: "player-rate-1"
-      })
+        playerId: "player-rate-1",
+      }),
     );
     const secondPrincipal = expectProtocolValue(
       await createAuthenticatedRequest({
         id: `principal-rate-${crypto.randomUUID()}`,
-        playerId: "player-rate-2"
-      })
+        playerId: "player-rate-2",
+      }),
     );
 
     expectProtocolValue(
-      await consumeWebSocketMessageRateLimit(env, firstPrincipal, limits)
+      await consumeWebSocketMessageRateLimit(env, firstPrincipal, limits),
     );
     expectProtocolValue(
-      await consumeWebSocketMessageRateLimit(env, firstPrincipal, limits)
+      await consumeWebSocketMessageRateLimit(env, firstPrincipal, limits),
     );
     expectProtocolError(
       await consumeWebSocketMessageRateLimit(env, firstPrincipal, limits),
-      "CONFLICT"
+      "CONFLICT",
     );
     expectProtocolValue(
-      await consumeWebSocketMessageRateLimit(env, secondPrincipal, limits)
+      await consumeWebSocketMessageRateLimit(env, secondPrincipal, limits),
     );
 
     expectProtocolValue(
-      await consumeRoomCreationRateLimit(env, firstPrincipal, limits)
+      await consumeRoomCreationRateLimit(env, firstPrincipal, limits),
     );
     expectProtocolError(
       await consumeRoomCreationRateLimit(env, firstPrincipal, limits),
-      "CONFLICT"
+      "CONFLICT",
     );
   });
 });

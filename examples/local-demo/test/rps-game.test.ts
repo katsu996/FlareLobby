@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createRpsResultId,
   getRpsOutcome,
-  resolveRpsResult
+  resolveRpsResult,
 } from "../src/rps-game.js";
 
 describe("ローカルサンプルのじゃんけん判定", () => {

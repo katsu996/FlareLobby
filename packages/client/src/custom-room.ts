@@ -17,14 +17,14 @@ import type {
   RoomSnapshot,
   RoomStatus,
   ServerEventEnvelope,
-  Timestamp
+  Timestamp,
 } from "@flarelobby/core";
 
 import type {
   ClientCommandOptions,
   ClientRequestOptions,
   ClientWebSocketOptions,
-  FlareLobbyWebSocketConnection
+  FlareLobbyWebSocketConnection,
 } from "./client.js";
 
 const ROOM_SNAPSHOT_EVENT = "room.snapshot";
@@ -88,7 +88,7 @@ export type RoomMessageListener<
 
 /** 接続状態購読者です。 */
 export type RoomConnectionStatusListener = (
-  status: RoomConnectionStatus
+  status: RoomConnectionStatus,
 ) => void;
 
 /** Room の状態とイベントを購読する公開契約です。 */
@@ -99,11 +99,11 @@ export interface RoomSubscriptionApi<
   subscribe(listener: RoomSnapshotListener<TApp>): () => void;
   on<TEvent extends ProtocolEventType>(
     eventName: TEvent,
-    listener: RoomEventListener<TEvent>
+    listener: RoomEventListener<TEvent>,
   ): () => void;
   onMessage<TName extends GameMessageName<TApp>>(
     messageName: TName,
-    listener: RoomMessageListener<TApp, TName>
+    listener: RoomMessageListener<TApp, TName>,
   ): () => void;
   onStatusChange(listener: RoomConnectionStatusListener): () => void;
 }
@@ -227,15 +227,18 @@ export interface PlayerRoom<
   readonly role: "player" | "host";
   readonly closed: boolean;
   readonly snapshot: RoomSnapshot<TApp>;
-  setReady(ready: boolean, options?: RoomOperationOptions): Promise<RoomSnapshot<TApp>>;
+  setReady(
+    ready: boolean,
+    options?: RoomOperationOptions,
+  ): Promise<RoomSnapshot<TApp>>;
   selectTeam(
     teamId: string | null,
-    options?: RoomOperationOptions
+    options?: RoomOperationOptions,
   ): Promise<RoomSnapshot<TApp>>;
   send<TName extends GameMessageName<TApp>>(
     name: TName,
     payload: GameMessagePayload<TApp, TName>,
-    options?: RoomOperationOptions
+    options?: RoomOperationOptions,
   ): Promise<void>;
   leave(options?: RoomLeaveOptions): Promise<RoomSnapshot<TApp>>;
 }
@@ -247,19 +250,17 @@ export interface HostRoom<
   readonly role: "host";
   updateSettings(
     settings: AppRoomSettings<TApp>,
-    options?: RoomOperationOptions
+    options?: RoomOperationOptions,
   ): Promise<RoomSnapshot<TApp>>;
   transferHost(
     targetParticipantId: string,
-    options?: RoomOperationOptions
+    options?: RoomOperationOptions,
   ): Promise<RoomSnapshot<TApp>>;
   kick(
     target: string | RoomKickTarget,
-    options?: RoomOperationOptions
+    options?: RoomOperationOptions,
   ): Promise<RoomSnapshot<TApp>>;
-  startMatch(
-    options?: RoomStateOperationOptions
-  ): Promise<RoomSnapshot<TApp>>;
+  startMatch(options?: RoomStateOperationOptions): Promise<RoomSnapshot<TApp>>;
   close(options?: RoomStateOperationOptions): Promise<RoomSnapshot<TApp>>;
 }
 
@@ -293,16 +294,16 @@ export interface CustomRoomTransport<
 > {
   request<TResponse = JsonValue>(
     path: string | URL,
-    options?: ClientRequestOptions
+    options?: ClientRequestOptions,
   ): Promise<TResponse>;
   connect(
     path: string | URL,
-    options?: ClientWebSocketOptions
+    options?: ClientWebSocketOptions,
   ): Promise<FlareLobbyWebSocketConnection<TApp>>;
   connectWithToken(
     path: string | URL,
     options: ClientWebSocketOptions | undefined,
-    token: string
+    token: string,
   ): Promise<FlareLobbyWebSocketConnection<TApp>>;
   readonly reconnectOptions?: RoomReconnectOptions;
 }
@@ -311,13 +312,13 @@ export interface CustomRoomClientApi<
   TApp extends AnyFlareLobbyApp = FlareLobbyApp,
 > {
   createCustomRoom(
-    options?: CustomRoomCreationOptions<TApp>
+    options?: CustomRoomCreationOptions<TApp>,
   ): Promise<HostRoom<TApp>>;
   joinCustomRoom(
-    codeOrOptions: string | CustomRoomJoinOptions
+    codeOrOptions: string | CustomRoomJoinOptions,
   ): Promise<Room<TApp>>;
   listCustomRooms(
-    query?: CustomRoomListQuery
+    query?: CustomRoomListQuery,
   ): Promise<CustomRoomListPage<TApp>>;
 }
 
@@ -330,21 +331,21 @@ export function createCustomRoomApi<
       createCustomRoom<TApp>(transport, options),
     joinCustomRoom: (codeOrOptions) =>
       joinCustomRoom<TApp>(transport, codeOrOptions),
-    listCustomRooms: (query = {}) => listCustomRooms<TApp>(transport, query)
+    listCustomRooms: (query = {}) => listCustomRooms<TApp>(transport, query),
   };
 }
 
 async function createCustomRoom<TApp extends AnyFlareLobbyApp>(
   transport: CustomRoomTransport<TApp>,
-  options: CustomRoomCreationOptions<TApp>
+  options: CustomRoomCreationOptions<TApp>,
 ): Promise<HostRoom<TApp>> {
   const result = parseCreationResult<TApp>(
     await transport.request<unknown>("/v1/custom-rooms", {
       method: "POST",
       body: toJsonValue(createCreationBody(options)),
       idempotent: true,
-      ...requestOptions(options)
-    })
+      ...requestOptions(options),
+    }),
   );
 
   return createRoomHandle(
@@ -352,15 +353,13 @@ async function createCustomRoom<TApp extends AnyFlareLobbyApp>(
     result,
     "host",
     options.signal,
-    options.reconnect
-  ) as Promise<
-    HostRoom<TApp>
-  >;
+    options.reconnect,
+  ) as Promise<HostRoom<TApp>>;
 }
 
 async function joinCustomRoom<TApp extends AnyFlareLobbyApp>(
   transport: CustomRoomTransport<TApp>,
-  codeOrOptions: string | CustomRoomJoinOptions
+  codeOrOptions: string | CustomRoomJoinOptions,
 ): Promise<Room<TApp>> {
   const options: CustomRoomJoinOptions =
     typeof codeOrOptions === "string"
@@ -371,8 +370,8 @@ async function joinCustomRoom<TApp extends AnyFlareLobbyApp>(
       method: "POST",
       body: toJsonValue(createJoinBody(options)),
       idempotent: true,
-      ...requestOptions(options)
-    })
+      ...requestOptions(options),
+    }),
   );
 
   const role = result.role === "spectator" ? "spectator" : "player";
@@ -381,13 +380,13 @@ async function joinCustomRoom<TApp extends AnyFlareLobbyApp>(
     result,
     role,
     options.signal,
-    options.reconnect
+    options.reconnect,
   );
 }
 
 async function listCustomRooms<TApp extends AnyFlareLobbyApp>(
   transport: CustomRoomTransport<TApp>,
-  query: CustomRoomListQuery
+  query: CustomRoomListQuery,
 ): Promise<CustomRoomListPage<TApp>> {
   const url = new URL("/v1/custom-rooms", "https://flarelobby.invalid/");
   appendQueryValue(url.searchParams, "gameId", query.gameId);
@@ -402,14 +401,14 @@ async function listCustomRooms<TApp extends AnyFlareLobbyApp>(
 
   const result = await transport.request<unknown>(
     `${url.pathname}${url.search}`,
-    requestSignalOptions(query.signal)
+    requestSignalOptions(query.signal),
   );
 
   return parseListPage<TApp>(result);
 }
 
 function createCreationBody<TApp extends AnyFlareLobbyApp>(
-  options: CustomRoomCreationOptions<TApp>
+  options: CustomRoomCreationOptions<TApp>,
 ): JsonObject {
   return compactJsonObject({
     requestId: options.requestId,
@@ -422,7 +421,7 @@ function createCreationBody<TApp extends AnyFlareLobbyApp>(
     maxPlayers: options.maxPlayers,
     maxSpectators: options.maxSpectators,
     password: options.password,
-    settings: options.settings as unknown as JsonValue
+    settings: options.settings as unknown as JsonValue,
   });
 }
 
@@ -433,7 +432,7 @@ function createJoinBody(options: CustomRoomJoinOptions): JsonObject {
     options.invitationCode !== options.code
   ) {
     throw new FlareLobbyError("CONFLICT", {
-      message: "invitationCode と code が一致しません。"
+      message: "invitationCode と code が一致しません。",
     });
   }
 
@@ -443,27 +442,31 @@ function createJoinBody(options: CustomRoomJoinOptions): JsonObject {
     invitationCode: options.invitationCode ?? options.code,
     role: options.role,
     participantType: options.participantType,
-    password: options.password
+    password: options.password,
   });
 }
 
 function requestOptions(
-  options: Pick<CustomRoomCreationOptions, "requestId" | "signal">
+  options: Pick<CustomRoomCreationOptions, "requestId" | "signal">,
 ): ClientRequestOptions {
   return {
     ...requestSignalOptions(options.signal),
-    ...(options.requestId === undefined ? {} : { requestId: options.requestId })
+    ...(options.requestId === undefined
+      ? {}
+      : { requestId: options.requestId }),
   };
 }
 
-function requestSignalOptions(signal: AbortSignal | undefined): ClientRequestOptions {
+function requestSignalOptions(
+  signal: AbortSignal | undefined,
+): ClientRequestOptions {
   return signal === undefined ? {} : { signal };
 }
 
 function appendQueryValue(
   params: URLSearchParams,
   name: string,
-  value: string | number | boolean | readonly string[] | undefined
+  value: string | number | boolean | readonly string[] | undefined,
 ): void {
   if (value === undefined) {
     return;
@@ -484,15 +487,15 @@ export async function createRoomHandle<TApp extends AnyFlareLobbyApp>(
   result: RoomConnectionResult<TApp>,
   initialRole: "host" | CustomRoomParticipantRole,
   signal: AbortSignal | undefined,
-  reconnectOptions: RoomReconnectOptions | undefined
+  reconnectOptions: RoomReconnectOptions | undefined,
 ): Promise<Room<TApp>> {
   const connection = await transport.connectWithToken(
     result.websocketUrl,
     {
       knownEventTypes: [ROOM_SNAPSHOT_EVENT, GAME_MESSAGE_EVENT],
-      ...(signal === undefined ? {} : { signal })
+      ...(signal === undefined ? {} : { signal }),
     },
-    result.joinToken
+    result.joinToken,
   );
   const room = new RoomImpl(
     transport,
@@ -503,7 +506,7 @@ export async function createRoomHandle<TApp extends AnyFlareLobbyApp>(
     result.joinToken,
     result.websocketUrl,
     result.snapshot,
-    reconnectOptions ?? transport.reconnectOptions
+    reconnectOptions ?? transport.reconnectOptions,
   );
 
   return room as unknown as Room<TApp>;
@@ -527,7 +530,7 @@ interface RoomCreationConnectionResult<
 }
 
 function parseCreationResult<TApp extends AnyFlareLobbyApp>(
-  value: unknown
+  value: unknown,
 ): RoomCreationConnectionResult<TApp> {
   if (
     !isRecord(value) ||
@@ -548,7 +551,7 @@ function parseCreationResult<TApp extends AnyFlareLobbyApp>(
 }
 
 function parseJoinResult<TApp extends AnyFlareLobbyApp>(
-  value: unknown
+  value: unknown,
 ): RoomConnectionResult<TApp> {
   if (
     !isRecord(value) ||
@@ -566,7 +569,7 @@ function parseJoinResult<TApp extends AnyFlareLobbyApp>(
 }
 
 function parseListPage<TApp extends AnyFlareLobbyApp>(
-  value: unknown
+  value: unknown,
 ): CustomRoomListPage<TApp> {
   if (!isRecord(value)) {
     throw new FlareLobbyError("CONNECTION_FAILED");
@@ -585,7 +588,7 @@ function parseListPage<TApp extends AnyFlareLobbyApp>(
 
   return deepFreeze({
     rooms: rawRooms as unknown as readonly CustomRoomSummary<TApp>[],
-    nextCursor: rawCursor as string | null
+    nextCursor: rawCursor as string | null,
   });
 }
 
@@ -601,9 +604,9 @@ interface ParsedRoomSnapshotEvent<TApp extends AnyFlareLobbyApp> {
   readonly resumeToken?: string;
 }
 
-class RoomImpl<TApp extends AnyFlareLobbyApp>
-  implements RoomSubscriptionApi<TApp>
-{
+class RoomImpl<
+  TApp extends AnyFlareLobbyApp,
+> implements RoomSubscriptionApi<TApp> {
   private snapshotState: RoomSnapshot<TApp>;
   private statusState: RoomConnectionStatus = "connecting";
   private closedState = false;
@@ -619,13 +622,8 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
     | FlareLobbyWebSocketConnection<TApp>
     | undefined;
   private readonly reconnectOptions: NormalizedRoomReconnectOptions;
-  private readonly snapshotListeners = new Set<
-    RoomSnapshotListener<TApp>
-  >();
-  private readonly eventListeners = new Map<
-    string,
-    Set<RoomEventListener>
-  >();
+  private readonly snapshotListeners = new Set<RoomSnapshotListener<TApp>>();
+  private readonly eventListeners = new Map<string, Set<RoomEventListener>>();
   private readonly messageListeners = new Map<
     string,
     Set<RoomMessageListener<TApp>>
@@ -641,7 +639,7 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
     private readonly joinToken: string,
     private readonly websocketUrl: string,
     snapshot: RoomSnapshot<TApp>,
-    reconnectOptions: RoomReconnectOptions | undefined
+    reconnectOptions: RoomReconnectOptions | undefined,
   ) {
     this.participantRoleState = participantRole;
     this.snapshotState = freezeSnapshot(snapshot);
@@ -689,7 +687,7 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
 
   public on<TEvent extends ProtocolEventType>(
     eventName: TEvent,
-    listener: RoomEventListener<TEvent>
+    listener: RoomEventListener<TEvent>,
   ): () => void {
     this.assertSubscriptionOpen();
     if (!isNonEmptyString(eventName)) {
@@ -710,7 +708,7 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
 
   public onMessage<TName extends GameMessageName<TApp>>(
     messageName: TName,
-    listener: RoomMessageListener<TApp, TName>
+    listener: RoomMessageListener<TApp, TName>,
   ): () => void {
     this.assertSubscriptionOpen();
     if (!isNonEmptyString(messageName)) {
@@ -739,7 +737,7 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
 
   public async setReady(
     ready: boolean,
-    options: RoomOperationOptions = {}
+    options: RoomOperationOptions = {},
   ): Promise<RoomSnapshot<TApp>> {
     this.assertPlayer();
     return this.sendSnapshot("room.set_ready", { ready }, options);
@@ -747,7 +745,7 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
 
   public async selectTeam(
     teamId: string | null,
-    options: RoomOperationOptions = {}
+    options: RoomOperationOptions = {},
   ): Promise<RoomSnapshot<TApp>> {
     this.assertPlayer();
     return this.sendSnapshot("room.select_team", { teamId }, options);
@@ -755,31 +753,31 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
 
   public async updateSettings(
     settings: AppRoomSettings<TApp>,
-    options: RoomOperationOptions = {}
+    options: RoomOperationOptions = {},
   ): Promise<RoomSnapshot<TApp>> {
     this.assertHost();
     return this.sendSnapshot(
       "room.update_settings",
       { settings: settings as unknown as JsonValue },
-      options
+      options,
     );
   }
 
   public async transferHost(
     targetParticipantId: string,
-    options: RoomOperationOptions = {}
+    options: RoomOperationOptions = {},
   ): Promise<RoomSnapshot<TApp>> {
     this.assertHost();
     return this.sendSnapshot(
       "room.transfer_host",
       { targetParticipantId },
-      options
+      options,
     );
   }
 
   public async kick(
     target: string | RoomKickTarget,
-    options: RoomOperationOptions = {}
+    options: RoomOperationOptions = {},
   ): Promise<RoomSnapshot<TApp>> {
     this.assertHost();
     const payload =
@@ -788,37 +786,33 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
         : compactJsonObject({
             targetParticipantId: target.participantId,
             targetPlayerId: target.playerId,
-            reason: target.reason
+            reason: target.reason,
           });
     return this.sendSnapshot("room.kick", payload, options);
   }
 
   public async startMatch(
-    options: RoomStateOperationOptions = {}
+    options: RoomStateOperationOptions = {},
   ): Promise<RoomSnapshot<TApp>> {
     this.assertHost();
     return this.sendSnapshot(
       "room.start_match",
       compactJsonObject({ at: options.at }),
-      options
+      options,
     );
   }
 
   public async send<TName extends GameMessageName<TApp>>(
     name: TName,
     payload: GameMessagePayload<TApp, TName>,
-    options: RoomOperationOptions = {}
+    options: RoomOperationOptions = {},
   ): Promise<void> {
     this.assertPlayer();
-    await this.sendCommand(
-      name,
-      payload as unknown as JsonValue,
-      options
-    );
+    await this.sendCommand(name, payload as unknown as JsonValue, options);
   }
 
   public async leave(
-    options: RoomLeaveOptions = {}
+    options: RoomLeaveOptions = {},
   ): Promise<RoomSnapshot<TApp>> {
     this.assertOpen();
     const result = await this.transport.request<unknown>(
@@ -830,11 +824,11 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
           roomId: this.id,
           joinToken: this.joinToken,
           participantId: this.participantId,
-          role: this.participantRoleState
+          role: this.participantRoleState,
         }),
         idempotent: true,
-        ...requestOptions(options)
-      }
+        ...requestOptions(options),
+      },
     );
 
     if (!isRecord(result) || !isRoomSnapshot<TApp>(result["snapshot"])) {
@@ -847,13 +841,13 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
   }
 
   public async close(
-    options: RoomStateOperationOptions = {}
+    options: RoomStateOperationOptions = {},
   ): Promise<RoomSnapshot<TApp>> {
     this.assertHost();
     const snapshot = await this.sendSnapshot(
       "room.close",
       compactJsonObject({ at: options.at }),
-      options
+      options,
     );
     this.markClosed();
     return snapshot;
@@ -892,7 +886,7 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
   private async sendSnapshot(
     command: string,
     payload: JsonObject,
-    options: RoomOperationOptions
+    options: RoomOperationOptions,
   ): Promise<RoomSnapshot<TApp>> {
     const result = await this.sendCommand(command, payload, options);
     if (!isRoomSnapshot<TApp>(result)) {
@@ -905,13 +899,15 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
   private async sendCommand(
     command: string,
     payload: JsonValue,
-    options: RoomOperationOptions
+    options: RoomOperationOptions,
   ): Promise<JsonValue> {
     this.assertOpen();
     return this.connection.send<JsonValue>(command, payload, options);
   }
 
-  private attachConnection(connection: FlareLobbyWebSocketConnection<TApp>): void {
+  private attachConnection(
+    connection: FlareLobbyWebSocketConnection<TApp>,
+  ): void {
     this.unsubscribeConnectionEvents();
     this.unsubscribeConnectionClose();
     this.connection = connection;
@@ -930,7 +926,7 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
 
   private handleConnectionClosed(
     connection: FlareLobbyWebSocketConnection<TApp>,
-    error: FlareLobbyError
+    error: FlareLobbyError,
   ): void {
     if (this.closedState || connection !== this.connection) {
       return;
@@ -965,8 +961,8 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
       return;
     }
 
-      if (this.reconnectAttempt >= this.reconnectOptions.maxAttempts) {
-        this.markDisconnected();
+    if (this.reconnectAttempt >= this.reconnectOptions.maxAttempts) {
+      this.markDisconnected();
       return;
     }
 
@@ -994,9 +990,9 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
         this.websocketUrl,
         {
           knownEventTypes: [ROOM_SNAPSHOT_EVENT, GAME_MESSAGE_EVENT],
-          ...(lastRevision === undefined ? {} : { lastRevision })
+          ...(lastRevision === undefined ? {} : { lastRevision }),
         },
-        token
+        token,
       );
 
       if (this.closedState) {
@@ -1005,7 +1001,11 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
       }
 
       this.attachConnection(connection);
-      if (this.closedState || this.connection !== connection || connection.closed) {
+      if (
+        this.closedState ||
+        this.connection !== connection ||
+        connection.closed
+      ) {
         return;
       }
 
@@ -1031,7 +1031,7 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
   private reconnectDelay(attempt: number): number {
     const exponential = Math.min(
       this.reconnectOptions.maxDelayMs,
-      this.reconnectOptions.baseDelayMs * 2 ** attempt
+      this.reconnectOptions.baseDelayMs * 2 ** attempt,
     );
     const jitter =
       this.reconnectOptions.jitterRatio === 0
@@ -1054,7 +1054,7 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
 
       const revisionStatus = classifyEventRevision(
         this.snapshotState.revision,
-        event.revision
+        event.revision,
       );
       if (revisionStatus === "gap" || revisionStatus === "out_of_order") {
         this.requestResync();
@@ -1192,22 +1192,22 @@ class RoomImpl<TApp extends AnyFlareLobbyApp>
 }
 
 function normalizeReconnectOptions(
-  options: RoomReconnectOptions | undefined
+  options: RoomReconnectOptions | undefined,
 ): NormalizedRoomReconnectOptions {
   const maxAttempts = normalizeReconnectInteger(
     options?.maxAttempts,
     DEFAULT_RECONNECT_MAX_ATTEMPTS,
-    0
+    0,
   );
   const baseDelayMs = normalizeReconnectInteger(
     options?.baseDelayMs,
     DEFAULT_RECONNECT_BASE_DELAY_MS,
-    0
+    0,
   );
   const maxDelayMs = normalizeReconnectInteger(
     options?.maxDelayMs,
     Math.max(DEFAULT_RECONNECT_MAX_DELAY_MS, baseDelayMs),
-    baseDelayMs
+    baseDelayMs,
   );
   const jitterRatio = options?.jitterRatio ?? DEFAULT_RECONNECT_JITTER_RATIO;
 
@@ -1218,7 +1218,7 @@ function normalizeReconnectOptions(
     jitterRatio > 1
   ) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "jitterRatio は 0 から 1 の範囲で指定してください。"
+      message: "jitterRatio は 0 から 1 の範囲で指定してください。",
     });
   }
 
@@ -1226,14 +1226,14 @@ function normalizeReconnectOptions(
     maxAttempts,
     baseDelayMs,
     maxDelayMs,
-    jitterRatio
+    jitterRatio,
   };
 }
 
 function normalizeReconnectInteger(
   value: number | undefined,
   fallback: number,
-  minimum: number
+  minimum: number,
 ): number {
   const normalized = value ?? fallback;
   if (
@@ -1242,7 +1242,7 @@ function normalizeReconnectInteger(
     normalized > 2 ** 31 - 1
   ) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "再接続設定は安全な範囲の整数で指定してください。"
+      message: "再接続設定は安全な範囲の整数で指定してください。",
     });
   }
   return normalized;
@@ -1259,7 +1259,7 @@ function normalizeReconnectError(error: unknown): FlareLobbyError {
 }
 
 function parseRoomSnapshotEvent<TApp extends AnyFlareLobbyApp>(
-  value: unknown
+  value: unknown,
 ): ParsedRoomSnapshotEvent<TApp> | null {
   if (!isRoomSnapshot<TApp>(value)) {
     return null;
@@ -1272,12 +1272,12 @@ function parseRoomSnapshotEvent<TApp extends AnyFlareLobbyApp>(
 
   return {
     snapshot: value,
-    ...(resumeToken === undefined ? {} : { resumeToken })
+    ...(resumeToken === undefined ? {} : { resumeToken }),
   };
 }
 
 function parseRoomGameMessage<TApp extends AnyFlareLobbyApp>(
-  event: ServerEventEnvelope
+  event: ServerEventEnvelope,
 ): RoomGameMessage<TApp> | null {
   if (!isRecord(event.payload)) {
     return null;
@@ -1295,7 +1295,7 @@ function parseRoomGameMessage<TApp extends AnyFlareLobbyApp>(
     isCustomRoomParticipantRole(senderValue["role"])
       ? {
           participantId: senderValue["participantId"],
-          role: senderValue["role"]
+          role: senderValue["role"],
         }
       : undefined;
 
@@ -1303,12 +1303,12 @@ function parseRoomGameMessage<TApp extends AnyFlareLobbyApp>(
     name,
     payload: event.payload["payload"] as RoomGameMessage<TApp>["payload"],
     revision: event.revision,
-    ...(sender === undefined ? {} : { sender })
+    ...(sender === undefined ? {} : { sender }),
   }) as RoomGameMessage<TApp>;
 }
 
 function compactJsonObject(
-  values: Readonly<Record<string, JsonValue | undefined>>
+  values: Readonly<Record<string, JsonValue | undefined>>,
 ): JsonObject {
   const result: Record<string, JsonValue> = {};
   for (const [key, value] of Object.entries(values)) {
@@ -1331,20 +1331,18 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
-function isCustomRoomJoinMethod(
-  value: unknown
-): value is CustomRoomJoinMethod {
+function isCustomRoomJoinMethod(value: unknown): value is CustomRoomJoinMethod {
   return value === "public" || value === "invitation" || value === "password";
 }
 
 function isCustomRoomParticipantRole(
-  value: unknown
+  value: unknown,
 ): value is CustomRoomParticipantRole {
   return value === "player" || value === "spectator";
 }
 
 function isRoomSnapshot<TApp extends AnyFlareLobbyApp = FlareLobbyApp>(
-  value: unknown
+  value: unknown,
 ): value is RoomSnapshot<TApp> {
   if (!isRecord(value)) {
     return false;
@@ -1367,22 +1365,27 @@ function isRoomSnapshot<TApp extends AnyFlareLobbyApp = FlareLobbyApp>(
 
 function isHostSnapshot<TApp extends AnyFlareLobbyApp>(
   snapshot: RoomSnapshot<TApp>,
-  participantId: string
+  participantId: string,
 ): boolean {
   if (snapshot.room.kind !== "custom") {
     return false;
   }
 
-  return (snapshot as CustomRoomSnapshot<TApp>).host.participantId === participantId;
+  return (
+    (snapshot as CustomRoomSnapshot<TApp>).host.participantId === participantId
+  );
 }
 
 function freezeSnapshot<TApp extends AnyFlareLobbyApp>(
-  snapshot: RoomSnapshot<TApp>
+  snapshot: RoomSnapshot<TApp>,
 ): RoomSnapshot<TApp> {
   return deepFreeze(snapshot);
 }
 
-function deepFreeze<TValue>(value: TValue, seen = new WeakSet<object>()): TValue {
+function deepFreeze<TValue>(
+  value: TValue,
+  seen = new WeakSet<object>(),
+): TValue {
   if (typeof value !== "object" || value === null) {
     return value;
   }

@@ -12,7 +12,7 @@ const testLobby = defineFlareLobby({
     maxPlayers: 4,
     maxSpectators: 4,
     defaultSettings: { mode: "casual", region: "asia" },
-    finishedRoomRetentionMs: 60_000
+    finishedRoomRetentionMs: 60_000,
   },
   matchmakingPools: [],
   authenticate: (request) => {
@@ -22,35 +22,32 @@ const testLobby = defineFlareLobby({
   },
   authorization: {
     authorizeJoin: () => true,
-    authorizeSpectate: () => true
+    authorizeSpectate: () => true,
   },
   inputLimits: {
     maxHttpRequestBytes: 16 * 1024,
     maxWebSocketMessageBytes: 8 * 1024,
     maxMessagesPerMinute: 60,
-    maxRoomCreationsPerMinute: 20
-  }
+    maxRoomCreationsPerMinute: 20,
+  },
 });
 
 const testWorker = testLobby.createGatewayWorker<Env>();
 
-function createRequest(
-  body: unknown,
-  principalId: string
-): Request {
+function createRequest(body: unknown, principalId: string): Request {
   return new Request("https://example.test/v1/custom-rooms", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-test-principal": principalId
+      "x-test-principal": principalId,
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
   });
 }
 
 async function createRoom(
   body: unknown,
-  principalId = `principal-${crypto.randomUUID()}`
+  principalId = `principal-${crypto.randomUUID()}`,
 ): Promise<{
   readonly roomId: string;
   readonly participantId: string;
@@ -60,7 +57,7 @@ async function createRoom(
       typeof testWorker.fetch
     >[0],
     env,
-    {} as ExecutionContext
+    {} as ExecutionContext,
   );
   expect(response.status).toBe(201);
   return response.json();
@@ -68,19 +65,19 @@ async function createRoom(
 
 async function joinRoom(
   roomId: string,
-  principalId: string
+  principalId: string,
 ): Promise<Response> {
   return testWorker.fetch(
     new Request("https://example.test/v1/custom-rooms/join", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-test-principal": principalId
+        "x-test-principal": principalId,
       },
-      body: JSON.stringify({ roomId, requestId: crypto.randomUUID() })
+      body: JSON.stringify({ roomId, requestId: crypto.randomUUID() }),
     }) as unknown as Parameters<typeof testWorker.fetch>[0],
     env,
-    {} as ExecutionContext
+    {} as ExecutionContext,
   );
 }
 
@@ -89,21 +86,23 @@ async function listRooms(query = ""): Promise<{
   readonly nextCursor: string | null;
 }> {
   const response = await testWorker.fetch(
-    new Request(`https://example.test/v1/custom-rooms${query}`) as unknown as Parameters<
-      typeof testWorker.fetch
-    >[0],
+    new Request(
+      `https://example.test/v1/custom-rooms${query}`,
+    ) as unknown as Parameters<typeof testWorker.fetch>[0],
     env,
-    {} as ExecutionContext
+    {} as ExecutionContext,
   );
 
   expect(response.status).toBe(200);
   return response.json();
 }
 
-async function gatewayPrincipal(principalId: string): Promise<{ readonly token: string }> {
+async function gatewayPrincipal(
+  principalId: string,
+): Promise<{ readonly token: string }> {
   const result = await createGatewayPrincipalEnvelope(
     env.FLARE_LOBBY_TOKEN_SECRET,
-    { id: principalId, playerId: `${principalId}-player` }
+    { id: principalId, playerId: `${principalId}-player` },
   );
 
   if (!result.ok) {
@@ -122,18 +121,18 @@ describe("公開カスタムルーム一覧", () => {
         name: "公開一覧",
         visibility: "public",
         maxPlayers: 2,
-        settings: { mode: "ranked", region: "jp" }
+        settings: { mode: "ranked", region: "jp" },
       },
-      publicOwnerId
+      publicOwnerId,
     );
     await createRoom(
       {
         requestId: crypto.randomUUID(),
         name: "非表示",
         visibility: "unlisted",
-        settings: { mode: "ranked", region: "jp" }
+        settings: { mode: "ranked", region: "jp" },
       },
-      `owner-unlisted-${crypto.randomUUID()}`
+      `owner-unlisted-${crypto.randomUUID()}`,
     );
     await createRoom(
       {
@@ -142,9 +141,9 @@ describe("公開カスタムルーム一覧", () => {
         visibility: "public",
         joinMethod: "password",
         password: "secret-password",
-        settings: { mode: "ranked", region: "jp" }
+        settings: { mode: "ranked", region: "jp" },
       },
-      `owner-password-${crypto.randomUUID()}`
+      `owner-password-${crypto.randomUUID()}`,
     );
 
     const page = await listRooms("?mode=ranked&region=jp");
@@ -153,11 +152,11 @@ describe("公開カスタムルーム一覧", () => {
     expect(listedIds).toContain(publicRoom.roomId);
     expect(page.rooms).toHaveLength(2);
     expect(page.rooms.every((room) => room["visibility"] === "public")).toBe(
-      true
+      true,
     );
 
     const publicSummary = page.rooms.find(
-      (room) => room["roomId"] === publicRoom.roomId
+      (room) => room["roomId"] === publicRoom.roomId,
     );
     expect(publicSummary).toMatchObject({
       id: publicRoom.roomId,
@@ -168,15 +167,15 @@ describe("公開カスタムルーム一覧", () => {
       state: "waiting",
       playerCount: 1,
       maxPlayers: 2,
-      availableSlots: 1
+      availableSlots: 1,
     });
 
     const passwordSummary = page.rooms.find(
-      (room) => room["name"] === "パスワード公開"
+      (room) => room["name"] === "パスワード公開",
     );
     expect(passwordSummary).toMatchObject({
       joinMethod: "password",
-      requiresPassword: true
+      requiresPassword: true,
     });
     expect(JSON.stringify(page)).not.toContain("secret-password");
     expect(JSON.stringify(page)).not.toContain("joinToken");
@@ -189,13 +188,13 @@ describe("公開カスタムルーム一覧", () => {
       gatewayPrincipal: ownerPrincipal,
       participantId: publicRoom.participantId,
       settings: { mode: "updated", region: "us" },
-      requestId: crypto.randomUUID()
+      requestId: crypto.randomUUID(),
     });
     const updated = await listRooms("?mode=updated&region=us");
     expect(updated.rooms[0]).toMatchObject({
       roomId: publicRoom.roomId,
       mode: "updated",
-      region: "us"
+      region: "us",
     });
   });
 
@@ -205,44 +204,44 @@ describe("公開カスタムルーム一覧", () => {
         requestId: crypto.randomUUID(),
         name,
         maxPlayers: 2,
-        settings: { mode: "page-test", region: "us" }
+        settings: { mode: "page-test", region: "us" },
       });
     }
     await createRoom({
       requestId: crypto.randomUUID(),
       name: "別モード",
       maxPlayers: 2,
-      settings: { mode: "other", region: "us" }
+      settings: { mode: "other", region: "us" },
     });
 
     const first = await listRooms(
-      "?mode=page-test&region=us&status=waiting&status=in_progress&available=true&availableSlots=1&limit=2"
+      "?mode=page-test&region=us&status=waiting&status=in_progress&available=true&availableSlots=1&limit=2",
     );
     expect(first.rooms).toHaveLength(2);
     expect(first.nextCursor).not.toBeNull();
 
     const second = await listRooms(
-      `?mode=page-test&region=us&status=in_progress&status=waiting&available=true&availableSlots=1&limit=2&cursor=${encodeURIComponent(first.nextCursor!)}`
+      `?mode=page-test&region=us&status=in_progress&status=waiting&available=true&availableSlots=1&limit=2&cursor=${encodeURIComponent(first.nextCursor!)}`,
     );
     expect(second.rooms).toHaveLength(1);
     expect(second.nextCursor).toBeNull();
     expect(
       new Set([
         ...first.rooms.map((room) => room["roomId"]),
-        ...second.rooms.map((room) => room["roomId"])
-      ]).size
+        ...second.rooms.map((room) => room["roomId"]),
+      ]).size,
     ).toBe(3);
 
     const wrongFilter = await testWorker.fetch(
       new Request(
-        `https://example.test/v1/custom-rooms?mode=other&limit=2&cursor=${encodeURIComponent(first.nextCursor!)}`
+        `https://example.test/v1/custom-rooms?mode=other&limit=2&cursor=${encodeURIComponent(first.nextCursor!)}`,
       ) as unknown as Parameters<typeof testWorker.fetch>[0],
       env,
-      {} as ExecutionContext
+      {} as ExecutionContext,
     );
     expect(wrongFilter.status).toBe(400);
     await expect(wrongFilter.json()).resolves.toMatchObject({
-      code: "INVALID_PAYLOAD"
+      code: "INVALID_PAYLOAD",
     });
   });
 
@@ -254,9 +253,9 @@ describe("公開カスタムルーム一覧", () => {
       {
         requestId: crypto.randomUUID(),
         maxPlayers: 2,
-        settings: { mode: "stale", region: "jp" }
+        settings: { mode: "stale", region: "jp" },
       },
-      ownerId
+      ownerId,
     );
     const stale = await listRooms("?mode=stale&region=jp");
     expect(stale.rooms[0]?.["availableSlots"]).toBe(1);
@@ -272,7 +271,7 @@ describe("公開カスタムルーム一覧", () => {
     const current = await listRooms("?mode=stale&region=jp");
     expect(current.rooms[0]).toMatchObject({
       playerCount: 2,
-      availableSlots: 0
+      availableSlots: 0,
     });
 
     const principal = await gatewayPrincipal(ownerId);
@@ -282,19 +281,19 @@ describe("公開カスタムルーム一覧", () => {
       gatewayPrincipal: principal,
       participantId: created.participantId,
       ready: true,
-      requestId: crypto.randomUUID()
+      requestId: crypto.randomUUID(),
     });
     await room.setReady({
       gatewayPrincipal: secondPrincipal,
       participantId: secondJoin.participantId,
       ready: true,
-      requestId: crypto.randomUUID()
+      requestId: crypto.randomUUID(),
     });
     await room.startMatch({
       gatewayPrincipal: principal,
       participantId: created.participantId,
       requestId: crypto.randomUUID(),
-      at: "2026-08-11T00:02:00.000Z"
+      at: "2026-08-11T00:02:00.000Z",
     });
 
     const started = await listRooms("?mode=stale&region=jp&state=in_progress");
@@ -304,7 +303,7 @@ describe("公開カスタムルーム一覧", () => {
       gatewayPrincipal: principal,
       participantId: created.participantId,
       requestId: crypto.randomUUID(),
-      at: "2026-08-11T00:03:00.000Z"
+      at: "2026-08-11T00:03:00.000Z",
     });
     const closed = await listRooms("?mode=stale&region=jp&state=finished");
     expect(closed.rooms[0]?.["state"]).toBe("finished");
@@ -320,11 +319,11 @@ describe("公開カスタムルーム一覧", () => {
         invitationCode: "4F9K2D",
         visibility: "public",
         settings: { mode: "retry", region: "jp" },
-        metadata: { name: "再試行" }
+        metadata: { name: "再試行" },
       },
       host: {
         participantId: "participant-retry",
-        playerId: "player-retry"
+        playerId: "player-retry",
       },
       participants: [
         {
@@ -332,10 +331,10 @@ describe("公開カスタムルーム一覧", () => {
           id: "participant-retry",
           player: { id: "player-retry" },
           teamId: null,
-          ready: false
-        }
+          ready: false,
+        },
       ],
-      maxPlayers: 2
+      maxPlayers: 2,
     });
 
     const dueAt = Date.now() - 1;
@@ -346,7 +345,7 @@ describe("公開カスタムルーム一覧", () => {
          VALUES (?, ?, 'custom_room_index_upsert', ?)`,
         "retry-index-operation",
         dueAt,
-        JSON.stringify({ roomId })
+        JSON.stringify({ roomId }),
       );
     });
 
@@ -356,14 +355,14 @@ describe("公開カスタムルーム一覧", () => {
 
     const operations = await runInDurableObject(
       room,
-      (instance: RoomDurableObject) => instance.listScheduledOperations()
+      (instance: RoomDurableObject) => instance.listScheduledOperations(),
     );
     const pending = operations.find(
-      (operation) => operation.id === "retry-index-operation"
+      (operation) => operation.id === "retry-index-operation",
     );
     expect(pending).toMatchObject({
       id: "retry-index-operation",
-      kind: "custom_room_index_upsert"
+      kind: "custom_room_index_upsert",
     });
     expect(pending?.dueAt).toBeGreaterThan(dueAt);
   });

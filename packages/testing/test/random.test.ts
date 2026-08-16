@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   SEEDED_RANDOM_ALGORITHM,
   SeededRandom,
-  createSeededRandom
+  createSeededRandom,
 } from "../src/index.js";
 
 describe("SeededRandom", () => {
@@ -12,11 +12,11 @@ describe("SeededRandom", () => {
 
     expect(fromFactory.algorithm).toBe(SEEDED_RANDOM_ALGORITHM);
     expect(fromFactory.seed).toBe("deterministic-seed");
-    expect([fromConstructor.next(), fromConstructor.next(), fromConstructor.next()]).toEqual([
-      fromFactory.next(),
-      fromFactory.next(),
-      fromFactory.next()
-    ]);
+    expect([
+      fromConstructor.next(),
+      fromConstructor.next(),
+      fromConstructor.next(),
+    ]).toEqual([fromFactory.next(), fromFactory.next(), fromFactory.next()]);
   });
 
   it("retries the rejected nextInt sample and returns a value in range", () => {

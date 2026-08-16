@@ -22,15 +22,15 @@ pnpm --filter @flarelobby/example-local-demo dev
 
 ## APIと責務
 
-| 画面の処理 | 利用するAPI | 正本と責務 |
-| --- | --- | --- |
-| 招待ルーム作成 | `client.createCustomRoom()` | Room Durable Object が参加者、準備、ホスト、状態、接続を管理 |
-| 招待コード参加 | `client.joinCustomRoom(code)` | Gateway がコードを解決し、Room Durable Object が参加可否を最終判定 |
-| 準備・開始・退出 | `room.setReady()`、`room.startMatch()`、`room.leave()` | Room Durable Object の状態遷移と権限検証 |
-| カスタム対戦の手 | `room.send("rps.move", ...)` | Room WebSocket のゲームメッセージ。サンプルのカスタム対戦用 |
-| ランクキュー参加 | `client.joinMatchmaking()`、`ticket.waitForMatch()` | Match Pool Durable Object がチケット、候補、対戦Roomを管理 |
-| ランク対戦の手 | `POST /v1/demo/rps/matches/:matchId/move` | Worker が認証済み参加者、成立済みMatch、手の変更不可を検証しD1へ保存 |
-| ELO表示 | `client.getRating("ranked-jp")` | D1 のレーティング正本から現在値を取得 |
+| 画面の処理       | 利用するAPI                                            | 正本と責務                                                           |
+| ---------------- | ------------------------------------------------------ | -------------------------------------------------------------------- |
+| 招待ルーム作成   | `client.createCustomRoom()`                            | Room Durable Object が参加者、準備、ホスト、状態、接続を管理         |
+| 招待コード参加   | `client.joinCustomRoom(code)`                          | Gateway がコードを解決し、Room Durable Object が参加可否を最終判定   |
+| 準備・開始・退出 | `room.setReady()`、`room.startMatch()`、`room.leave()` | Room Durable Object の状態遷移と権限検証                             |
+| カスタム対戦の手 | `room.send("rps.move", ...)`                           | Room WebSocket のゲームメッセージ。サンプルのカスタム対戦用          |
+| ランクキュー参加 | `client.joinMatchmaking()`、`ticket.waitForMatch()`    | Match Pool Durable Object がチケット、候補、対戦Roomを管理           |
+| ランク対戦の手   | `POST /v1/demo/rps/matches/:matchId/move`              | Worker が認証済み参加者、成立済みMatch、手の変更不可を検証しD1へ保存 |
+| ELO表示          | `client.getRating("ranked-jp")`                        | D1 のレーティング正本から現在値を取得                                |
 
 ランク戦のブラウザは勝敗値を送信しません。各プレイヤーの手だけをWorkerへ送り、
 WorkerがMatch Poolの成立結果からA/Bプレイヤーを復元して勝敗を計算します。両者の

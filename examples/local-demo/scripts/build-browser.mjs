@@ -16,7 +16,10 @@ await build({
   sourcemap: false,
   legalComments: "none",
   alias: {
-    "@flarelobby/client": resolve(workspaceRoot, "packages/client/src/index.ts"),
-    "@flarelobby/core": resolve(workspaceRoot, "packages/core/src/index.ts")
-  }
+    "@flarelobby/client": resolve(
+      workspaceRoot,
+      "packages/client/src/index.ts",
+    ),
+    "@flarelobby/core": resolve(workspaceRoot, "packages/core/src/index.ts"),
+  },
 });

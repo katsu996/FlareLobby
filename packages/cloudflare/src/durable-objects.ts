@@ -3,12 +3,12 @@ export { RoomDurableObject } from "./room.js";
 export { MatchPoolDurableObject } from "./match-pool.js";
 import {
   FLARE_LOBBY_RATE_LIMIT_SCOPES,
-  verifyGatewayPrincipalEnvelope
+  verifyGatewayPrincipalEnvelope,
 } from "./security.js";
 import type {
   FlareLobbyRateLimitDecision,
   FlareLobbyRateLimitScope,
-  GatewayPrincipalEnvelope
+  GatewayPrincipalEnvelope,
 } from "./security.js";
 import type { Principal } from "@flarelobby/core";
 
@@ -54,7 +54,7 @@ export class RateLimitDurableObject extends DurableObject<Env> {
   public async consume(
     gatewayPrincipal: GatewayPrincipalEnvelope,
     scope: FlareLobbyRateLimitScope,
-    limit: number
+    limit: number,
   ): Promise<FlareLobbyRateLimitDecision> {
     const principal = await this.resolveGatewayPrincipal(gatewayPrincipal);
 
@@ -78,7 +78,7 @@ export class RateLimitDurableObject extends DurableObject<Env> {
           count
          FROM flarelobby_rate_limits
          WHERE scope = ?`,
-        scope
+        scope,
       )
       .toArray()[0];
 
@@ -93,7 +93,7 @@ export class RateLimitDurableObject extends DurableObject<Env> {
            window_started_at = excluded.window_started_at,
            count = excluded.count`,
         scope,
-        now
+        now,
       );
 
       return allowedRateLimitDecision();
@@ -104,39 +104,39 @@ export class RateLimitDurableObject extends DurableObject<Env> {
         allowed: false,
         retryAfterSeconds: Math.max(
           1,
-          Math.ceil((row.windowStartedAt + RATE_LIMIT_WINDOW_MS - now) / 1_000)
-        )
+          Math.ceil((row.windowStartedAt + RATE_LIMIT_WINDOW_MS - now) / 1_000),
+        ),
       });
     }
 
     this.ctx.storage.sql.exec(
       "UPDATE flarelobby_rate_limits SET count = count + 1 WHERE scope = ?",
-      scope
+      scope,
     );
 
     return allowedRateLimitDecision();
   }
 
   private async resolveGatewayPrincipal(
-    gatewayPrincipal: GatewayPrincipalEnvelope
+    gatewayPrincipal: GatewayPrincipalEnvelope,
   ): Promise<Principal | null> {
     return verifyGatewayPrincipalEnvelope(
       this.env.FLARE_LOBBY_TOKEN_SECRET,
-      gatewayPrincipal
+      gatewayPrincipal,
     );
   }
 
   private claimPrincipalShard(principal: Principal): boolean {
     const owner = this.ctx.storage.sql
       .exec<RateLimitOwnerRow>(
-        "SELECT principal_id AS principalId FROM flarelobby_rate_limit_owner LIMIT 1"
+        "SELECT principal_id AS principalId FROM flarelobby_rate_limit_owner LIMIT 1",
       )
       .toArray()[0];
 
     if (owner === undefined) {
       this.ctx.storage.sql.exec(
         "INSERT INTO flarelobby_rate_limit_owner (principal_id) VALUES (?)",
-        principal.id
+        principal.id,
       );
       return true;
     }

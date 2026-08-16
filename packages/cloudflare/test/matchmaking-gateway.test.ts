@@ -3,11 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   defineFlareLobby,
-  getMatchmakingTicketWebSocketRoute
+  getMatchmakingTicketWebSocketRoute,
 } from "../src/index.js";
-import type {
-  MatchmakingTicketRecord
-} from "../src/index.js";
+import type { MatchmakingTicketRecord } from "../src/index.js";
 import type { MatchmakingPool } from "@flarelobby/core";
 
 const pool: MatchmakingPool = {
@@ -15,13 +13,13 @@ const pool: MatchmakingPool = {
   gameId: "gateway-game",
   seasonId: "season-1",
   mode: "ranked-1v1",
-  region: "jp"
+  region: "jp",
 };
 
 const testLobby = defineFlareLobby({
   customRooms: {
     maxPlayers: 4,
-    defaultSettings: {}
+    defaultSettings: {},
   },
   matchmakingPools: [pool],
   authenticate: (request) => {
@@ -36,8 +34,8 @@ const testLobby = defineFlareLobby({
     maxHttpRequestBytes: 16 * 1024,
     maxWebSocketMessageBytes: 8 * 1024,
     maxMessagesPerMinute: 60,
-    maxRoomCreationsPerMinute: 10
-  }
+    maxRoomCreationsPerMinute: 10,
+  },
 });
 
 const testWorker = testLobby.createGatewayWorker<Env>();
@@ -49,7 +47,7 @@ interface TicketResponse {
 async function fetchWorker(
   path: string,
   principalId: string,
-  init: RequestInit = {}
+  init: RequestInit = {},
 ): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set("x-test-principal", principalId);
@@ -60,16 +58,16 @@ async function fetchWorker(
   return testWorker.fetch(
     new Request(`https://example.test${path}`, {
       ...init,
-      headers
+      headers,
     }) as unknown as Parameters<typeof testWorker.fetch>[0],
     env,
-    {} as ExecutionContext
+    {} as ExecutionContext,
   );
 }
 
 async function createTicket(
   principalId: string,
-  rating = 1_500
+  rating = 1_500,
 ): Promise<TicketResponse> {
   const response = await fetchWorker(
     `/v1/matchmaking/pools/${encodeURIComponent(pool.id)}/tickets`,
@@ -78,9 +76,9 @@ async function createTicket(
       method: "POST",
       body: JSON.stringify({
         requestId: `request-${principalId}`,
-        rating
-      })
-    }
+        rating,
+      }),
+    },
   );
 
   expect(response.status).toBe(201);
@@ -107,17 +105,22 @@ describe("Matchmaking Gateway API", () => {
     const eventsPath = `/v1/matchmaking/pools/${encodeURIComponent(pool.id)}/tickets/${encodeURIComponent(first.ticket.id)}/events`;
     const waitingEventsResponse = await fetchWorker(
       eventsPath,
-      first.ticket.player.id.replace(/-player$/u, "")
+      first.ticket.player.id.replace(/-player$/u, ""),
     );
     expect(waitingEventsResponse.status).toBe(200);
     const waitingEvents = await waitingEventsResponse.json<{
-      readonly events: readonly { readonly type: string; readonly searchWidth: number }[];
+      readonly events: readonly {
+        readonly type: string;
+        readonly searchWidth: number;
+      }[];
     }>();
     expect(waitingEvents.events.map((event) => event.type)).toEqual([
       "creating",
-      "waiting"
+      "waiting",
     ]);
-    expect(waitingEvents.events.every((event) => event.searchWidth === 75)).toBe(true);
+    expect(
+      waitingEvents.events.every((event) => event.searchWidth === 75),
+    ).toBe(true);
 
     const second = await createTicket(`gateway-second-${crypto.randomUUID()}`);
     expect(second.ticket.status).toBe("matched");
@@ -127,7 +130,7 @@ describe("Matchmaking Gateway API", () => {
 
     const connectionResponse = await fetchWorker(
       `/v1/matchmaking/pools/${encodeURIComponent(pool.id)}/tickets/${encodeURIComponent(second.ticket.id)}/connection`,
-      second.ticket.player.id.replace(/-player$/u, "")
+      second.ticket.player.id.replace(/-player$/u, ""),
     );
     expect(connectionResponse.status).toBe(200);
     const connectionBody = await connectionResponse.json<{
@@ -144,7 +147,7 @@ describe("Matchmaking Gateway API", () => {
     expect(connectionBody.connection.role).toBe("player");
     expect(connectionBody.connection.joinToken).toBeTruthy();
     expect(connectionBody.connection.participantId).toContain(
-      `participant_${second.ticket.result.matchId}_`
+      `participant_${second.ticket.result.matchId}_`,
     );
 
     const cancelledPrincipal = `gateway-cancel-${crypto.randomUUID()}`;
@@ -152,33 +155,39 @@ describe("Matchmaking Gateway API", () => {
     const cancelPath = `/v1/matchmaking/pools/${encodeURIComponent(pool.id)}/tickets/${encodeURIComponent(cancellable.ticket.id)}/cancel`;
     const cancelBody = {
       requestId: `cancel-${cancelledPrincipal}`,
-      ticketId: cancellable.ticket.id
+      ticketId: cancellable.ticket.id,
     };
-    const cancelledResponse = await fetchWorker(cancelPath, cancelledPrincipal, {
-      method: "POST",
-      body: JSON.stringify(cancelBody)
-    });
+    const cancelledResponse = await fetchWorker(
+      cancelPath,
+      cancelledPrincipal,
+      {
+        method: "POST",
+        body: JSON.stringify(cancelBody),
+      },
+    );
     const cancelled = await cancelledResponse.json<TicketResponse>();
     expect(cancelledResponse.status).toBe(200);
     expect(cancelled.ticket.status).toBe("cancelled");
 
     const retriedResponse = await fetchWorker(cancelPath, cancelledPrincipal, {
       method: "POST",
-      body: JSON.stringify(cancelBody)
+      body: JSON.stringify(cancelBody),
     });
-    await expect(retriedResponse.json<TicketResponse>()).resolves.toEqual(cancelled);
+    await expect(retriedResponse.json<TicketResponse>()).resolves.toEqual(
+      cancelled,
+    );
   });
 
   it("マッチングイベント WebSocket の Pool/Ticket ルートを厳密に判定する", () => {
     expect(
       getMatchmakingTicketWebSocketRoute(
-        "/v1/matchmaking/pools/gateway-ranked-test/tickets/ticket-1/events/ws"
-      )
+        "/v1/matchmaking/pools/gateway-ranked-test/tickets/ticket-1/events/ws",
+      ),
     ).toEqual({ poolId: pool.id, ticketId: "ticket-1" });
     expect(
       getMatchmakingTicketWebSocketRoute(
-        "/v1/matchmaking/pools/gateway-ranked-test/tickets/ticket-1/events"
-      )
+        "/v1/matchmaking/pools/gateway-ranked-test/tickets/ticket-1/events",
+      ),
     ).toBeNull();
   });
 
@@ -192,11 +201,11 @@ describe("Matchmaking Gateway API", () => {
         headers: {
           Upgrade: "websocket",
           "x-test-principal": principalId,
-          "Sec-WebSocket-Protocol": `flarelobby.v1, flarelobby.auth.${encodeWebSocketToken("test-token")}`
-        }
+          "Sec-WebSocket-Protocol": `flarelobby.v1, flarelobby.auth.${encodeWebSocketToken("test-token")}`,
+        },
       }) as unknown as Parameters<typeof testWorker.fetch>[0],
       env,
-      {} as ExecutionContext
+      {} as ExecutionContext,
     );
 
     expect(response.status).toBe(101);

@@ -36,8 +36,9 @@ export interface ClientCommandEnvelope<
 }
 
 /** サーバーがコマンドの成功を通知する応答です。 */
-export interface ServerSuccessEnvelope<TPayload = JsonValue>
-  extends ProtocolEnvelope<"success"> {
+export interface ServerSuccessEnvelope<
+  TPayload = JsonValue,
+> extends ProtocolEnvelope<"success"> {
   /** 対応するクライアントコマンドの要求識別子です。 */
   readonly requestId: RequestId;
   readonly payload: TPayload;
@@ -55,7 +56,7 @@ export const FLARE_LOBBY_ERROR_CODES = [
   "INVALID_MESSAGE",
   "INVALID_PAYLOAD",
   "UNSUPPORTED_PROTOCOL_VERSION",
-  "UNKNOWN_EVENT"
+  "UNKNOWN_EVENT",
 ] as const;
 
 /** 公開エラーの安定したコードです。 */
@@ -87,7 +88,7 @@ const defaultErrorMessages: Readonly<Record<FlareLobbyErrorCode, string>> = {
   INVALID_MESSAGE: "メッセージの形式が正しくありません。",
   INVALID_PAYLOAD: "Payload の形式が正しくありません。",
   UNSUPPORTED_PROTOCOL_VERSION: "このプロトコル版はサポートされていません。",
-  UNKNOWN_EVENT: "このイベント種別はサポートされていません。"
+  UNKNOWN_EVENT: "このイベント種別はサポートされていません。",
 };
 
 /**
@@ -102,7 +103,7 @@ export class FlareLobbyError extends Error {
 
   public constructor(
     code: FlareLobbyErrorCode,
-    options: FlareLobbyErrorOptions = {}
+    options: FlareLobbyErrorOptions = {},
   ) {
     super(options.message ?? defaultErrorMessages[code]);
     this.name = "FlareLobbyError";
@@ -114,20 +115,20 @@ export class FlareLobbyError extends Error {
   public toJSON(): FlareLobbyErrorPayload {
     return {
       code: this.code,
-      message: this.message
+      message: this.message,
     };
   }
 
   /** 通信 Envelope のエラー情報を公開例外へ正規化します。 */
   public static fromPayload(
     payload: FlareLobbyErrorPayload,
-    requestId?: RequestId
+    requestId?: RequestId,
   ): FlareLobbyError {
     return requestId === undefined
       ? new FlareLobbyError(payload.code, { message: payload.message })
       : new FlareLobbyError(payload.code, {
           message: payload.message,
-          requestId
+          requestId,
         });
   }
 }
@@ -176,9 +177,7 @@ export interface ProtocolFailure {
 }
 
 /** 例外を送出しない通信処理の結果です。 */
-export type ProtocolResult<TValue> =
-  | ProtocolSuccess<TValue>
-  | ProtocolFailure;
+export type ProtocolResult<TValue> = ProtocolSuccess<TValue> | ProtocolFailure;
 
 /** イベント種別を意味まで含めて検証するときの設定です。 */
 export interface ProtocolValidationOptions {
@@ -187,16 +186,12 @@ export interface ProtocolValidationOptions {
 }
 
 /** 受信済み版番号とイベント版番号の関係です。 */
-export type EventRevisionStatus =
-  | "next"
-  | "duplicate"
-  | "gap"
-  | "out_of_order";
+export type EventRevisionStatus = "next" | "duplicate" | "gap" | "out_of_order";
 
 /** 2 個のコマンドが同じ要求識別子を持つかを返します。 */
 export function isDuplicateRequest(
   first: Pick<ClientCommandEnvelope, "requestId">,
-  second: Pick<ClientCommandEnvelope, "requestId">
+  second: Pick<ClientCommandEnvelope, "requestId">,
 ): boolean {
   return first.requestId === second.requestId;
 }
@@ -208,7 +203,7 @@ export function isDuplicateRequest(
  */
 export function classifyEventRevision(
   lastRevision: Revision,
-  eventRevision: Revision
+  eventRevision: Revision,
 ): EventRevisionStatus {
   if (eventRevision === lastRevision + 1) {
     return "next";
@@ -224,7 +219,7 @@ export function classifyEventRevision(
 /** 通信オブジェクトを JSON 形式として検証します。 */
 export function validateProtocolMessage(
   input: unknown,
-  options: ProtocolValidationOptions = {}
+  options: ProtocolValidationOptions = {},
 ): ProtocolResult<ProtocolMessage> {
   try {
     if (!isRecord(input)) {
@@ -262,7 +257,7 @@ export function validateProtocolMessage(
 /** JSON 文字列をデコードし、通信オブジェクトとして検証します。 */
 export function decodeProtocolMessage(
   encoded: string,
-  options: ProtocolValidationOptions = {}
+  options: ProtocolValidationOptions = {},
 ): ProtocolResult<ProtocolMessage> {
   if (typeof encoded !== "string") {
     return protocolFailure("INVALID_MESSAGE");
@@ -277,7 +272,7 @@ export function decodeProtocolMessage(
 
 /** JSON 文字列をクライアントコマンドとしてデコードします。 */
 export function decodeClientCommand(
-  encoded: string
+  encoded: string,
 ): ProtocolResult<ClientCommandEnvelope> {
   const decoded = decodeProtocolMessage(encoded);
 
@@ -295,7 +290,7 @@ export function decodeClientCommand(
 /** JSON 文字列をサーバー応答またはイベントとしてデコードします。 */
 export function decodeServerMessage(
   encoded: string,
-  options: ProtocolValidationOptions = {}
+  options: ProtocolValidationOptions = {},
 ): ProtocolResult<ServerMessage> {
   const decoded = decodeProtocolMessage(encoded, options);
 
@@ -313,7 +308,7 @@ export function decodeServerMessage(
 /** 通信オブジェクトを検証して JSON 文字列へエンコードします。 */
 export function encodeProtocolMessage(
   message: ProtocolMessage,
-  options: ProtocolValidationOptions = {}
+  options: ProtocolValidationOptions = {},
 ): ProtocolResult<string> {
   const validation = validateProtocolMessage(message, options);
 
@@ -330,7 +325,7 @@ export function encodeProtocolMessage(
 
 /** 値が公開エラーコードかを判定します。 */
 export function isFlareLobbyErrorCode(
-  value: unknown
+  value: unknown,
 ): value is FlareLobbyErrorCode {
   return (
     typeof value === "string" &&
@@ -340,7 +335,7 @@ export function isFlareLobbyErrorCode(
 
 function validateClientCommand(
   input: Record<string, unknown>,
-  requestId: RequestId | undefined
+  requestId: RequestId | undefined,
 ): ProtocolResult<ClientCommandEnvelope> {
   if (requestId === undefined || !isNonEmptyString(input["command"])) {
     return protocolFailure("INVALID_MESSAGE", requestId);
@@ -357,13 +352,13 @@ function validateClientCommand(
     kind: "command",
     requestId,
     command: input["command"],
-    payload: payload.value
+    payload: payload.value,
   });
 }
 
 function validateServerSuccess(
   input: Record<string, unknown>,
-  requestId: RequestId | undefined
+  requestId: RequestId | undefined,
 ): ProtocolResult<ServerSuccessEnvelope> {
   if (requestId === undefined) {
     return protocolFailure("INVALID_MESSAGE");
@@ -379,12 +374,12 @@ function validateServerSuccess(
     protocolVersion: PROTOCOL_VERSION,
     kind: "success",
     requestId,
-    payload: payload.value
+    payload: payload.value,
   });
 }
 
 function validateServerFailure(
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
 ): ProtocolResult<ServerFailureEnvelope> {
   const rawRequestId = input["requestId"];
 
@@ -411,14 +406,14 @@ function validateServerFailure(
     requestId: rawRequestId,
     error: {
       code,
-      message
-    }
+      message,
+    },
   });
 }
 
 function validateServerEvent(
   input: Record<string, unknown>,
-  options: ProtocolValidationOptions
+  options: ProtocolValidationOptions,
 ): ProtocolResult<ServerEventEnvelope> {
   const event = input["event"];
   const revision = input["revision"];
@@ -445,13 +440,13 @@ function validateServerEvent(
     kind: "event",
     event,
     revision,
-    payload: payload.value
+    payload: payload.value,
   });
 }
 
 function validatePayload(
   input: Record<string, unknown>,
-  requestId?: RequestId
+  requestId?: RequestId,
 ): ProtocolResult<JsonValue> {
   if (!hasOwn(input, "payload")) {
     return protocolFailure("INVALID_MESSAGE", requestId);
@@ -502,7 +497,10 @@ function isRevision(value: unknown): value is Revision {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-function isJsonValue(value: unknown, ancestors = new WeakSet<object>()): value is JsonValue {
+function isJsonValue(
+  value: unknown,
+  ancestors = new WeakSet<object>(),
+): value is JsonValue {
   if (value === null) {
     return true;
   }
@@ -563,19 +561,19 @@ function isJsonContainer(value: object, ancestors: WeakSet<object>): boolean {
 function protocolSuccess<TValue>(value: TValue): ProtocolSuccess<TValue> {
   return {
     ok: true,
-    value
+    value,
   };
 }
 
 function protocolFailure<TValue>(
   code: FlareLobbyErrorCode,
-  requestId?: RequestId
+  requestId?: RequestId,
 ): ProtocolResult<TValue> {
   return {
     ok: false,
     error:
       requestId === undefined
         ? new FlareLobbyError(code)
-        : new FlareLobbyError(code, { requestId })
+        : new FlareLobbyError(code, { requestId }),
   };
 }

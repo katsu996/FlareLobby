@@ -12,7 +12,7 @@ const calculation = engine.calculate({
   ratingA: 1_500,
   ratingB: 1_500,
   // A の勝利: 1、引き分け: 0.5、敗北: 0
-  result: 1
+  result: 1,
 });
 
 calculation.updatedRatingA; // 1512
@@ -63,10 +63,10 @@ matchmakingPools: [
     region: "jp",
     rating: {
       initialRating: 1_500,
-      kFactor: 24
-    }
-  }
-]
+      kFactor: 24,
+    },
+  },
+];
 ```
 
 `getRating(database, pool, playerId)` は初回参照時に設定済みの初期値を保存し、以後は確定済みの最新値を返します。試合結果の登録はサーバー側の認可済み処理から `registerMatchResult()` を呼ぶか、認可 Hook を設定した次の Gateway ルートを使います。

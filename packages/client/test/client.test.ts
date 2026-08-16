@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createFlareLobbyClient,
   type FetchImplementation,
-  type WebSocketConstructor
+  type WebSocketConstructor,
 } from "../src/index.js";
 
 class FakeWebSocket {
@@ -54,8 +54,8 @@ class FakeWebSocket {
       "close",
       new CloseEvent("close", {
         code: code ?? 1000,
-        reason: reason ?? ""
-      })
+        reason: reason ?? "",
+      }),
     );
   }
 
@@ -99,28 +99,28 @@ describe("@flarelobby/client", () => {
       async (input, init) => {
         calls.push({ input, init });
         return Response.json({ accepted: true });
-      }
+      },
     );
     const signal = new AbortController().signal;
     const client = createFlareLobbyClient({
       endpoint: "https://example.test",
       getAccessToken,
       fetch: fetchImplementation,
-      requestIdFactory: () => "request-1"
+      requestIdFactory: () => "request-1",
     });
 
     await client.request("/v1/custom-rooms", {
       method: "POST",
       body: { name: "練習ルーム" },
       idempotent: true,
-      signal
+      signal,
     });
     await client.request("/v1/rooms", { signal });
 
     expect(getAccessToken).toHaveBeenCalledTimes(2);
     expect(calls).toHaveLength(2);
     expect(calls[0]?.input.toString()).toBe(
-      "https://example.test/v1/custom-rooms"
+      "https://example.test/v1/custom-rooms",
     );
     expect(calls[0]?.init?.signal).toBe(signal);
     const firstHeaders = new Headers(calls[0]?.init?.headers);
@@ -130,10 +130,10 @@ describe("@flarelobby/client", () => {
     expect(firstHeaders.get("idempotency-key")).toBe("request-1");
     expect(calls[0]?.init?.body).toBe(JSON.stringify({ name: "練習ルーム" }));
     expect(new Headers(calls[1]?.init?.headers).get("authorization")).toBe(
-      "Bearer token-b"
+      "Bearer token-b",
     );
     expect(
-      new Headers(calls[1]?.init?.headers).get("idempotency-key")
+      new Headers(calls[1]?.init?.headers).get("idempotency-key"),
     ).toBeNull();
   });
 
@@ -142,34 +142,35 @@ describe("@flarelobby/client", () => {
       Response.json(
         {
           code: "UNAUTHENTICATED",
-          message: "認証が必要です。"
+          message: "認証が必要です。",
         },
-        { status: 401 }
-      )
+        { status: 401 },
+      ),
     );
     const client = createFlareLobbyClient({
       endpoint: "https://example.test",
       getAccessToken: () => "secret-token",
-      fetch: fetchImplementation
+      fetch: fetchImplementation,
     });
 
     await expect(client.request("/v1/rooms")).rejects.toMatchObject({
       code: "UNAUTHENTICATED",
-      message: "認証が必要です。"
+      message: "認証が必要です。",
     });
 
     const malformedResponseFetch: FetchImplementation = vi.fn(
-      async () => new Response("SyntaxError: internal details", { status: 200 })
+      async () =>
+        new Response("SyntaxError: internal details", { status: 200 }),
     );
     const malformedClient = createFlareLobbyClient({
       endpoint: "https://example.test",
       getAccessToken: () => "secret-token",
-      fetch: malformedResponseFetch
+      fetch: malformedResponseFetch,
     });
 
     await expect(malformedClient.request("/v1/rooms")).rejects.toMatchObject({
       code: "INVALID_MESSAGE",
-      message: "メッセージの形式が正しくありません。"
+      message: "メッセージの形式が正しくありません。",
     });
   });
 
@@ -179,27 +180,29 @@ describe("@flarelobby/client", () => {
       getAccessToken: () => {
         throw new Error("secret-token-from-provider");
       },
-      fetch: vi.fn()
+      fetch: vi.fn(),
     });
 
-    await expect(tokenFailureClient.request("/v1/rooms")).rejects.toMatchObject({
-      code: "UNAUTHENTICATED",
-      message: "認証が必要です。"
-    });
+    await expect(tokenFailureClient.request("/v1/rooms")).rejects.toMatchObject(
+      {
+        code: "UNAUTHENTICATED",
+        message: "認証が必要です。",
+      },
+    );
 
     const transportFailureClient = createFlareLobbyClient({
       endpoint: "https://example.test",
       getAccessToken: () => "secret-token",
       fetch: vi.fn(async () => {
         throw new Error("network details and secret-token");
-      })
+      }),
     });
 
     await expect(
-      transportFailureClient.request("/v1/rooms")
+      transportFailureClient.request("/v1/rooms"),
     ).rejects.toMatchObject({
       code: "CONNECTION_FAILED",
-      message: "通信接続に失敗しました。"
+      message: "通信接続に失敗しました。",
     });
   });
 
@@ -210,47 +213,47 @@ describe("@flarelobby/client", () => {
     const client = createFlareLobbyClient({
       endpoint: "https://example.test",
       getAccessToken: () => "secret-token",
-      fetch: fetchImplementation
+      fetch: fetchImplementation,
     });
 
     await expect(
-      client.request("/v1/rooms", { signal: controller.signal })
+      client.request("/v1/rooms", { signal: controller.signal }),
     ).rejects.toMatchObject({ code: "CANCELLED" });
     expect(fetchImplementation).not.toHaveBeenCalled();
   });
 
   it("複数クライアントの状態を分離し、dispose 後の要求を中止する", async () => {
     const fetchA: FetchImplementation = vi.fn(async () =>
-      Response.json({ client: "a" })
+      Response.json({ client: "a" }),
     );
     const fetchB: FetchImplementation = vi.fn(async () =>
-      Response.json({ client: "b" })
+      Response.json({ client: "b" }),
     );
     const clientA = createFlareLobbyClient({
       endpoint: "https://example.test",
       getAccessToken: () => "token-a",
-      fetch: fetchA
+      fetch: fetchA,
     });
     const clientB = createFlareLobbyClient({
       endpoint: "https://example.test",
       getAccessToken: () => "token-b",
-      fetch: fetchB
+      fetch: fetchB,
     });
 
     await expect(clientA.request("/v1/rooms")).resolves.toEqual({
-      client: "a"
+      client: "a",
     });
     await expect(clientB.request("/v1/rooms")).resolves.toEqual({
-      client: "b"
+      client: "b",
     });
 
     clientA.dispose();
     expect(clientA.disposed).toBe(true);
     await expect(clientA.request("/v1/rooms")).rejects.toMatchObject({
-      code: "CANCELLED"
+      code: "CANCELLED",
     });
     await expect(clientB.request("/v1/rooms")).resolves.toEqual({
-      client: "b"
+      client: "b",
     });
   });
 
@@ -260,11 +263,11 @@ describe("@flarelobby/client", () => {
       endpoint: "https://example.test",
       getAccessToken,
       webSocket: fakeWebSocketConstructor,
-      requestIdFactory: () => "ws-request-1"
+      requestIdFactory: () => "ws-request-1",
     });
 
     const connection = await client.connect("/v1/rooms/room-1/ws", {
-      knownEventTypes: ["room.snapshot"]
+      knownEventTypes: ["room.snapshot"],
     });
     const socket = FakeWebSocket.instances[0];
 
@@ -277,7 +280,7 @@ describe("@flarelobby/client", () => {
     const listener = vi.fn();
     connection.onEvent(listener);
     const responsePromise = connection.send("room.set_ready", {
-      ready: true
+      ready: true,
     });
 
     expect(JSON.parse(socket?.sent[0] ?? "{}")).toMatchObject({
@@ -285,7 +288,7 @@ describe("@flarelobby/client", () => {
       kind: "command",
       requestId: "ws-request-1",
       command: "room.set_ready",
-      payload: { ready: true }
+      payload: { ready: true },
     });
 
     socket?.receive(
@@ -293,8 +296,8 @@ describe("@flarelobby/client", () => {
         protocolVersion: 1,
         kind: "success",
         requestId: "ws-request-1",
-        payload: { revision: 1 }
-      })
+        payload: { revision: 1 },
+      }),
     );
     await expect(responsePromise).resolves.toEqual({ revision: 1 });
 
@@ -304,11 +307,11 @@ describe("@flarelobby/client", () => {
         kind: "event",
         event: "room.snapshot",
         revision: 1,
-        payload: { roomId: "room-1" }
-      })
+        payload: { roomId: "room-1" },
+      }),
     );
     expect(listener).toHaveBeenCalledWith(
-      expect.objectContaining({ event: "room.snapshot", revision: 1 })
+      expect.objectContaining({ event: "room.snapshot", revision: 1 }),
     );
   });
 
@@ -317,7 +320,7 @@ describe("@flarelobby/client", () => {
       endpoint: "https://example.test",
       getAccessToken: () => "secret-token",
       webSocket: fakeWebSocketConstructor,
-      requestIdFactory: () => "ws-request-2"
+      requestIdFactory: () => "ws-request-2",
     });
     const connection = await client.connect("/v1/rooms/room-1/ws");
     const socket = FakeWebSocket.instances[0];
@@ -328,16 +331,16 @@ describe("@flarelobby/client", () => {
         protocolVersion: 1,
         kind: "failure",
         requestId: "ws-request-2",
-        error: { code: "FORBIDDEN", message: "権限がありません。" }
-      })
+        error: { code: "FORBIDDEN", message: "権限がありません。" },
+      }),
     );
     await expect(failurePromise).rejects.toMatchObject({
       code: "FORBIDDEN",
-      message: "権限がありません。"
+      message: "権限がありません。",
     });
 
     const pendingPromise = connection.send("room.set_ready", {
-      ready: true
+      ready: true,
     });
     client.dispose();
     await expect(pendingPromise).rejects.toMatchObject({ code: "CANCELLED" });
@@ -350,17 +353,17 @@ describe("@flarelobby/client", () => {
     const client = createFlareLobbyClient({
       endpoint: "https://example.test",
       getAccessToken: () => "secret-token",
-      webSocket: fakeWebSocketConstructor
+      webSocket: fakeWebSocketConstructor,
     });
 
     const connectionPromise = client.connect("/v1/rooms/room-1/ws", {
-      signal: controller.signal
+      signal: controller.signal,
     });
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     controller.abort();
 
     await expect(connectionPromise).rejects.toMatchObject({
-      code: "CANCELLED"
+      code: "CANCELLED",
     });
     expect(FakeWebSocket.instances[0]?.readyState).toBe(3);
   });

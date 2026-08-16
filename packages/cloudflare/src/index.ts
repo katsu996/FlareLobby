@@ -8,18 +8,18 @@ export {
   consumeRoomCreationRateLimit,
   consumeWebSocketMessageRateLimit,
   createGatewayWorker,
-  defineFlareLobby
+  defineFlareLobby,
 } from "./config.js";
 export {
   createCustomRoom,
   joinCustomRoom,
-  leaveCustomRoom
+  leaveCustomRoom,
 } from "./custom-room.js";
 export { listCustomRooms } from "./custom-room-list.js";
 export {
   getMatchmakingTicketWebSocketRoute,
   handleMatchmakingRequest,
-  upgradeMatchmakingTicketWebSocket
+  upgradeMatchmakingTicketWebSocket,
 } from "./matchmaking.js";
 export {
   DEFAULT_RATING_CONFLICT_RETRY_COUNT,
@@ -30,13 +30,13 @@ export {
   getRating,
   listMatchHistory,
   recordMatchResult,
-  registerMatchResult
+  registerMatchResult,
 } from "./rating.js";
 export {
   DEFAULT_MATCHMAKING_MAX_CANDIDATES_PER_SEARCH,
   DEFAULT_MATCHMAKING_MAX_MATCHES_PER_SEARCH,
   DEFAULT_MATCHMAKING_MAX_TICKETS_PER_SEARCH,
-  DEFAULT_MATCHMAKING_SEARCH_WIDTH_STAGES
+  DEFAULT_MATCHMAKING_SEARCH_WIDTH_STAGES,
 } from "@flarelobby/core";
 export type {
   CustomRoomConfiguration,
@@ -46,7 +46,7 @@ export type {
   FlareLobbyConfigurationErrorCode,
   FlareLobbyGatewayWorker,
   FlareLobbyInputLimits,
-  MatchmakingPoolConfiguration
+  MatchmakingPoolConfiguration,
 } from "./config.js";
 export type { RatingConfiguration } from "./rating.js";
 export type {
@@ -62,21 +62,21 @@ export type {
   CustomRoomLeaveInput,
   CustomRoomLeaveOptions,
   CustomRoomLeaveResult,
-  CustomRoomParticipantRole
+  CustomRoomParticipantRole,
 } from "./custom-room.js";
 export type {
   CustomRoomListQuery,
   CustomRoomListResult,
-  RoomSummary
+  RoomSummary,
 } from "./custom-room-list.js";
 export type {
   CustomRoomIndexJoinMethod,
-  CustomRoomIndexRecord
+  CustomRoomIndexRecord,
 } from "./custom-room-index.js";
 export {
   MatchPoolDurableObject,
   RateLimitDurableObject,
-  RoomDurableObject
+  RoomDurableObject,
 } from "./durable-objects.js";
 export {
   DEFAULT_DISCONNECT_GRACE_PERIOD_MS,
@@ -88,7 +88,7 @@ export {
   getPrincipalWebSocketTag,
   getResumeWebSocketTag,
   getRoleWebSocketTag,
-  getRoomWebSocketTag
+  getRoomWebSocketTag,
 } from "./room.js";
 export {
   DEFAULT_MATCHMAKING_MATCH_MAX_ATTEMPTS,
@@ -102,7 +102,7 @@ export {
   createMatchmakingRoomId,
   createMatchPoolKey,
   getMatchmakingPoolKey,
-  getMatchPoolName
+  getMatchPoolName,
 } from "./match-pool.js";
 export type {
   MatchmakingCandidateEvaluation,
@@ -110,7 +110,7 @@ export type {
   MatchmakingSearchPolicy,
   MatchmakingSearchTicket,
   MatchmakingSearchWidthStage,
-  NormalizedMatchmakingSearchPolicy
+  NormalizedMatchmakingSearchPolicy,
 } from "@flarelobby/core";
 export type {
   MatchmakingPoolKeyInput,
@@ -131,12 +131,12 @@ export type {
   MatchmakingTicketEventQueryOptions,
   MatchmakingTicketMatchOptions,
   MatchmakingTicketRecord,
-  MatchmakingTicketReservationOptions
+  MatchmakingTicketReservationOptions,
 } from "./match-pool.js";
 export type {
   MatchmakingRoomConnection,
   MatchmakingTicketGatewayResponse,
-  MatchmakingTicketWebSocketRoute
+  MatchmakingTicketWebSocketRoute,
 } from "./matchmaking.js";
 export type {
   MatchHistoryPage,
@@ -144,7 +144,7 @@ export type {
   MatchResultRegistration,
   MatchResultRegistrationInput,
   RatingMatchParticipant,
-  RatingMatchRecord
+  RatingMatchRecord,
 } from "./rating.js";
 export type {
   RoomInitializationOptions,
@@ -177,7 +177,7 @@ export type {
   RoomLeaveOptions,
   RoomLeaveResult,
   RoomResumeHandshake,
-  RoomWebSocketAttachment
+  RoomWebSocketAttachment,
 } from "./room.js";
 export {
   FLARE_LOBBY_RATE_LIMIT_SCOPES,
@@ -200,7 +200,7 @@ export {
   verifyResumeToken,
   verifyWebSocketJoinToken,
   verifyWebSocketResumeToken,
-  verifyWebSocketRoomToken
+  verifyWebSocketRoomToken,
 } from "./security.js";
 export {
   FLARE_LOBBY_CORRELATION_ID_HEADER,
@@ -216,7 +216,7 @@ export {
   observeOperation,
   readObservabilityContext,
   recordQualityMetric,
-  withObservabilityRequestId
+  withObservabilityRequestId,
 } from "./observability.js";
 export type {
   AuthenticatedGatewayRequest,
@@ -237,7 +237,7 @@ export type {
   FlareLobbyRoomTokenVerificationOptions,
   FlareLobbyWebSocketJoinTokenVerificationOptions,
   FlareLobbyWebSocketRoomTokenVerificationOptions,
-  GatewayPrincipalEnvelope
+  GatewayPrincipalEnvelope,
 } from "./security.js";
 export type {
   FlareLobbyObservabilityAttributeValue,
@@ -249,7 +249,7 @@ export type {
   FlareLobbyQualityMetric,
   FlareLobbyQualityMetricName,
   FlareLobbyStructuredLogRecord,
-  FlareLobbyStructuredLogger
+  FlareLobbyStructuredLogger,
 } from "./observability.js";
 
 /**
@@ -261,7 +261,7 @@ export type {
 const developmentLobby = defineFlareLobby({
   customRooms: {
     maxPlayers: 4,
-    defaultSettings: {}
+    defaultSettings: {},
   },
   matchmakingPools: [],
   authenticate: () => null,
@@ -269,8 +269,8 @@ const developmentLobby = defineFlareLobby({
     maxHttpRequestBytes: 16 * 1024,
     maxWebSocketMessageBytes: 8 * 1024,
     maxMessagesPerMinute: 60,
-    maxRoomCreationsPerMinute: 10
-  }
+    maxRoomCreationsPerMinute: 10,
+  },
 });
 
 export default developmentLobby.createGatewayWorker<Env>();

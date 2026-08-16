@@ -83,7 +83,7 @@ export function elo(options: EloOptions = {}): EloEngine {
       const normalizedInput = normalizeCalculationInput(input);
       const expectedScoreA = calculateExpectedScore(
         normalizedInput.ratingA,
-        normalizedInput.ratingB
+        normalizedInput.ratingB,
       );
       const expectedScoreB = 1 - expectedScoreA;
       const rawDeltaA =
@@ -91,7 +91,7 @@ export function elo(options: EloOptions = {}): EloEngine {
 
       if (!Number.isFinite(rawDeltaA)) {
         throw new RangeError(
-          "ELO の更新差分が有限の数値にならない入力または設定です。"
+          "ELO の更新差分が有限の数値にならない入力または設定です。",
         );
       }
 
@@ -100,9 +100,12 @@ export function elo(options: EloOptions = {}): EloEngine {
       const updatedRatingA = normalizedInput.ratingA + deltaA;
       const updatedRatingB = normalizedInput.ratingB + deltaB;
 
-      if (!Number.isFinite(updatedRatingA) || !Number.isFinite(updatedRatingB)) {
+      if (
+        !Number.isFinite(updatedRatingA) ||
+        !Number.isFinite(updatedRatingB)
+      ) {
         throw new RangeError(
-          "ELO の更新後レーティングが有限の数値になりません。"
+          "ELO の更新後レーティングが有限の数値になりません。",
         );
       }
 
@@ -117,9 +120,9 @@ export function elo(options: EloOptions = {}): EloEngine {
         deltaB,
         updatedRatingA,
         updatedRatingB,
-        kFactor: config.kFactor
+        kFactor: config.kFactor,
       });
-    }
+    },
   };
 
   return Object.freeze(engine);
@@ -142,20 +145,18 @@ function normalizeEloOptions(options: unknown): {
   const initialRating = readOption(
     options,
     "initialRating",
-    DEFAULT_ELO_INITIAL_RATING
+    DEFAULT_ELO_INITIAL_RATING,
   );
   const kFactor = readOption(options, "kFactor", DEFAULT_ELO_K_FACTOR);
 
   if (!isFiniteNumber(initialRating) || initialRating < 0) {
     throw new RangeError(
-      "初期レーティングは 0 以上の有限な数値で指定してください。"
+      "初期レーティングは 0 以上の有限な数値で指定してください。",
     );
   }
 
   if (!isFiniteNumber(kFactor) || kFactor <= 0) {
-    throw new RangeError(
-      "K 係数は 0 より大きい有限な数値で指定してください。"
-    );
+    throw new RangeError("K 係数は 0 より大きい有限な数値で指定してください。");
   }
 
   return { initialRating, kFactor };
@@ -163,7 +164,9 @@ function normalizeEloOptions(options: unknown): {
 
 function normalizeCalculationInput(input: unknown): RatingCalculationInput {
   if (!isRecord(input)) {
-    throw new TypeError("レーティング計算の入力はオブジェクトで指定してください。");
+    throw new TypeError(
+      "レーティング計算の入力はオブジェクトで指定してください。",
+    );
   }
 
   const ratingA = input["ratingA"];
@@ -171,20 +174,16 @@ function normalizeCalculationInput(input: unknown): RatingCalculationInput {
   const result = input["result"];
 
   if (!isFiniteNumber(ratingA) || ratingA < 0) {
-    throw new RangeError(
-      "ratingA は 0 以上の有限な数値で指定してください。"
-    );
+    throw new RangeError("ratingA は 0 以上の有限な数値で指定してください。");
   }
 
   if (!isFiniteNumber(ratingB) || ratingB < 0) {
-    throw new RangeError(
-      "ratingB は 0 以上の有限な数値で指定してください。"
-    );
+    throw new RangeError("ratingB は 0 以上の有限な数値で指定してください。");
   }
 
   if (!isRatingResult(result)) {
     throw new RangeError(
-      "result は勝利の 1、引き分けの 0.5、敗北の 0 のいずれかで指定してください。"
+      "result は勝利の 1、引き分けの 0.5、敗北の 0 のいずれかで指定してください。",
     );
   }
 
@@ -217,7 +216,7 @@ function toRatingResult(value: number): RatingResult {
 function readOption(
   options: Record<string, unknown>,
   key: "initialRating" | "kFactor",
-  defaultValue: number
+  defaultValue: number,
 ): number {
   if (!Object.prototype.hasOwnProperty.call(options, key)) {
     return defaultValue;
