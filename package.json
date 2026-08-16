@@ -3,28 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "description": "Cloudflare Workers 向けゲームロビーライブラリのモノレポ",
-  "license": "MIT",
-  "author": "katsu996",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/katsu996/FlareLobby.git"
-  },
   "homepage": "https://github.com/katsu996/FlareLobby#readme",
   "bugs": {
     "url": "https://github.com/katsu996/FlareLobby/issues"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/katsu996/FlareLobby.git"
+  },
+  "license": "MIT",
+  "author": "katsu996",
   "type": "module",
-  "packageManager": "pnpm@11.21.0",
-  "engines": {
-    "node": ">=22"
-  },
-  "devEngines": {
-    "runtime": {
-      "name": "node",
-      "version": ">=24.19.0",
-      "onFail": "download"
-    }
-  },
   "scripts": {
     "build": "pnpm --filter @flarelobby/core run build && pnpm --filter @flarelobby/cloudflare run build && pnpm --filter @flarelobby/client run build && pnpm --filter @flarelobby/testing run build && pnpm --filter @flarelobby/example-local-demo run build:browser",
     "typecheck": "pnpm --filter @flarelobby/core run typecheck && pnpm --filter @flarelobby/cloudflare run typecheck && pnpm --filter @flarelobby/client run typecheck && pnpm --filter @flarelobby/testing run typecheck && pnpm --filter @flarelobby/example-local-demo run typecheck",
@@ -51,5 +40,16 @@
     "typescript": "7.0.2",
     "vitest": "4.1.10",
     "wrangler": "4.120.0"
+  },
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=24.19.0",
+      "onFail": "download"
+    }
   }
 }
