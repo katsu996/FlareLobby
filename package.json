@@ -16,15 +16,19 @@
   "type": "module",
   "packageManager": "pnpm@11.21.0",
   "engines": {
-    "node": "24.19.0",
-    "pnpm": "11.21.0"
+    "node": ">=22"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=24.19.0",
+      "onFail": "download"
+    }
   },
   "scripts": {
     "build": "pnpm --filter @flarelobby/core run build && pnpm --filter @flarelobby/cloudflare run build && pnpm --filter @flarelobby/client run build && pnpm --filter @flarelobby/testing run build && pnpm --filter @flarelobby/example-local-demo run build:browser",
     "typecheck": "pnpm --filter @flarelobby/core run typecheck && pnpm --filter @flarelobby/cloudflare run typecheck && pnpm --filter @flarelobby/client run typecheck && pnpm --filter @flarelobby/testing run typecheck && pnpm --filter @flarelobby/example-local-demo run typecheck",
     "test": "pnpm test:unit && pnpm test:integration",
-    "test:coverage": "pnpm --filter @flarelobby/core exec vitest run --coverage --coverage.reportsDirectory=coverage --coverage.reporter=text --coverage.reporter=lcov --coverage.reporter=json-summary && pnpm --filter @flarelobby/client exec vitest run --coverage --coverage.reportsDirectory=coverage --coverage.reporter=text --coverage.reporter=lcov --coverage.reporter=json-summary && pnpm --filter @flarelobby/testing exec vitest run --coverage --coverage.reportsDirectory=coverage --coverage.reporter=text --coverage.reporter=lcov --coverage.reporter=json-summary && pnpm --filter @flarelobby/cloudflare exec vitest run --coverage && pnpm --filter @flarelobby/example-local-demo exec vitest run --coverage",
-    "coverage:summary": "node scripts/summarize-coverage.mjs",
     "test:coverage": "pnpm --filter @flarelobby/core exec vitest run --coverage --coverage.reportsDirectory=coverage --coverage.reporter=text --coverage.reporter=lcov --coverage.reporter=json-summary && pnpm --filter @flarelobby/client exec vitest run --coverage --coverage.reportsDirectory=coverage --coverage.reporter=text --coverage.reporter=lcov --coverage.reporter=json-summary && pnpm --filter @flarelobby/testing exec vitest run --coverage --coverage.reportsDirectory=coverage --coverage.reporter=text --coverage.reporter=lcov --coverage.reporter=json-summary && pnpm --filter @flarelobby/cloudflare exec vitest run --coverage && pnpm --filter @flarelobby/example-local-demo exec vitest run --coverage",
     "coverage:summary": "node scripts/summarize-coverage.mjs",
     "test:unit": "pnpm --filter @flarelobby/core run test:unit && pnpm --filter @flarelobby/client run test:unit && pnpm --filter @flarelobby/testing run test:unit && pnpm --filter @flarelobby/example-local-demo run test:unit",
