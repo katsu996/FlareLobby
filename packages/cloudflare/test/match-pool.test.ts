@@ -4,13 +4,13 @@ import { describe, expect, it } from "vitest";
 import {
   MatchPoolDurableObject,
   authenticateGatewayRequest,
-  createMatchmakingPoolKey
+  createMatchmakingPoolKey,
 } from "../src/index.js";
 import type { MatchmakingPool } from "@flarelobby/core";
 import type {
   GatewayPrincipalEnvelope,
   MatchmakingSearchPolicy,
-  MatchmakingTicketCreationOptions
+  MatchmakingTicketCreationOptions,
 } from "../src/index.js";
 
 const TOKEN_SECRET = "flarelobby-test-token-secret";
@@ -21,17 +21,17 @@ function createPool(suffix = crypto.randomUUID()): MatchmakingPool {
     gameId: `test-game-${suffix}`,
     seasonId: "season-1",
     mode: "ranked-1v1",
-    region: "jp"
+    region: "jp",
   };
 }
 
 async function createGatewayPrincipal(
-  principalId: string
+  principalId: string,
 ): Promise<GatewayPrincipalEnvelope> {
   const result = await authenticateGatewayRequest(
     new Request("https://example.test/matchmaking", { method: "POST" }),
     () => ({ id: principalId, playerId: `${principalId}-player` }),
-    TOKEN_SECRET
+    TOKEN_SECRET,
   );
 
   if (!result.ok) {
@@ -41,14 +41,12 @@ async function createGatewayPrincipal(
   return result.value.gatewayPrincipal;
 }
 
-async function createInitializedPool(
-  pool = createPool()
-): Promise<{
+async function createInitializedPool(pool = createPool()): Promise<{
   readonly pool: MatchmakingPool;
   readonly stub: DurableObjectStub<MatchPoolDurableObject>;
 }> {
   const stub = env.FLARE_LOBBY_MATCH_POOLS.getByName(
-    createMatchmakingPoolKey(pool)
+    createMatchmakingPoolKey(pool),
   );
   await stub.initialize({ pool });
   return { pool, stub };
@@ -56,7 +54,7 @@ async function createInitializedPool(
 
 function createTicketOptions(
   gatewayPrincipal: GatewayPrincipalEnvelope,
-  overrides: Partial<MatchmakingTicketCreationOptions> = {}
+  overrides: Partial<MatchmakingTicketCreationOptions> = {},
 ): MatchmakingTicketCreationOptions {
   return {
     gatewayPrincipal,
@@ -65,7 +63,7 @@ function createTicketOptions(
     inputMethod: "keyboard_mouse",
     searchAttributes: { platform: "web", role: "duelist" },
     expiresAt: Date.now() + 60_000,
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -82,9 +80,11 @@ function getQueuedAt(ticket: {
 describe("Match Pool Durable Object", () => {
   it("プールを決定的に識別し、チケットの検索属性を SQLite へ保存する", async () => {
     const { pool, stub } = await createInitializedPool();
-    const principal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
+    const principal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
     const ticket = await stub.createTicket(
-      createTicketOptions(principal, { region: pool.region })
+      createTicketOptions(principal, { region: pool.region }),
     );
 
     expect(ticket.status).toBe("waiting");
@@ -94,7 +94,7 @@ describe("Match Pool Durable Object", () => {
     expect(ticket.inputMethod).toBe("keyboard_mouse");
     expect(ticket.searchAttributes).toEqual({
       platform: "web",
-      role: "duelist"
+      role: "duelist",
     });
 
     await runInDurableObject(
@@ -111,7 +111,7 @@ describe("Match Pool Durable Object", () => {
                     search_attributes_json AS searchAttributes
              FROM flarelobby_matchmaking_tickets
              WHERE ticket_id = ?`,
-            ticket.id
+            ticket.id,
           )
           .one();
 
@@ -121,19 +121,21 @@ describe("Match Pool Durable Object", () => {
           inputMethod: "keyboard_mouse",
           searchAttributes: JSON.stringify({
             platform: "web",
-            role: "duelist"
-          })
+            role: "duelist",
+          }),
         });
-      }
+      },
     );
   });
 
   it("同じ作成要求の同時再送を同じチケットへ収束させる", async () => {
     const { stub } = await createInitializedPool();
-    const principal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
+    const principal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
     const options = createTicketOptions(principal);
     const tickets = await Promise.all(
-      Array.from({ length: 4 }, () => stub.createTicket(options))
+      Array.from({ length: 4 }, () => stub.createTicket(options)),
     );
 
     expect(new Set(tickets.map((ticket) => ticket.id)).size).toBe(1);
@@ -147,19 +149,24 @@ describe("Match Pool Durable Object", () => {
       stub,
       async (instance: MatchPoolDurableObject) => {
         try {
-          await instance.createTicket({ ...options, inputMethod: "controller" });
+          await instance.createTicket({
+            ...options,
+            inputMethod: "controller",
+          });
         } catch (error) {
           return (error as { code?: string }).code;
         }
         return undefined;
-      }
+      },
     );
     expect(duplicateCode).toBe("CONFLICT");
   });
 
   it("同一 Pool の同一プレイヤーを有効チケットへ重複参加させない", async () => {
     const { stub } = await createInitializedPool();
-    const principal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
+    const principal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
     await stub.createTicket(createTicketOptions(principal));
 
     const duplicateCode = await runInDurableObject(
@@ -171,20 +178,22 @@ describe("Match Pool Durable Object", () => {
           return (error as { code?: string }).code;
         }
         return undefined;
-      }
+      },
     );
     expect(duplicateCode).toBe("CONFLICT");
   });
 
   it("待機中チケットをキャンセルし、同じキャンセル要求を冪等に返す", async () => {
     const { stub } = await createInitializedPool();
-    const principal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
+    const principal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
     const ticket = await stub.createTicket(createTicketOptions(principal));
     const requestId = `cancel-${crypto.randomUUID()}`;
     const options = {
       gatewayPrincipal: principal,
       ticketId: ticket.id,
-      requestId
+      requestId,
     } as const;
 
     const cancelled = await stub.cancelTicket(options);
@@ -193,29 +202,33 @@ describe("Match Pool Durable Object", () => {
     expect(cancelled.status).toBe("cancelled");
     expect(retried).toEqual(cancelled);
     await expect(stub.getTicket(ticket.id)).resolves.toMatchObject({
-      status: "cancelled"
+      status: "cancelled",
     });
   });
 
   it("成立処理後のキャンセル競合は CONFLICT で拒否し、matched を維持する", async () => {
     const { stub } = await createInitializedPool();
-    const firstPrincipal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
-    const secondPrincipal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
+    const firstPrincipal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
+    const secondPrincipal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
     const first = await stub.createTicket(createTicketOptions(firstPrincipal));
     const second = await stub.createTicket(
-      createTicketOptions(secondPrincipal, { rating: 1_600 })
+      createTicketOptions(secondPrincipal, { rating: 1_600 }),
     );
     const candidate = {
       id: `candidate-${crypto.randomUUID()}`,
       pool: first.pool,
       ticketIds: [first.id, second.id] as const,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
 
     const reserved = await stub.reserveCandidate({ candidate });
     expect(reserved.map((ticket) => ticket.status)).toEqual([
       "matched",
-      "matched"
+      "matched",
     ]);
 
     const cancelCode = await runInDurableObject(
@@ -224,25 +237,27 @@ describe("Match Pool Durable Object", () => {
         try {
           await instance.cancelTicket({
             gatewayPrincipal: firstPrincipal,
-            ticketId: first.id
+            ticketId: first.id,
           });
         } catch (error) {
           return (error as { code?: string }).code;
         }
         return undefined;
-      }
+      },
     );
     expect(cancelCode).toBe("CONFLICT");
     await expect(stub.getTicket(first.id)).resolves.toMatchObject({
-      status: "matched"
+      status: "matched",
     });
   });
 
   it("期限到達時に待機中チケットを expired へ遷移し、Alarm 再試行で重複しない", async () => {
     const { stub } = await createInitializedPool();
-    const principal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
+    const principal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
     const ticket = await stub.createTicket(
-      createTicketOptions(principal, { expiresAt: Date.now() - 1 })
+      createTicketOptions(principal, { expiresAt: Date.now() - 1 }),
     );
 
     await runInDurableObject(stub, async (instance: MatchPoolDurableObject) => {
@@ -257,9 +272,9 @@ describe("Match Pool Durable Object", () => {
         state.storage.sql
           .exec<{ count: number }>(
             "SELECT COUNT(*) AS count FROM flarelobby_matchmaking_events WHERE ticket_id = ?",
-            ticket.id
+            ticket.id,
           )
-          .one().count
+          .one().count,
     );
     await runInDurableObject(stub, async (instance: MatchPoolDurableObject) => {
       await instance.alarm();
@@ -270,9 +285,9 @@ describe("Match Pool Durable Object", () => {
         state.storage.sql
           .exec<{ count: number }>(
             "SELECT COUNT(*) AS count FROM flarelobby_matchmaking_events WHERE ticket_id = ?",
-            ticket.id
+            ticket.id,
           )
-          .one().count
+          .one().count,
     );
 
     expect(eventCountAfterRetry).toBe(eventCountBeforeRetry);
@@ -281,14 +296,16 @@ describe("Match Pool Durable Object", () => {
   it("終端状態を待機状態へ戻さず、異なる Pool のチケットを分離する", async () => {
     const firstSetup = await createInitializedPool();
     const secondSetup = await createInitializedPool(
-      createPool(crypto.randomUUID())
+      createPool(crypto.randomUUID()),
     );
-    const principal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
+    const principal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
     const first = await firstSetup.stub.createTicket(
-      createTicketOptions(principal, { expiresAt: Date.now() - 1 })
+      createTicketOptions(principal, { expiresAt: Date.now() - 1 }),
     );
     const second = await secondSetup.stub.createTicket(
-      createTicketOptions(principal, { expiresAt: Date.now() + 60_000 })
+      createTicketOptions(principal, { expiresAt: Date.now() + 60_000 }),
     );
 
     expect(first.pool).not.toEqual(second.pool);
@@ -299,123 +316,135 @@ describe("Match Pool Durable Object", () => {
       firstSetup.stub,
       async (instance: MatchPoolDurableObject) => {
         await instance.expireDueTickets(Date.now());
-      }
+      },
     );
 
     await expect(firstSetup.stub.getTicket(first.id)).resolves.toMatchObject({
-      status: "expired"
+      status: "expired",
     });
     await expect(secondSetup.stub.getTicket(second.id)).resolves.toMatchObject({
-      status: "waiting"
+      status: "waiting",
     });
 
     const events = await firstSetup.stub.getTicketEvents({
       gatewayPrincipal: principal,
-      ticketId: first.id
+      ticketId: first.id,
     });
     expect(events.map((event) => event.type)).toEqual([
       "creating",
       "waiting",
-      "expired"
+      "expired",
     ]);
   });
 
   it("チケット追加時に検索幅内の候補を自動確保し、不要な Alarm を残さない", async () => {
     const { stub } = await createInitializedPool();
-    const firstPrincipal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
-    const secondPrincipal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
+    const firstPrincipal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
+    const secondPrincipal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
     const first = await stub.createTicket(
-      createTicketOptions(firstPrincipal, { rating: 1_500 })
+      createTicketOptions(firstPrincipal, { rating: 1_500 }),
     );
     const second = await stub.createTicket(
-      createTicketOptions(secondPrincipal, { rating: 1_575 })
+      createTicketOptions(secondPrincipal, { rating: 1_575 }),
     );
 
     expect(first.status).toBe("waiting");
     expect(second.status).toBe("matched");
     await expect(stub.getTicket(first.id)).resolves.toMatchObject({
-      status: "matched"
+      status: "matched",
     });
     await expect(stub.getNextAlarm()).resolves.toBeNull();
 
     const events = await stub.getTicketEvents({
       gatewayPrincipal: secondPrincipal,
-      ticketId: second.id
+      ticketId: second.id,
     });
     expect(events.map((event) => event.type)).toEqual([
       "creating",
       "waiting",
       "reserved",
-      "matched"
+      "matched",
     ]);
   });
 
   it("検索幅境界で品質説明を返し、幅拡大後だけ候補を確保する", async () => {
     const { stub } = await createInitializedPool();
-    const firstPrincipal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
-    const secondPrincipal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
+    const firstPrincipal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
+    const secondPrincipal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
     const first = await stub.createTicket(
       createTicketOptions(firstPrincipal, {
         rating: 1_500,
-        expiresAt: Date.now() + 300_000
-      })
+        expiresAt: Date.now() + 300_000,
+      }),
     );
     const second = await stub.createTicket(
       createTicketOptions(secondPrincipal, {
         rating: 1_600,
-        expiresAt: Date.now() + 300_000
-      })
+        expiresAt: Date.now() + 300_000,
+      }),
     );
     const latestQueuedAt = Math.max(
       Date.parse(getQueuedAt(first)),
-      Date.parse(getQueuedAt(second))
+      Date.parse(getQueuedAt(second)),
     );
 
     const tooEarly = await stub.searchCandidates({
-      now: latestQueuedAt + 19_999
+      now: latestQueuedAt + 19_999,
     });
     expect(tooEarly.candidates).toHaveLength(0);
 
     const atBoundary = await stub.searchCandidates({
-      now: latestQueuedAt + 20_000
+      now: latestQueuedAt + 20_000,
     });
     expect(atBoundary.candidates).toHaveLength(1);
     expect(atBoundary.candidates[0]?.quality).toMatchObject({
       ratingDifference: 100,
       regionMatch: true,
-      inputMethodMatch: true
+      inputMethodMatch: true,
     });
     expect(atBoundary.candidates[0]?.quality.waitingTimeMs).toHaveLength(2);
 
     const reserved = await stub.searchAndReserveCandidates({
-      now: latestQueuedAt + 20_000
+      now: latestQueuedAt + 20_000,
     });
     expect(reserved.candidates).toHaveLength(1);
-    expect(
-      new Set(reserved.candidates[0]?.candidate.ticketIds)
-    ).toEqual(new Set([first.id, second.id]));
+    expect(new Set(reserved.candidates[0]?.candidate.ticketIds)).toEqual(
+      new Set([first.id, second.id]),
+    );
     await expect(stub.getNextAlarm()).resolves.toBeNull();
   });
 
   it("検索幅変更時刻の Alarm で候補探索を起動する", async () => {
     const { stub } = await createInitializedPool();
-    const firstPrincipal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
-    const secondPrincipal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
+    const firstPrincipal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
+    const secondPrincipal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
     const first = await stub.createTicket(
       createTicketOptions(firstPrincipal, {
         rating: 1_500,
-        expiresAt: Date.now() + 300_000
-      })
+        expiresAt: Date.now() + 300_000,
+      }),
     );
     const second = await stub.createTicket(
       createTicketOptions(secondPrincipal, {
         rating: 1_600,
-        expiresAt: Date.now() + 300_000
-      })
+        expiresAt: Date.now() + 300_000,
+      }),
     );
     const oldestQueuedAt = Math.min(
       Date.parse(getQueuedAt(first)),
-      Date.parse(getQueuedAt(second))
+      Date.parse(getQueuedAt(second)),
     );
     const nextAlarm = await stub.getNextAlarm();
 
@@ -428,7 +457,7 @@ describe("Match Pool Durable Object", () => {
          WHERE ticket_id IN (?, ?)`,
         new Date(Date.now() - 20_000).toISOString(),
         first.id,
-        second.id
+        second.id,
       );
     });
     await runInDurableObject(stub, async (instance) => {
@@ -436,10 +465,10 @@ describe("Match Pool Durable Object", () => {
     });
 
     await expect(stub.getTicket(first.id)).resolves.toMatchObject({
-      status: "matched"
+      status: "matched",
     });
     await expect(stub.getTicket(second.id)).resolves.toMatchObject({
-      status: "matched"
+      status: "matched",
     });
     await expect(stub.getNextAlarm()).resolves.toBeNull();
   });
@@ -451,38 +480,42 @@ describe("Match Pool Durable Object", () => {
       maxRatingDifference: 20,
       maxTicketsPerSearch: 16,
       maxCandidatesPerSearch: 64,
-      maxMatchesPerSearch: 4
+      maxMatchesPerSearch: 4,
     };
     const { stub } = await createInitializedPool(pool);
     await stub.configureSearchPolicy(policy);
 
-    const firstPrincipal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
-    const secondPrincipal = await createGatewayPrincipal(`principal-${crypto.randomUUID()}`);
+    const firstPrincipal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
+    const secondPrincipal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
     const first = await stub.createTicket(
-      createTicketOptions(firstPrincipal, { rating: 1_500 })
+      createTicketOptions(firstPrincipal, { rating: 1_500 }),
     );
     const second = await stub.createTicket(
-      createTicketOptions(secondPrincipal, { rating: 1_530 })
+      createTicketOptions(secondPrincipal, { rating: 1_530 }),
     );
 
     expect(first.status).toBe("waiting");
     expect(second.status).toBe("waiting");
     await expect(stub.getSearchPolicy()).resolves.toMatchObject({
       maxRatingDifference: 20,
-      stages: [{ afterMs: 0, maxRatingDifference: 20 }]
+      stages: [{ afterMs: 0, maxRatingDifference: 20 }],
     });
 
     const expanded = await stub.configureSearchPolicy({
       ...policy,
       stages: [{ afterMs: 0, maxRatingDifference: 40 }],
-      maxRatingDifference: 40
+      maxRatingDifference: 40,
     });
     expect(expanded.maxRatingDifference).toBe(40);
     await expect(stub.getTicket(first.id)).resolves.toMatchObject({
-      status: "matched"
+      status: "matched",
     });
     await expect(stub.getTicket(second.id)).resolves.toMatchObject({
-      status: "matched"
+      status: "matched",
     });
   });
 
@@ -492,34 +525,38 @@ describe("Match Pool Durable Object", () => {
 
     for (let index = 0; index < 20; index += 1) {
       const principal = await createGatewayPrincipal(
-        `principal-${crypto.randomUUID()}`
+        `principal-${crypto.randomUUID()}`,
       );
       created.push(
         await stub.createTicket(
           createTicketOptions(principal, {
             rating: 1_500 + (index % 4),
-            pool
-          })
-        )
+            pool,
+          }),
+        ),
       );
     }
 
-    const current = await Promise.all(created.map((ticket) => stub.getTicket(ticket.id)));
+    const current = await Promise.all(
+      created.map((ticket) => stub.getTicket(ticket.id)),
+    );
     const matched = current.filter((ticket) => ticket?.status === "matched");
     const matchedIds = current.flatMap((ticket) =>
-      ticket?.status === "matched" ? ticket.result.candidate.ticketIds : []
+      ticket?.status === "matched" ? ticket.result.candidate.ticketIds : [],
     );
 
     expect(matched.length).toBe(20);
     expect(new Set(matchedIds).size).toBe(20);
-    expect(new Set(
-      matched.flatMap((ticket) =>
-        ticket.status === "matched" ? ticket.result.matchId : []
-      )
-    ).size).toBe(10);
+    expect(
+      new Set(
+        matched.flatMap((ticket) =>
+          ticket.status === "matched" ? ticket.result.matchId : [],
+        ),
+      ).size,
+    ).toBe(10);
     await expect(stub.getSnapshot()).resolves.toMatchObject({
       waitingCount: 0,
-      activeCount: 0
+      activeCount: 0,
     });
   });
 });

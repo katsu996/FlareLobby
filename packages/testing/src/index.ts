@@ -2,13 +2,13 @@ export {
   VirtualClock,
   addMilliseconds,
   createVirtualClock,
-  toEpochMilliseconds
+  toEpochMilliseconds,
 } from "./clock.js";
 export type { AdvancingClock, Clock } from "./clock.js";
 export {
   SEEDED_RANDOM_ALGORITHM,
   SeededRandom,
-  createSeededRandom
+  createSeededRandom,
 } from "./random.js";
 export type { RandomSeed, RandomSource } from "./random.js";
 export {
@@ -18,14 +18,14 @@ export {
   normalizeSimulationPlayers,
   normalizeTimestampDistribution,
   sampleNumericDistribution,
-  sampleTimestampDistribution
+  sampleTimestampDistribution,
 } from "./distributions.js";
 export type {
   NormalizedPlayerGenerationOptions,
   NumericDistribution,
   PlayerGenerationOptions,
   SimulationPlayer,
-  TimestampDistribution
+  TimestampDistribution,
 } from "./distributions.js";
 export {
   compareSearchPolicies,
@@ -34,7 +34,7 @@ export {
   DEFAULT_SIMULATION_DURATION_MS,
   DEFAULT_SIMULATION_POOL,
   DEFAULT_SIMULATION_TICK_MS,
-  MAX_SIMULATION_EVENT_COUNT
+  MAX_SIMULATION_EVENT_COUNT,
 } from "./simulator.js";
 export type {
   MatchmakingSimulationConfig,
@@ -53,11 +53,11 @@ export type {
   SimulationStatistics,
   SimulationTicketResult,
   SimulationTicketStatus,
-  DistributionStatistics
+  DistributionStatistics,
 } from "./simulator.js";
 export {
   formatSimulationOutput,
   serializeSimulationResult,
-  summarizeSimulation
+  summarizeSimulation,
 } from "./report.js";
 export type { SimulationOutput } from "./report.js";

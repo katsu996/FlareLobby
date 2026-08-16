@@ -8,14 +8,14 @@ export interface SimulationOutput {
 
 /** シミュレーション結果を再現可能な整形済み JSON へ変換します。 */
 export function serializeSimulationResult(
-  result: MatchmakingSimulationResult
+  result: MatchmakingSimulationResult,
 ): string {
   return `${JSON.stringify(result, null, 2)}\n`;
 }
 
 /** シミュレーション結果を日本語の短い要約へ変換します。 */
 export function summarizeSimulation(
-  result: MatchmakingSimulationResult
+  result: MatchmakingSimulationResult,
 ): string {
   const statistics = result.statistics;
   const wait = statistics.waitTimeMs;
@@ -30,17 +30,17 @@ export function summarizeSimulation(
     `未成立: ${statistics.unmatchedTicketCount}件 (${unmatchedPercent}%)`,
     `待機時間(ms): 平均 ${formatMetric(wait.average)} / p50 ${formatMetric(wait.p50)} / p95 ${formatMetric(wait.p95)} / p99 ${formatMetric(wait.p99)}`,
     `成立時レート差: 平均 ${formatMetric(rating.average)} / p50 ${formatMetric(rating.p50)} / p95 ${formatMetric(rating.p95)}`,
-    `状態内訳: 待機 ${statistics.waitingTicketCount}、キャンセル ${statistics.cancelledTicketCount}、期限切れ ${statistics.expiredTicketCount}、未参加 ${statistics.notJoinedPlayerCount}`
+    `状態内訳: 待機 ${statistics.waitingTicketCount}、キャンセル ${statistics.cancelledTicketCount}、期限切れ ${statistics.expiredTicketCount}、未参加 ${statistics.notJoinedPlayerCount}`,
   ].join("\n");
 }
 
 /** JSON と人が読める要約をまとめて出力します。 */
 export function formatSimulationOutput(
-  result: MatchmakingSimulationResult
+  result: MatchmakingSimulationResult,
 ): SimulationOutput {
   return Object.freeze({
     json: serializeSimulationResult(result),
-    summary: summarizeSimulation(result)
+    summary: summarizeSimulation(result),
   });
 }
 

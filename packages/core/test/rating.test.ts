@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_ELO_INITIAL_RATING,
   DEFAULT_ELO_K_FACTOR,
-  elo
+  elo,
 } from "../src/index.js";
 import type { EloOptions, RatingCalculationInput } from "../src/index.js";
 
@@ -13,7 +13,7 @@ describe("1 対 1 ELO レーティングエンジン", () => {
     const calculation = engine.calculate({
       ratingA: DEFAULT_ELO_INITIAL_RATING,
       ratingB: DEFAULT_ELO_INITIAL_RATING,
-      result: 1
+      result: 1,
     });
 
     expect(engine.initialRating).toBe(DEFAULT_ELO_INITIAL_RATING);
@@ -32,7 +32,7 @@ describe("1 対 1 ELO レーティングエンジン", () => {
     const calculation = elo().calculate({
       ratingA: 1_500,
       ratingB: 1_500,
-      result: 0.5
+      result: 0.5,
     });
 
     expect(calculation.scoreA).toBe(0.5);
@@ -47,12 +47,12 @@ describe("1 対 1 ELO レーティングエンジン", () => {
     const upset = elo().calculate({
       ratingA: 1_200,
       ratingB: 1_500,
-      result: 1
+      result: 1,
     });
     const expectedWin = elo().calculate({
       ratingA: 1_500,
       ratingB: 1_200,
-      result: 1
+      result: 1,
     });
 
     expect(upset.deltaA).toBeGreaterThan(expectedWin.deltaA);
@@ -65,7 +65,7 @@ describe("1 対 1 ELO レーティングエンジン", () => {
     const calculation = engine.calculate({
       ratingA: 1_200,
       ratingB: 1_200,
-      result: 1
+      result: 1,
     });
 
     expect(engine.initialRating).toBe(1_200);
@@ -80,7 +80,7 @@ describe("1 対 1 ELO レーティングエンジン", () => {
     const loss = engine.calculate({
       ratingA: 1_500,
       ratingB: 1_500,
-      result: 0
+      result: 0,
     });
 
     expect(loss.deltaA).toBe(-1);
@@ -94,7 +94,7 @@ describe("1 対 1 ELO レーティングエンジン", () => {
     const input = {
       ratingA: 0,
       ratingB: 4_000,
-      result: 1
+      result: 1,
     } as const;
     const engine = elo();
 
@@ -108,20 +108,24 @@ describe("1 対 1 ELO レーティングエンジン", () => {
     const engine = elo();
 
     expect(() =>
-      engine.calculate({ ratingA: -1, ratingB: 1_500, result: 1 })
+      engine.calculate({ ratingA: -1, ratingB: 1_500, result: 1 }),
     ).toThrow("ratingA");
     expect(() =>
-      engine.calculate({ ratingA: Number.NaN, ratingB: 1_500, result: 1 })
+      engine.calculate({ ratingA: Number.NaN, ratingB: 1_500, result: 1 }),
     ).toThrow("ratingA");
     expect(() =>
-      engine.calculate({ ratingA: 1_500, ratingB: Number.POSITIVE_INFINITY, result: 1 })
+      engine.calculate({
+        ratingA: 1_500,
+        ratingB: Number.POSITIVE_INFINITY,
+        result: 1,
+      }),
     ).toThrow("ratingB");
     expect(() =>
       engine.calculate({
         ratingA: 1_500,
         ratingB: 1_500,
-        result: 0.25 as RatingCalculationInput["result"]
-      })
+        result: 0.25 as RatingCalculationInput["result"],
+      }),
     ).toThrow("result");
 
     expect(() => elo({ initialRating: -1 })).toThrow("初期レーティング");
@@ -129,7 +133,7 @@ describe("1 対 1 ELO レーティングエンジン", () => {
     expect(() => elo({ kFactor: Number.NaN })).toThrow("K 係数");
     expect(() => elo(null as unknown as EloOptions)).toThrow("設定");
     expect(() => elo({ kFactor: "24" as unknown as number })).toThrow(
-      "kFactor"
+      "kFactor",
     );
   });
 });

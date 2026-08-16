@@ -72,7 +72,7 @@ export interface NormalizedPlayerGenerationOptions {
 
 /** 生成設定を検証して既定値を適用します。 */
 export function normalizePlayerGenerationOptions(
-  input: PlayerGenerationOptions = {}
+  input: PlayerGenerationOptions = {},
 ): NormalizedPlayerGenerationOptions {
   if (!isRecord(input)) {
     throw new TypeError("プレイヤー生成設定はオブジェクトで指定してください。");
@@ -80,7 +80,9 @@ export function normalizePlayerGenerationOptions(
 
   const count = (input["count"] as number | undefined) ?? 0;
   if (!isNonNegativeSafeInteger(count)) {
-    throw new RangeError("生成するプレイヤー数は 0 以上の安全な整数で指定してください。");
+    throw new RangeError(
+      "生成するプレイヤー数は 0 以上の安全な整数で指定してください。",
+    );
   }
 
   const idPrefix = (input["idPrefix"] as string | undefined) ?? "player-";
@@ -95,14 +97,14 @@ export function normalizePlayerGenerationOptions(
   const rating = normalizeNumericDistribution(
     (input["rating"] as NumericDistribution | undefined) ?? {
       kind: "fixed",
-      value: 1_500
-    }
+      value: 1_500,
+    },
   );
   const joinedAt = normalizeTimestampDistribution(
     (input["joinedAt"] as TimestampDistribution | undefined) ?? {
       kind: "fixed",
-      at: 0
-    }
+      at: 0,
+    },
   );
 
   return Object.freeze({
@@ -111,14 +113,14 @@ export function normalizePlayerGenerationOptions(
     rating,
     joinedAt,
     region,
-    inputMethod
+    inputMethod,
   });
 }
 
 /** 指定分布からプレイヤーを決定論的に生成します。 */
 export function generateSimulationPlayers(
   input: PlayerGenerationOptions = {},
-  random: RandomSource
+  random: RandomSource,
 ): readonly SimulationPlayer[] {
   const options = normalizePlayerGenerationOptions(input);
   const players: SimulationPlayer[] = [];
@@ -132,7 +134,9 @@ export function generateSimulationPlayers(
 
     const rating = sampleNumericDistribution(options.rating, random);
     if (!Number.isFinite(rating) || rating < 0) {
-      throw new RangeError("生成されたレーティングは 0 以上の有限値である必要があります。");
+      throw new RangeError(
+        "生成されたレーティングは 0 以上の有限値である必要があります。",
+      );
     }
 
     const joinedAtMs = sampleTimestampDistribution(options.joinedAt, random);
@@ -144,8 +148,8 @@ export function generateSimulationPlayers(
         rating,
         joinedAt: new Date(joinedAtMs).toISOString(),
         region: options.region,
-        inputMethod: options.inputMethod
-      })
+        inputMethod: options.inputMethod,
+      }),
     );
     playerIds.add(id);
   }
@@ -155,7 +159,7 @@ export function generateSimulationPlayers(
 
 /** 固定シナリオのプレイヤー配列を検証し、順序を安定化します。 */
 export function normalizeSimulationPlayers(
-  input: readonly SimulationPlayer[]
+  input: readonly SimulationPlayer[],
 ): readonly SimulationPlayer[] {
   if (!Array.isArray(input)) {
     throw new TypeError("固定プレイヤーは配列で指定してください。");
@@ -198,7 +202,7 @@ export function normalizeSimulationPlayers(
       rating,
       joinedAt: new Date(joinedAtMs).toISOString(),
       region,
-      inputMethod
+      inputMethod,
     });
   });
 
@@ -208,7 +212,7 @@ export function normalizeSimulationPlayers(
 
 /** 数値分布を検証してコピーします。 */
 export function normalizeNumericDistribution(
-  input: NumericDistribution
+  input: NumericDistribution,
 ): NumericDistribution {
   if (!isRecord(input) || typeof input.kind !== "string") {
     throw new TypeError("数値分布の形式が不正です。");
@@ -229,7 +233,7 @@ export function normalizeNumericDistribution(
     return Object.freeze({
       kind: "uniform",
       min: input.min,
-      max: input.max
+      max: input.max,
     });
   }
 
@@ -257,7 +261,7 @@ export function normalizeNumericDistribution(
       mean: input.mean,
       standardDeviation: input.standardDeviation,
       ...(min === undefined ? {} : { min }),
-      ...(max === undefined ? {} : { max })
+      ...(max === undefined ? {} : { max }),
     });
   }
 
@@ -267,7 +271,7 @@ export function normalizeNumericDistribution(
 /** 数値分布から 1 件の値を生成します。正規分布は Box-Muller-v1 です。 */
 export function sampleNumericDistribution(
   input: NumericDistribution,
-  random: RandomSource
+  random: RandomSource,
 ): number {
   const distribution = normalizeNumericDistribution(input);
 
@@ -277,17 +281,12 @@ export function sampleNumericDistribution(
 
   if (distribution.kind === "uniform") {
     return (
-      distribution.min +
-      (distribution.max - distribution.min) * random.next()
+      distribution.min + (distribution.max - distribution.min) * random.next()
     );
   }
 
   if (distribution.standardDeviation === 0) {
-    return clamp(
-      distribution.mean,
-      distribution.min,
-      distribution.max
-    );
+    return clamp(distribution.mean, distribution.min, distribution.max);
   }
 
   const first = Math.max(random.next(), Number.MIN_VALUE);
@@ -302,7 +301,7 @@ export function sampleNumericDistribution(
 
 /** 時刻分布を検証してコピーします。 */
 export function normalizeTimestampDistribution(
-  input: TimestampDistribution
+  input: TimestampDistribution,
 ): TimestampDistribution {
   if (!isRecord(input) || typeof input.kind !== "string") {
     throw new TypeError("時刻分布の形式が不正です。");
@@ -323,7 +322,7 @@ export function normalizeTimestampDistribution(
     return Object.freeze({
       kind: "uniform",
       from: new Date(from).toISOString(),
-      to: new Date(to).toISOString()
+      to: new Date(to).toISOString(),
     });
   }
 
@@ -333,7 +332,7 @@ export function normalizeTimestampDistribution(
 /** 時刻分布からミリ秒単位の時刻を生成します。 */
 export function sampleTimestampDistribution(
   input: TimestampDistribution,
-  random: RandomSource
+  random: RandomSource,
 ): number {
   const distribution = normalizeTimestampDistribution(input);
 
@@ -346,12 +345,19 @@ export function sampleTimestampDistribution(
   return from + Math.floor((to - from + 1) * random.next());
 }
 
-function clamp(value: number, min: number | undefined, max: number | undefined): number {
+function clamp(
+  value: number,
+  min: number | undefined,
+  max: number | undefined,
+): number {
   const lowerBound = min === undefined ? value : Math.max(value, min);
   return max === undefined ? lowerBound : Math.min(lowerBound, max);
 }
 
-function assertFiniteNumber(value: unknown, name: string): asserts value is number {
+function assertFiniteNumber(
+  value: unknown,
+  name: string,
+): asserts value is number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new RangeError(`${name}は有限の数値で指定してください。`);
   }
@@ -359,7 +365,7 @@ function assertFiniteNumber(value: unknown, name: string): asserts value is numb
 
 function assertNonEmptyString(
   value: unknown,
-  name: string
+  name: string,
 ): asserts value is string {
   if (!isNonEmptyString(value)) {
     throw new TypeError(`${name}は空でない文字列で指定してください。`);

@@ -336,9 +336,7 @@ export interface ExpiredMatchmakingTicket<
 }
 
 /** 状態ごとに必須項目を区別できるマッチングチケットです。 */
-export type MatchmakingTicket<
-  TApp extends AnyFlareLobbyApp = FlareLobbyApp,
-> =
+export type MatchmakingTicket<TApp extends AnyFlareLobbyApp = FlareLobbyApp> =
   | CreatingMatchmakingTicket<TApp>
   | WaitingMatchmakingTicket<TApp>
   | ReservedMatchmakingTicket<TApp>

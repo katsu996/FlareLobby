@@ -45,13 +45,13 @@ await pool.initialize({
     stages: [
       { afterMs: 0, maxRatingDifference: 50 },
       { afterMs: 15_000, maxRatingDifference: 100 },
-      { afterMs: 45_000, maxRatingDifference: 250 }
+      { afterMs: 45_000, maxRatingDifference: 250 },
     ],
     maxRatingDifference: 250,
     maxTicketsPerSearch: 256,
     maxCandidatesPerSearch: 8_192,
-    maxMatchesPerSearch: 32
-  }
+    maxMatchesPerSearch: 32,
+  },
 });
 ```
 
@@ -72,8 +72,8 @@ await pool.initialize({
     teamIds: ["blue", "red"],
     maxPlayers: 2,
     minimumPlayers: 2,
-    requireAllPlayersReady: false
-  }
+    requireAllPlayersReady: false,
+  },
 });
 ```
 

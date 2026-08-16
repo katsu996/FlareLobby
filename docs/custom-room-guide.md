@@ -18,7 +18,7 @@ type GameApp = FlareLobbyApp<
 
 const lobby = createFlareLobbyClient<GameApp>({
   endpoint: "https://lobby.example.com",
-  getAccessToken: () => auth.getAccessToken()
+  getAccessToken: () => auth.getAccessToken(),
 });
 
 const host = await lobby.createCustomRoom({
@@ -26,7 +26,7 @@ const host = await lobby.createCustomRoom({
   visibility: "unlisted",
   joinMethod: "invitation",
   maxPlayers: 4,
-  settings: { map: "forest" }
+  settings: { map: "forest" },
 });
 
 const unsubscribe = host.subscribe((snapshot) => {
@@ -45,11 +45,11 @@ WebSocket 接続と初期スナップショット同期まで完了した Room �
 
 ## 作成方式
 
-| 設定 | 動作 | `invitationCode` |
-| --- | --- | --- |
-| `joinMethod: "public"` | ルーム ID を指定して認証・認可後に参加 | `null` |
-| `joinMethod: "invitation"` | 6 文字の招待コードと Room の照合が必要 | 作成結果に含む |
-| `joinMethod: "password"` | Room 側のパスワード照合が必要 | `null` |
+| 設定                       | 動作                                   | `invitationCode` |
+| -------------------------- | -------------------------------------- | ---------------- |
+| `joinMethod: "public"`     | ルーム ID を指定して認証・認可後に参加 | `null`           |
+| `joinMethod: "invitation"` | 6 文字の招待コードと Room の照合が必要 | 作成結果に含む   |
+| `joinMethod: "password"`   | Room 側のパスワード照合が必要          | `null`           |
 
 `joinMethod` の `"open"` と `"invite"`、`joinMode`、`listing`、`title` は入力の
 説明的な別名です。説明が分かれる場合は正規名を優先してください。パスワードは
@@ -63,7 +63,7 @@ const player = await lobby.joinCustomRoom(host.id);
 const spectator = await lobby.joinCustomRoom({
   roomId: host.id,
   role: "spectator",
-  password: "必要な場合だけ"
+  password: "必要な場合だけ",
 });
 
 // SpectatorRoom では、退出と購読だけが利用できます。
@@ -78,11 +78,11 @@ await player.leave();
 
 ## Room 操作と権限
 
-| ハンドル | 操作 | 成功時の戻り値 |
-| --- | --- | --- |
-| `PlayerRoom` | `setReady`、`selectTeam`、`send`、`leave` | 最新 `RoomSnapshot`（`send` は `void`） |
-| `HostRoom` | 上記に加えて `updateSettings`、`transferHost`、`kick`、`startMatch`、`close` | 最新 `RoomSnapshot` |
-| `SpectatorRoom` | `subscribe`、`on`、`onMessage`、`onStatusChange`、`leave` | 操作ごとの契約に従う |
+| ハンドル        | 操作                                                                         | 成功時の戻り値                          |
+| --------------- | ---------------------------------------------------------------------------- | --------------------------------------- |
+| `PlayerRoom`    | `setReady`、`selectTeam`、`send`、`leave`                                    | 最新 `RoomSnapshot`（`send` は `void`） |
+| `HostRoom`      | 上記に加えて `updateSettings`、`transferHost`、`kick`、`startMatch`、`close` | 最新 `RoomSnapshot`                     |
+| `SpectatorRoom` | `subscribe`、`on`、`onMessage`、`onStatusChange`、`leave`                    | 操作ごとの契約に従う                    |
 
 サーバーが成功応答を返すまで Promise は解決しません。クライアントからの
 `playerId` は本人確認に使われず、Gateway が認証 Hook から得た主体へ束縛されます。
@@ -131,8 +131,8 @@ const room = await lobby.joinCustomRoom({
     maxAttempts: 5,
     baseDelayMs: 250,
     maxDelayMs: 5_000,
-    jitterRatio: 0.2
-  }
+    jitterRatio: 0.2,
+  },
 });
 ```
 
@@ -144,13 +144,13 @@ const room = await lobby.joinCustomRoom({
 
 Client SDK を使わない場合の入口は次のとおりです。
 
-| 操作 | エンドポイント | 認証 | 成功結果 |
-| --- | --- | --- | --- |
-| 作成 | `POST /v1/custom-rooms` | 必須 | `CustomRoomCreationResult` |
-| 参加 | `POST /v1/custom-rooms/join` または `POST /v1/custom-rooms/{id-or-code}/join` | 必須 | `CustomRoomJoinResult` |
-| 退出 | `POST /v1/custom-rooms/leave` または `POST /v1/custom-rooms/{roomId}/leave` | 必須 | `CustomRoomLeaveResult` |
-| 一覧 | `GET /v1/custom-rooms` | 不要 | `CustomRoomListResult` |
-| 接続 | `GET /v1/custom-rooms/{roomId}/ws` | WebSocket subprotocol | `room.snapshot` イベント |
+| 操作 | エンドポイント                                                                | 認証                  | 成功結果                   |
+| ---- | ----------------------------------------------------------------------------- | --------------------- | -------------------------- |
+| 作成 | `POST /v1/custom-rooms`                                                       | 必須                  | `CustomRoomCreationResult` |
+| 参加 | `POST /v1/custom-rooms/join` または `POST /v1/custom-rooms/{id-or-code}/join` | 必須                  | `CustomRoomJoinResult`     |
+| 退出 | `POST /v1/custom-rooms/leave` または `POST /v1/custom-rooms/{roomId}/leave`   | 必須                  | `CustomRoomLeaveResult`    |
+| 一覧 | `GET /v1/custom-rooms`                                                        | 不要                  | `CustomRoomListResult`     |
+| 接続 | `GET /v1/custom-rooms/{roomId}/ws`                                            | WebSocket subprotocol | `room.snapshot` イベント   |
 
 HTTP のエラー本文は `{ "code": "...", "message": "..." }` です。`message` の
 文言では分岐せず、[APIリファレンス](./api-reference.md#エラーコード)の安定した

@@ -34,7 +34,12 @@
     }
   },
   "types": "./dist/index.d.ts",
-  "files": ["dist", "!dist/.tsbuildinfo", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "!dist/.tsbuildinfo",
+    "README.md",
+    "LICENSE"
+  ],
   "publishConfig": {
     "access": "public"
   },

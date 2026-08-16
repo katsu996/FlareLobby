@@ -1,8 +1,4 @@
-import {
-  evictDurableObject,
-  env,
-  runInDurableObject
-} from "cloudflare:test";
+import { evictDurableObject, env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { Participant } from "@flarelobby/core";
 
@@ -11,12 +7,12 @@ import type {
   RoomInitializationOptions,
   RoomOperationResult,
   RoomScheduledOperationOptions,
-  RoomDurableObject
+  RoomDurableObject,
 } from "../src/index.js";
 
 function createRoomOptions(
   roomId: string,
-  overrides: Partial<RoomInitializationOptions> = {}
+  overrides: Partial<RoomInitializationOptions> = {},
 ): RoomInitializationOptions {
   return {
     room: {
@@ -25,11 +21,11 @@ function createRoomOptions(
       invitationCode: "4F9K2D",
       visibility: "unlisted",
       settings: { map: "forest" },
-      metadata: { title: "検証ルーム" }
+      metadata: { title: "検証ルーム" },
     },
     host: {
       participantId: "participant-host",
-      playerId: "player-host"
+      playerId: "player-host",
     },
     participants: [
       {
@@ -37,23 +33,23 @@ function createRoomOptions(
         id: "participant-host",
         player: { id: "player-host" },
         teamId: null,
-        ready: false
-      }
+        ready: false,
+      },
     ],
     teams: [{ id: "red" }, { id: "blue" }],
     maxPlayers: 4,
     finishedRoomRetentionMs: 60_000,
-    ...overrides
+    ...overrides,
   };
 }
 
 async function createGatewayPrincipal(
   principalId: string,
-  playerId = principalId
+  playerId = principalId,
 ): Promise<{ readonly token: string }> {
   const result = await createGatewayPrincipalEnvelope(
     env.FLARE_LOBBY_TOKEN_SECRET,
-    { id: principalId, playerId }
+    { id: principalId, playerId },
   );
 
   if (!result.ok) {
@@ -64,7 +60,7 @@ async function createGatewayPrincipal(
 }
 
 async function readErrorCode(
-  operation: () => Promise<unknown>
+  operation: () => Promise<unknown>,
 ): Promise<string | undefined> {
   try {
     await operation();
@@ -83,13 +79,13 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
     const options = createRoomOptions(roomId);
 
     expect(env.FLARE_LOBBY_ROOMS.idFromName(roomId).toString()).toBe(
-      env.FLARE_LOBBY_ROOMS.idFromName(roomId).toString()
+      env.FLARE_LOBBY_ROOMS.idFromName(roomId).toString(),
     );
 
     const first = await firstStub.initialize(options);
     const second = await secondStub.initialize({
       ...options,
-      participants: []
+      participants: [],
     });
 
     expect(second).toEqual(first);
@@ -101,7 +97,7 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
     const concurrentOptions = createRoomOptions(concurrentRoomId);
     const concurrent = await Promise.all([
       concurrentStub.initialize(concurrentOptions),
-      concurrentStub.initialize(concurrentOptions)
+      concurrentStub.initialize(concurrentOptions),
     ]);
 
     expect(concurrent[0]).toEqual(concurrent[1]);
@@ -110,12 +106,12 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
     await runInDurableObject(firstStub, async (_instance, state) => {
       const roomCount = state.storage.sql
         .exec<{ count: number }>(
-          "SELECT COUNT(*) AS count FROM flarelobby_rooms"
+          "SELECT COUNT(*) AS count FROM flarelobby_rooms",
         )
         .one().count;
       const participantCount = state.storage.sql
         .exec<{ count: number }>(
-          "SELECT COUNT(*) AS count FROM flarelobby_room_participants"
+          "SELECT COUNT(*) AS count FROM flarelobby_room_participants",
         )
         .one().count;
 
@@ -134,11 +130,11 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
 
     const preparing = await room.transitionState({
       status: "preparing",
-      at: preparingAt
+      at: preparingAt,
     });
     expect(preparing.state).toEqual({
       status: "preparing",
-      preparationStartedAt: preparingAt
+      preparationStartedAt: preparingAt,
     });
     expect(preparing.revision).toBe(initialized.revision + 1);
 
@@ -148,21 +144,21 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
     const conflictCode = await runInDurableObject(
       room,
       async (instance: RoomDurableObject) => {
-      try {
-        await instance.transition("waiting");
-      } catch (error) {
-        return (error as { code?: string }).code;
-      }
+        try {
+          await instance.transition("waiting");
+        } catch (error) {
+          return (error as { code?: string }).code;
+        }
 
-      return undefined;
-      }
+        return undefined;
+      },
     );
     expect(conflictCode).toBe("CONFLICT");
 
     const inProgress = await room.transition("in_progress", inProgressAt);
     expect(inProgress.state).toEqual({
       status: "in_progress",
-      startedAt: inProgressAt
+      startedAt: inProgressAt,
     });
     expect(inProgress.revision).toBe(preparing.revision + 1);
 
@@ -175,14 +171,14 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
     const finishedCode = await runInDurableObject(
       room,
       async (instance: RoomDurableObject) => {
-      try {
-        await instance.transition("preparing");
-      } catch (error) {
-        return (error as { code?: string }).code;
-      }
+        try {
+          await instance.transition("preparing");
+        } catch (error) {
+          return (error as { code?: string }).code;
+        }
 
-      return undefined;
-      }
+        return undefined;
+      },
     );
     expect(finishedCode).toBe("ROOM_FINISHED");
   });
@@ -196,12 +192,12 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
     const later: RoomScheduledOperationOptions = {
       id: "later",
       dueAt: now + 10_000,
-      payload: { name: "later" }
+      payload: { name: "later" },
     };
     const earlier: RoomScheduledOperationOptions = {
       id: "earlier",
       dueAt: now + 2_000,
-      payload: { name: "earlier" }
+      payload: { name: "earlier" },
     };
 
     await room.scheduleOperation(later);
@@ -213,20 +209,20 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
         id: "earlier",
         dueAt: earlier.dueAt,
         kind: "noop",
-        payload: { name: "earlier" }
+        payload: { name: "earlier" },
       },
       {
         id: "later",
         dueAt: later.dueAt,
         kind: "noop",
-        payload: { name: "later" }
-      }
+        payload: { name: "later" },
+      },
     ]);
 
     await room.scheduleOperation({
       id: "due-now",
       dueAt: Date.now() - 1,
-      payload: null
+      payload: null,
     });
     await runInDurableObject(room, async (instance: RoomDurableObject) => {
       await instance.alarm();
@@ -237,14 +233,14 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
         id: "earlier",
         dueAt: earlier.dueAt,
         kind: "noop",
-        payload: { name: "earlier" }
+        payload: { name: "earlier" },
       },
       {
         id: "later",
         dueAt: later.dueAt,
         kind: "noop",
-        payload: { name: "later" }
-      }
+        payload: { name: "later" },
+      },
     ]);
   });
 
@@ -252,10 +248,13 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
     const roomId = `room-retention-${crypto.randomUUID()}`;
     const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
     await room.initialize(
-      createRoomOptions(roomId, { finishedRoomRetentionMs: 0 })
+      createRoomOptions(roomId, { finishedRoomRetentionMs: 0 }),
     );
 
-    await room.transition("finished", new Date(Date.now() - 1_000).toISOString());
+    await room.transition(
+      "finished",
+      new Date(Date.now() - 1_000).toISOString(),
+    );
     expect((await room.getSnapshot())?.state.status).toBe("finished");
 
     await runInDurableObject(room, async (instance: RoomDurableObject) => {
@@ -278,25 +277,29 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
       command: "room.set_ready",
       payload: { ready: true },
       result: { revision: 1 },
-      createdAt: 1_000
+      createdAt: 1_000,
     } as const;
 
-    await expect(room.recordProcessedCommand(command)).resolves.toEqual(command);
-    await expect(room.recordProcessedCommand(command)).resolves.toEqual(command);
+    await expect(room.recordProcessedCommand(command)).resolves.toEqual(
+      command,
+    );
+    await expect(room.recordProcessedCommand(command)).resolves.toEqual(
+      command,
+    );
     const conflictCode = await runInDurableObject(
       room,
       async (instance: RoomDurableObject) => {
-      try {
-        await instance.recordProcessedCommand({
-          ...command,
-          payload: { ready: false }
-        });
-      } catch (error) {
-        return (error as { code?: string }).code;
-      }
+        try {
+          await instance.recordProcessedCommand({
+            ...command,
+            payload: { ready: false },
+          });
+        } catch (error) {
+          return (error as { code?: string }).code;
+        }
 
-      return undefined;
-      }
+        return undefined;
+      },
     );
     expect(conflictCode).toBe("CONFLICT");
   });
@@ -306,39 +309,39 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
     const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
     const hostPrincipal = await createGatewayPrincipal(
       `principal-event-history-${crypto.randomUUID()}`,
-      "player-host"
+      "player-host",
     );
 
     await room.initialize(
       createRoomOptions(roomId, {
-        eventHistoryLimit: 2
-      })
+        eventHistoryLimit: 2,
+      }),
     );
 
     await room.setReady({
       gatewayPrincipal: hostPrincipal,
       participantId: "participant-host",
-      ready: true
+      ready: true,
     });
     await room.setReady({
       gatewayPrincipal: hostPrincipal,
       participantId: "participant-host",
-      ready: false
+      ready: false,
     });
     await room.setReady({
       gatewayPrincipal: hostPrincipal,
       participantId: "participant-host",
-      ready: true
+      ready: true,
     });
 
     await runInDurableObject(room, (_instance, state) => {
       expect(
         state.storage.sql
           .exec<{ revision: number }>(
-            "SELECT revision FROM flarelobby_room_events ORDER BY revision ASC"
+            "SELECT revision FROM flarelobby_room_events ORDER BY revision ASC",
           )
           .toArray()
-          .map((event) => event.revision)
+          .map((event) => event.revision),
       ).toEqual([2, 3]);
     });
   });
@@ -348,7 +351,7 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
     const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
     const hostPrincipal = await createGatewayPrincipal(
       `principal-disconnect-grace-${crypto.randomUUID()}`,
-      "player-host"
+      "player-host",
     );
 
     await room.initialize(
@@ -360,17 +363,17 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
             id: "participant-host",
             player: { id: "player-host" },
             teamId: null,
-            ready: true
+            ready: true,
           },
           {
             kind: "player",
             id: "participant-oldest",
             player: { id: "player-oldest" },
             teamId: null,
-            ready: false
-          }
-        ]
-      })
+            ready: false,
+          },
+        ],
+      }),
     );
 
     const disconnectedAt = new Date(Date.now() - 1_000).toISOString();
@@ -378,7 +381,7 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
       gatewayPrincipal: hostPrincipal,
       participantId: "participant-host",
       role: "player",
-      at: disconnectedAt
+      at: disconnectedAt,
     });
 
     await runInDurableObject(room, async (instance: RoomDurableObject) => {
@@ -392,11 +395,11 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
 
     expect(snapshot.host).toEqual({
       participantId: "participant-oldest",
-      playerId: "player-oldest"
+      playerId: "player-oldest",
     });
-    expect(snapshot.participants.map((participant: Participant) => participant.id)).toEqual([
-      "participant-oldest"
-    ]);
+    expect(
+      snapshot.participants.map((participant: Participant) => participant.id),
+    ).toEqual(["participant-oldest"]);
     expect(snapshot.revision).toBe(1);
   });
 });
@@ -407,15 +410,15 @@ describe("Room Durable Object のカスタムルーム操作", () => {
     const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
     const hostPrincipal = await createGatewayPrincipal(
       "principal-host-self",
-      "player-host"
+      "player-host",
     );
     const playerPrincipal = await createGatewayPrincipal(
       "principal-player-self",
-      "player-self"
+      "player-self",
     );
     const outsiderPrincipal = await createGatewayPrincipal(
       "principal-outsider-self",
-      "player-outsider"
+      "player-outsider",
     );
 
     await room.initialize(
@@ -428,23 +431,23 @@ describe("Room Durable Object のカスタムルーム操作", () => {
             id: "participant-host",
             player: { id: "player-host" },
             teamId: null,
-            ready: false
+            ready: false,
           },
           {
             kind: "player",
             id: "participant-self",
             player: { id: "player-self" },
             teamId: null,
-            ready: false
-          }
-        ]
-      })
+            ready: false,
+          },
+        ],
+      }),
     );
 
     const ready = await room.setReady({
       gatewayPrincipal: hostPrincipal,
       participantId: "participant-host",
-      ready: true
+      ready: true,
     });
     expect(ready.revision).toBe(1);
     expect(ready.participants[0]).toMatchObject({ ready: true });
@@ -452,7 +455,7 @@ describe("Room Durable Object のカスタムルーム操作", () => {
     const selected = await room.selectTeam({
       gatewayPrincipal: playerPrincipal,
       participantId: "participant-self",
-      teamId: "blue"
+      teamId: "blue",
     });
     expect(selected.revision).toBeGreaterThan(ready.revision);
     expect(selected.participants).toContainEqual({
@@ -460,7 +463,7 @@ describe("Room Durable Object のカスタムルーム操作", () => {
       id: "participant-self",
       player: { id: "player-self" },
       teamId: "blue",
-      ready: false
+      ready: false,
     });
 
     expect(
@@ -468,9 +471,9 @@ describe("Room Durable Object のカスタムルーム操作", () => {
         room.selectTeam({
           gatewayPrincipal: playerPrincipal,
           participantId: "participant-self",
-          teamId: "unknown"
-        })
-      )
+          teamId: "unknown",
+        }),
+      ),
     ).toBe("CONFLICT");
 
     expect(
@@ -478,18 +481,18 @@ describe("Room Durable Object のカスタムルーム操作", () => {
         room.setReady({
           gatewayPrincipal: outsiderPrincipal,
           participantId: "participant-host",
-          ready: false
-        })
-      )
+          ready: false,
+        }),
+      ),
     ).toBe("FORBIDDEN");
 
     const disconnected = await room.disconnect({
       gatewayPrincipal: hostPrincipal,
-      participantId: "participant-host"
+      participantId: "participant-host",
     });
     expect(disconnected.host).toEqual({
       participantId: "participant-host",
-      playerId: "player-host"
+      playerId: "player-host",
     });
     expect(disconnected.revision).toBe(selected.revision);
   });
@@ -499,15 +502,15 @@ describe("Room Durable Object のカスタムルーム操作", () => {
     const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
     const hostPrincipal = await createGatewayPrincipal(
       "principal-host-operation",
-      "player-host"
+      "player-host",
     );
     const playerOnePrincipal = await createGatewayPrincipal(
       "principal-player-one-operation",
-      "player-one"
+      "player-one",
     );
     const playerTwoPrincipal = await createGatewayPrincipal(
       "principal-player-two-operation",
-      "player-two"
+      "player-two",
     );
 
     await room.initialize(
@@ -519,30 +522,30 @@ describe("Room Durable Object のカスタムルーム操作", () => {
             id: "participant-host",
             player: { id: "player-host" },
             teamId: null,
-            ready: false
+            ready: false,
           },
           {
             kind: "player",
             id: "participant-one",
             player: { id: "player-one" },
             teamId: null,
-            ready: false
+            ready: false,
           },
           {
             kind: "player",
             id: "participant-two",
             player: { id: "player-two" },
             teamId: null,
-            ready: false
-          }
-        ]
-      })
+            ready: false,
+          },
+        ],
+      }),
     );
 
     const updated = await room.updateSettings({
       gatewayPrincipal: hostPrincipal,
       participantId: "participant-host",
-      settings: { map: "desert" }
+      settings: { map: "desert" },
     });
     expect(updated.room.settings).toEqual({ map: "desert" });
 
@@ -551,20 +554,20 @@ describe("Room Durable Object のカスタムルーム操作", () => {
         room.updateSettings({
           gatewayPrincipal: playerOnePrincipal,
           participantId: "participant-one",
-          settings: { map: "cheat" }
-        })
-      )
+          settings: { map: "cheat" },
+        }),
+      ),
     ).toBe("FORBIDDEN");
 
     const transferred = await room.transferHost({
       gatewayPrincipal: hostPrincipal,
       participantId: "participant-host",
       targetParticipantId: "participant-one",
-      requestId: "transfer-host-once"
+      requestId: "transfer-host-once",
     });
     expect(transferred.host).toEqual({
       participantId: "participant-one",
-      playerId: "player-one"
+      playerId: "player-one",
     });
     expect(transferred.revision).toBeGreaterThan(updated.revision);
 
@@ -573,30 +576,29 @@ describe("Room Durable Object のカスタムルーム操作", () => {
         room.kick({
           gatewayPrincipal: hostPrincipal,
           participantId: "participant-host",
-          targetParticipantId: "participant-two"
-        })
-      )
+          targetParticipantId: "participant-two",
+        }),
+      ),
     ).toBe("FORBIDDEN");
 
     const kicked = await room.kick({
       gatewayPrincipal: playerOnePrincipal,
       participantId: "participant-one",
       targetPlayerId: "player-two",
-      reason: "AFK"
+      reason: "AFK",
     });
     expect(kicked.revision).toBeGreaterThan(transferred.revision);
-    expect(kicked.participants.map((participant: Participant) => participant.id)).toEqual([
-      "participant-host",
-      "participant-one"
-    ]);
+    expect(
+      kicked.participants.map((participant: Participant) => participant.id),
+    ).toEqual(["participant-host", "participant-one"]);
 
     expect(
       await readErrorCode(() =>
         room.startMatch({
           gatewayPrincipal: playerTwoPrincipal,
-          participantId: "participant-two"
-        })
-      )
+          participantId: "participant-two",
+        }),
+      ),
     ).toBe("FORBIDDEN");
   });
 
@@ -605,7 +607,7 @@ describe("Room Durable Object のカスタムルーム操作", () => {
     const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
     const hostPrincipal = await createGatewayPrincipal(
       "principal-host-leave",
-      "player-host"
+      "player-host",
     );
 
     await room.initialize(
@@ -617,24 +619,24 @@ describe("Room Durable Object のカスタムルーム操作", () => {
             id: "participant-host",
             player: { id: "player-host" },
             teamId: null,
-            ready: false
+            ready: false,
           },
           {
             kind: "player",
             id: "participant-oldest",
             player: { id: "player-oldest" },
             teamId: null,
-            ready: false
+            ready: false,
           },
           {
             kind: "player",
             id: "participant-newest",
             player: { id: "player-newest" },
             teamId: null,
-            ready: false
-          }
-        ]
-      })
+            ready: false,
+          },
+        ],
+      }),
     );
 
     await runInDurableObject(room, (_instance, state) => {
@@ -644,7 +646,7 @@ describe("Room Durable Object のカスタムルーム操作", () => {
            WHEN 'participant-host' THEN 10
            WHEN 'participant-oldest' THEN 20
            WHEN 'participant-newest' THEN 30
-         END`
+         END`,
       );
     });
 
@@ -652,22 +654,23 @@ describe("Room Durable Object のカスタムルーム操作", () => {
       gatewayPrincipal: hostPrincipal,
       participantId: "participant-host",
       role: "player",
-      requestId: "host-leave-once"
+      requestId: "host-leave-once",
     });
     expect(left.snapshot.host).toEqual({
       participantId: "participant-oldest",
-      playerId: "player-oldest"
+      playerId: "player-oldest",
     });
-    expect(left.snapshot.participants.map((participant: Participant) => participant.id)).toEqual([
-      "participant-oldest",
-      "participant-newest"
-    ]);
+    expect(
+      left.snapshot.participants.map(
+        (participant: Participant) => participant.id,
+      ),
+    ).toEqual(["participant-oldest", "participant-newest"]);
 
     const resent = await room.leave({
       gatewayPrincipal: hostPrincipal,
       participantId: "participant-host",
       role: "player",
-      requestId: "host-leave-once"
+      requestId: "host-leave-once",
     });
     expect(resent).toEqual(left);
   });
@@ -677,11 +680,11 @@ describe("Room Durable Object のカスタムルーム操作", () => {
     const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
     const hostPrincipal = await createGatewayPrincipal(
       "principal-host-start",
-      "player-host"
+      "player-host",
     );
     const playerPrincipal = await createGatewayPrincipal(
       "principal-player-start",
-      "player-start"
+      "player-start",
     );
 
     await room.initialize(
@@ -694,17 +697,17 @@ describe("Room Durable Object のカスタムルーム操作", () => {
             id: "participant-host",
             player: { id: "player-host" },
             teamId: null,
-            ready: false
+            ready: false,
           },
           {
             kind: "player",
             id: "participant-start",
             player: { id: "player-start" },
             teamId: null,
-            ready: false
-          }
-        ]
-      })
+            ready: false,
+          },
+        ],
+      }),
     );
 
     expect(
@@ -712,30 +715,30 @@ describe("Room Durable Object のカスタムルーム操作", () => {
         room.startMatch({
           gatewayPrincipal: hostPrincipal,
           participantId: "participant-host",
-          at: "2026-08-11T00:00:00.000Z"
-        })
-      )
+          at: "2026-08-11T00:00:00.000Z",
+        }),
+      ),
     ).toBe("CONFLICT");
 
     await room.setReady({
       gatewayPrincipal: hostPrincipal,
       participantId: "participant-host",
-      ready: true
+      ready: true,
     });
     await room.setReady({
       gatewayPrincipal: playerPrincipal,
       participantId: "participant-start",
-      ready: true
+      ready: true,
     });
 
     const started = await room.startMatch({
       gatewayPrincipal: hostPrincipal,
       participantId: "participant-host",
-      at: "2026-08-11T00:00:00.000Z"
+      at: "2026-08-11T00:00:00.000Z",
     });
     expect(started.state).toEqual({
       status: "in_progress",
-      startedAt: "2026-08-11T00:00:00.000Z"
+      startedAt: "2026-08-11T00:00:00.000Z",
     });
     expect(started.revision).toBe(4);
 
@@ -744,9 +747,9 @@ describe("Room Durable Object のカスタムルーム操作", () => {
         room.setReady({
           gatewayPrincipal: hostPrincipal,
           participantId: "participant-host",
-          ready: false
-        })
-      )
+          ready: false,
+        }),
+      ),
     ).toBe("CONFLICT");
   });
 
@@ -755,15 +758,15 @@ describe("Room Durable Object のカスタムルーム操作", () => {
     const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
     const hostPrincipal = await createGatewayPrincipal(
       "principal-host-idempotency",
-      "player-host"
+      "player-host",
     );
 
     await room.initialize(
       createRoomOptions(roomId, {
         maxPlayers: 1,
         minimumPlayers: 1,
-        finishedRoomRetentionMs: 60_000
-      })
+        finishedRoomRetentionMs: 60_000,
+      }),
     );
 
     const readyResults = await Promise.all(
@@ -772,13 +775,15 @@ describe("Room Durable Object のカスタムルーム操作", () => {
           gatewayPrincipal: hostPrincipal,
           participantId: "participant-host",
           ready: true,
-          requestId: "ready-once"
-        })
-      )
+          requestId: "ready-once",
+        }),
+      ),
     );
-    expect(new Set(readyResults.map((result: RoomOperationResult) => result.revision))).toEqual(
-      new Set([1])
-    );
+    expect(
+      new Set(
+        readyResults.map((result: RoomOperationResult) => result.revision),
+      ),
+    ).toEqual(new Set([1]));
     expect((await room.getSnapshot())?.revision).toBe(1);
 
     const closeAt = new Date(Date.now() + 1_000).toISOString();
@@ -788,13 +793,15 @@ describe("Room Durable Object のカスタムルーム操作", () => {
           gatewayPrincipal: hostPrincipal,
           participantId: "participant-host",
           requestId: "close-once",
-          at: closeAt
-        })
-      )
+          at: closeAt,
+        }),
+      ),
     );
-    expect(new Set(closeResults.map((result: RoomOperationResult) => result.revision))).toEqual(
-      new Set([2])
-    );
+    expect(
+      new Set(
+        closeResults.map((result: RoomOperationResult) => result.revision),
+      ),
+    ).toEqual(new Set([2]));
     expect(closeResults[0]?.state.status).toBe("finished");
 
     expect(
@@ -802,27 +809,27 @@ describe("Room Durable Object のカスタムルーム操作", () => {
         room.setReady({
           gatewayPrincipal: hostPrincipal,
           participantId: "participant-host",
-          ready: false
-        })
-      )
+          ready: false,
+        }),
+      ),
     ).toBe("ROOM_FINISHED");
     expect(
       await readErrorCode(() =>
         room.updateSettings({
           gatewayPrincipal: hostPrincipal,
           participantId: "participant-host",
-          settings: { map: "desert" }
-        })
-      )
+          settings: { map: "desert" },
+        }),
+      ),
     ).toBe("ROOM_FINISHED");
     expect(
       await readErrorCode(() =>
         room.leave({
           gatewayPrincipal: hostPrincipal,
           participantId: "participant-host",
-          role: "player"
-        })
-      )
+          role: "player",
+        }),
+      ),
     ).toBe("ROOM_FINISHED");
   });
 });

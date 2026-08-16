@@ -18,15 +18,15 @@ flowchart LR
   Gateway -.-> Logs["構造化ログ"]
 ```
 
-| 構成要素 | 識別単位 | 正本と責務 |
-| --- | --- | --- |
-| Client SDK | Client インスタンス | HTTP/WebSocket、読み取り専用 Snapshot、再接続、イベント購読 |
-| Gateway Worker | HTTP 要求 | 認証、認可 Hook、入力上限、公開 API、DO へのルーティング |
-| Room Durable Object | `roomId` | 参加者、ホスト、チーム、設定、状態、revision、接続、期限、冪等結果 |
-| Match Pool Durable Object | `gameId:seasonId:mode:region` | チケット、候補確保、成立意図、イベント、期限、単一 Alarm |
-| Rate Limit Durable Object | 認証主体 ID | 主体ごとの WebSocket/ルーム作成頻度。全主体を一つへ集約しない |
-| D1 | 共有データ | 公開ルーム一覧投影、Season/Rating/Match/Participant 履歴 |
-| Analytics Engine | 任意 Binding | 待機時間、レート差、成立・キャンセル品質メトリクス |
+| 構成要素                  | 識別単位                      | 正本と責務                                                         |
+| ------------------------- | ----------------------------- | ------------------------------------------------------------------ |
+| Client SDK                | Client インスタンス           | HTTP/WebSocket、読み取り専用 Snapshot、再接続、イベント購読        |
+| Gateway Worker            | HTTP 要求                     | 認証、認可 Hook、入力上限、公開 API、DO へのルーティング           |
+| Room Durable Object       | `roomId`                      | 参加者、ホスト、チーム、設定、状態、revision、接続、期限、冪等結果 |
+| Match Pool Durable Object | `gameId:seasonId:mode:region` | チケット、候補確保、成立意図、イベント、期限、単一 Alarm           |
+| Rate Limit Durable Object | 認証主体 ID                   | 主体ごとの WebSocket/ルーム作成頻度。全主体を一つへ集約しない      |
+| D1                        | 共有データ                    | 公開ルーム一覧投影、Season/Rating/Match/Participant 履歴           |
+| Analytics Engine          | 任意 Binding                  | 待機時間、レート差、成立・キャンセル品質メトリクス                 |
 
 Room と Match Pool は 1 個のグローバル Durable Object に集約しません。Pool から
 Room を初期化する場合も、Pool の整合性境界で成立意図を先に保存し、Room の初期化
@@ -34,16 +34,16 @@ Room を初期化する場合も、Pool の整合性境界で成立意図を先�
 
 ## 保存境界
 
-| データ | 保存先 | 失われた場合の扱い |
-| --- | --- | --- |
-| Room 本体、参加者、チーム、ホスト | Room SQLite | 復元不能。メモリだけで再構成しない |
-| Room Snapshot の `revision` とイベント履歴 | Room SQLite | 履歴不足時は完全 Snapshot を再送する |
-| 再開セッション、切断猶予、処理済みコマンド | Room SQLite | 期限処理と冪等性を再実行可能にする |
-| Room の公開一覧投影同期 | Room SQLite の pending operation + D1 | Room 操作を失敗させず、Alarm で再試行する |
-| Pool、チケット、候補、成立意図、チケットイベント | Match Pool SQLite | Alarm/再生成後に未完了処理を再開する |
-| Season、Rating、Match、Match Participant | D1 | D1 batch と版番号で片側更新を防ぐ |
-| 認証主体、参加トークン、秘密値 | リクエスト/Secret | ログ、D1、Snapshot、URLへ保存しない |
-| Client の `snapshot` | メモリ上のキャッシュ | 接続・再同期時にサーバーの正本で置換する |
+| データ                                           | 保存先                                | 失われた場合の扱い                        |
+| ------------------------------------------------ | ------------------------------------- | ----------------------------------------- |
+| Room 本体、参加者、チーム、ホスト                | Room SQLite                           | 復元不能。メモリだけで再構成しない        |
+| Room Snapshot の `revision` とイベント履歴       | Room SQLite                           | 履歴不足時は完全 Snapshot を再送する      |
+| 再開セッション、切断猶予、処理済みコマンド       | Room SQLite                           | 期限処理と冪等性を再実行可能にする        |
+| Room の公開一覧投影同期                          | Room SQLite の pending operation + D1 | Room 操作を失敗させず、Alarm で再試行する |
+| Pool、チケット、候補、成立意図、チケットイベント | Match Pool SQLite                     | Alarm/再生成後に未完了処理を再開する      |
+| Season、Rating、Match、Match Participant         | D1                                    | D1 batch と版番号で片側更新を防ぐ         |
+| 認証主体、参加トークン、秘密値                   | リクエスト/Secret                     | ログ、D1、Snapshot、URLへ保存しない       |
+| Client の `snapshot`                             | メモリ上のキャッシュ                  | 接続・再同期時にサーバーの正本で置換する  |
 
 メモリ上の値は in-flight 処理やクライアント表示のキャッシュに限定します。
 Durable Object のインスタンス再生成、WebSocket Hibernation、Worker の別リクエスト

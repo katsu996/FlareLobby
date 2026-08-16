@@ -2,12 +2,12 @@ import {
   createFlareLobbyClient,
   type FlareLobbyClient,
   type PlayerRoom,
-  type Room
+  type Room,
 } from "@flarelobby/client";
 import type {
   AnyFlareLobbyApp,
   MatchmakingPool,
-  RoomSnapshot
+  RoomSnapshot,
 } from "@flarelobby/core";
 import {
   createExecutionContext,
@@ -15,7 +15,7 @@ import {
   evictDurableObject,
   runDurableObjectAlarm,
   runInDurableObject,
-  waitOnExecutionContext
+  waitOnExecutionContext,
 } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -23,7 +23,7 @@ import {
   createMatchmakingPoolKey,
   createGatewayPrincipalEnvelope,
   defineFlareLobby,
-  RoomDurableObject
+  RoomDurableObject,
 } from "../src/index.js";
 
 const integrationPool = {
@@ -31,7 +31,7 @@ const integrationPool = {
   gameId: "workers-integration",
   seasonId: "season-1",
   mode: "ranked-1v1",
-  region: "jp"
+  region: "jp",
 } satisfies MatchmakingPool;
 
 const integrationLobby = defineFlareLobby({
@@ -41,7 +41,7 @@ const integrationLobby = defineFlareLobby({
     defaultSettings: { map: "forest", mode: "integration" },
     disconnectGracePeriodMs: 5_000,
     resumeTokenTtlMs: 60_000,
-    eventHistoryLimit: 32
+    eventHistoryLimit: 32,
   },
   matchmakingPools: [
     {
@@ -52,9 +52,9 @@ const integrationLobby = defineFlareLobby({
         metadata: { source: "client-integration" },
         maxPlayers: 2,
         minimumPlayers: 2,
-        requireAllPlayersReady: false
-      }
-    }
+        requireAllPlayersReady: false,
+      },
+    },
   ],
   authenticate: (request) => {
     const authorization = request.headers.get("authorization");
@@ -67,14 +67,14 @@ const integrationLobby = defineFlareLobby({
   authorization: {
     authorizeJoin: () => true,
     authorizeSpectate: () => true,
-    authorizeMatchResult: () => true
+    authorizeMatchResult: () => true,
   },
   inputLimits: {
     maxHttpRequestBytes: 16 * 1024,
     maxWebSocketMessageBytes: 8 * 1024,
     maxMessagesPerMinute: 120,
-    maxRoomCreationsPerMinute: 60
-  }
+    maxRoomCreationsPerMinute: 60,
+  },
 });
 
 const integrationWorker = integrationLobby.createGatewayWorker<Env>();
@@ -87,7 +87,7 @@ function createCloseEvent(code: number, reason: string): Event {
   Object.defineProperties(event, {
     code: { value: code },
     reason: { value: reason },
-    wasClean: { value: code === 1000 }
+    wasClean: { value: code === 1000 },
   });
   return event;
 }
@@ -105,9 +105,7 @@ class WorkerWebSocketAdapter {
   public constructor(
     url: string,
     protocols: readonly string[],
-    private readonly fetchWorker: (
-      request: Request
-    ) => Promise<Response>
+    private readonly fetchWorker: (request: Request) => Promise<Response>,
   ) {
     this.url = url;
     this.protocols = protocols;
@@ -118,19 +116,13 @@ class WorkerWebSocketAdapter {
     return this.readyStateValue;
   }
 
-  public addEventListener(
-    type: string,
-    listener: EventListener
-  ): void {
+  public addEventListener(type: string, listener: EventListener): void {
     const listeners = this.listeners.get(type) ?? new Set<EventListener>();
     listeners.add(listener);
     this.listeners.set(type, listeners);
   }
 
-  public removeEventListener(
-    type: string,
-    listener: EventListener
-  ): void {
+  public removeEventListener(type: string, listener: EventListener): void {
     this.listeners.get(type)?.delete(listener);
   }
 
@@ -191,9 +183,9 @@ class WorkerWebSocketAdapter {
           method: "GET",
           headers: {
             Upgrade: "websocket",
-            "Sec-WebSocket-Protocol": this.protocols.join(", ")
-          }
-        })
+            "Sec-WebSocket-Protocol": this.protocols.join(", "),
+          },
+        }),
       );
       const remote = response.webSocket;
 
@@ -248,7 +240,7 @@ async function runWorker(request: Request): Promise<Response> {
   const response = await integrationWorker.fetch(
     request as unknown as Parameters<typeof integrationWorker.fetch>[0],
     env,
-    context
+    context,
   );
   await waitOnExecutionContext(context);
   return response;
@@ -273,8 +265,8 @@ function createClient(label = crypto.randomUUID()): {
       maxAttempts: 5,
       baseDelayMs: 100,
       maxDelayMs: 250,
-      jitterRatio: 0
-    }
+      jitterRatio: 0,
+    },
   });
 
   activeClients.add(client);
@@ -283,7 +275,7 @@ function createClient(label = crypto.randomUUID()): {
 
 async function waitForCondition(
   check: () => boolean | Promise<boolean>,
-  timeoutMs = 4_000
+  timeoutMs = 4_000,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
 
@@ -301,7 +293,7 @@ async function waitForCondition(
 async function waitForSnapshot<TApp extends AnyFlareLobbyApp>(
   room: Room<TApp>,
   predicate: (snapshot: RoomSnapshot<TApp>) => boolean,
-  timeoutMs = 4_000
+  timeoutMs = 4_000,
 ): Promise<RoomSnapshot<TApp>> {
   if (predicate(room.snapshot)) {
     return room.snapshot;
@@ -331,7 +323,7 @@ async function waitForSnapshot<TApp extends AnyFlareLobbyApp>(
 async function waitForRoomStatus(
   room: Room,
   status: "connected" | "reconnecting" | "disconnected",
-  timeoutMs = 4_000
+  timeoutMs = 4_000,
 ): Promise<void> {
   if (room.connectionStatus === status) {
     return;
@@ -368,9 +360,9 @@ async function waitForDisconnectedConnection(roomId: string): Promise<void> {
             `SELECT COUNT(*) AS count
              FROM flarelobby_room_connections
              WHERE room_id = ? AND disconnected_at IS NOT NULL`,
-            roomId
+            roomId,
           )
-          .one().count
+          .one().count,
     );
 
     return count > 0;
@@ -380,7 +372,9 @@ async function waitForDisconnectedConnection(roomId: string): Promise<void> {
 async function createMatchedRooms(): Promise<{
   readonly firstClient: FlareLobbyClient;
   readonly secondClient: FlareLobbyClient;
-  readonly firstTicket: Awaited<ReturnType<FlareLobbyClient["joinMatchmaking"]>>;
+  readonly firstTicket: Awaited<
+    ReturnType<FlareLobbyClient["joinMatchmaking"]>
+  >;
   readonly firstRoom: PlayerRoom;
   readonly secondRoom: PlayerRoom;
 }> {
@@ -388,16 +382,16 @@ async function createMatchedRooms(): Promise<{
   const second = createClient(`match-second-${crypto.randomUUID()}`);
   const firstTicket = await first.client.joinMatchmaking(integrationPool, {
     requestId: `match-ticket-first-${crypto.randomUUID()}`,
-    rating: 1_500
+    rating: 1_500,
   });
   const firstRoomPromise = firstTicket.waitForMatch();
   const secondRoomPromise = second.client.findMatch(integrationPool, {
     requestId: `match-ticket-second-${crypto.randomUUID()}`,
-    rating: 1_500
+    rating: 1_500,
   });
   const [firstRoom, secondRoom] = await Promise.all([
     firstRoomPromise,
-    secondRoomPromise
+    secondRoomPromise,
   ]);
 
   return {
@@ -405,7 +399,7 @@ async function createMatchedRooms(): Promise<{
     secondClient: second.client,
     firstTicket,
     firstRoom,
-    secondRoom
+    secondRoom,
   };
 }
 
@@ -419,12 +413,12 @@ afterEach(() => {
 describe("Workers Client SDK 横断統合", () => {
   it("D1 migrationとDurable ObjectのBindingをWorkers Runtimeへ適用できる", async () => {
     const migrations = await env.FLARE_LOBBY_DB.prepare(
-      "SELECT name FROM d1_migrations"
+      "SELECT name FROM d1_migrations",
     ).all<{ name: string }>();
     const names = migrations.results.map((row) => row.name);
 
     expect(names).toEqual(
-      expect.arrayContaining(["0001_custom_room_index.sql", "0002_rating.sql"])
+      expect.arrayContaining(["0001_custom_room_index.sql", "0002_rating.sql"]),
     );
 
     await runInDurableObject(
@@ -432,7 +426,7 @@ describe("Workers Client SDK 横断統合", () => {
       (instance: RoomDurableObject, state) => {
         expect(instance).toBeInstanceOf(RoomDurableObject);
         expect(state.storage.sql).toBeDefined();
-      }
+      },
     );
   });
 
@@ -442,44 +436,42 @@ describe("Workers Client SDK 横断統合", () => {
     const host = await hostClient.client.createCustomRoom({
       requestId: `custom-create-${crypto.randomUUID()}`,
       maxPlayers: 2,
-      settings: { map: "forest", mode: "integration" }
+      settings: { map: "forest", mode: "integration" },
     });
     const player = await playerClient.client.joinCustomRoom({
       requestId: `custom-join-${crypto.randomUUID()}`,
-      roomId: host.id
+      roomId: host.id,
     });
 
     expect(host.snapshot.participants).toHaveLength(2);
     expect(player.snapshot.room.id).toBe(host.id);
 
     await player.setReady(true, {
-      requestId: `custom-ready-player-${crypto.randomUUID()}`
+      requestId: `custom-ready-player-${crypto.randomUUID()}`,
     });
-    await waitForSnapshot(
-      host,
-      (snapshot) =>
-        snapshot.participants.some(
-          (participant) =>
-            participant.id === player.participantId &&
-            participant.kind === "player" &&
-            participant.ready
-        )
+    await waitForSnapshot(host, (snapshot) =>
+      snapshot.participants.some(
+        (participant) =>
+          participant.id === player.participantId &&
+          participant.kind === "player" &&
+          participant.ready,
+      ),
     );
     await host.setReady(true, {
-      requestId: `custom-ready-host-${crypto.randomUUID()}`
+      requestId: `custom-ready-host-${crypto.randomUUID()}`,
     });
 
     const started = await host.startMatch({
-      requestId: `custom-start-${crypto.randomUUID()}`
+      requestId: `custom-start-${crypto.randomUUID()}`,
     });
     expect(started.state.status).toBe("in_progress");
 
     await player.leave({
-      requestId: `custom-leave-${crypto.randomUUID()}`
+      requestId: `custom-leave-${crypto.randomUUID()}`,
     });
     await waitForSnapshot(
       host,
-      (snapshot) => snapshot.participants.length === 1
+      (snapshot) => snapshot.participants.length === 1,
     );
     expect(host.snapshot.participants).toHaveLength(1);
   });
@@ -489,23 +481,23 @@ describe("Workers Client SDK 横断統合", () => {
     const joiners = [
       createClient(`capacity-a-${crypto.randomUUID()}`),
       createClient(`capacity-b-${crypto.randomUUID()}`),
-      createClient(`capacity-c-${crypto.randomUUID()}`)
+      createClient(`capacity-c-${crypto.randomUUID()}`),
     ];
     const host = await hostClient.client.createCustomRoom({
       requestId: `capacity-create-${crypto.randomUUID()}`,
-      maxPlayers: 2
+      maxPlayers: 2,
     });
     const joinResults = await Promise.allSettled(
       joiners.map((joiner, index) =>
         joiner.client.joinCustomRoom({
           roomId: host.id,
-          requestId: `capacity-join-${index}-${crypto.randomUUID()}`
-        })
-      )
+          requestId: `capacity-join-${index}-${crypto.randomUUID()}`,
+        }),
+      ),
     );
     const successfulJoins = joinResults.filter(
       (result): result is PromiseFulfilledResult<PlayerRoom> =>
-        result.status === "fulfilled"
+        result.status === "fulfilled",
     );
 
     expect(successfulJoins).toHaveLength(1);
@@ -514,39 +506,43 @@ describe("Workers Client SDK 横断統合", () => {
       (_instance: RoomDurableObject, state) =>
         state.storage.sql
           .exec<{ count: number }>(
-            "SELECT COUNT(*) AS count FROM flarelobby_room_participants WHERE kind = 'player'"
+            "SELECT COUNT(*) AS count FROM flarelobby_room_participants WHERE kind = 'player'",
           )
-          .one().count
+          .one().count,
     );
     expect(playerCount).toBe(2);
 
-    const duplicateClient = createClient(`duplicate-ticket-${crypto.randomUUID()}`);
+    const duplicateClient = createClient(
+      `duplicate-ticket-${crypto.randomUUID()}`,
+    );
     const requestId = `duplicate-ticket-request-${crypto.randomUUID()}`;
     const [firstTicket, secondTicket] = await Promise.all([
       duplicateClient.client.joinMatchmaking(integrationPool, {
         requestId,
-        rating: 1_500
+        rating: 1_500,
       }),
       duplicateClient.client.joinMatchmaking(integrationPool, {
         requestId,
-        rating: 1_500
-      })
+        rating: 1_500,
+      }),
     ]);
 
     expect(firstTicket.id).toBe(secondTicket.id);
     const processedCount = await runInDurableObject(
-      env.FLARE_LOBBY_MATCH_POOLS.getByName(createMatchmakingPoolKey(integrationPool)),
+      env.FLARE_LOBBY_MATCH_POOLS.getByName(
+        createMatchmakingPoolKey(integrationPool),
+      ),
       (_instance, state) =>
         state.storage.sql
           .exec<{ count: number }>(
             "SELECT COUNT(*) AS count FROM flarelobby_matchmaking_processed_commands WHERE request_id = ?",
-            requestId
+            requestId,
           )
-          .one().count
+          .one().count,
     );
     expect(processedCount).toBe(1);
     await firstTicket.cancel({
-      requestId: `duplicate-ticket-cancel-${crypto.randomUUID()}`
+      requestId: `duplicate-ticket-cancel-${crypto.randomUUID()}`,
     });
   });
 
@@ -555,7 +551,7 @@ describe("Workers Client SDK 横断統合", () => {
     const playerClient = createClient(`resume-player-${crypto.randomUUID()}`);
     const host = await hostClient.client.createCustomRoom({
       requestId: `resume-create-${crypto.randomUUID()}`,
-      maxPlayers: 2
+      maxPlayers: 2,
     });
     const player = await playerClient.client.joinCustomRoom({
       requestId: `resume-join-${crypto.randomUUID()}`,
@@ -564,8 +560,8 @@ describe("Workers Client SDK 横断統合", () => {
         maxAttempts: 5,
         baseDelayMs: 100,
         maxDelayMs: 200,
-        jitterRatio: 0
-      }
+        jitterRatio: 0,
+      },
     });
     const revisionBeforeDisconnect = player.snapshot.revision;
     const reconnecting = waitForRoomStatus(player, "reconnecting");
@@ -580,7 +576,7 @@ describe("Workers Client SDK 横断統合", () => {
     await waitForDisconnectedConnection(host.id);
 
     await host.setReady(true, {
-      requestId: `resume-ready-${crypto.randomUUID()}`
+      requestId: `resume-ready-${crypto.randomUUID()}`,
     });
     await waitForCondition(
       () =>
@@ -590,8 +586,8 @@ describe("Workers Client SDK 横断統合", () => {
           (participant) =>
             participant.id === host.participantId &&
             participant.kind === "player" &&
-            participant.ready
-        )
+            participant.ready,
+        ),
     );
 
     expect(player.snapshot.participants).toHaveLength(2);
@@ -605,7 +601,7 @@ describe("Workers Client SDK 横断統合", () => {
     const progress: string[] = [];
     const ticket = await first.client.joinMatchmaking(integrationPool, {
       requestId: `queue-first-ticket-${crypto.randomUUID()}`,
-      rating: 1_500
+      rating: 1_500,
     });
     const unsubscribe = ticket.on("progress", (event) => {
       progress.push(event.ticket.status);
@@ -613,7 +609,7 @@ describe("Workers Client SDK 横断統合", () => {
     const firstRoomPromise = ticket.waitForMatch();
     const secondRoom = await second.client.findMatch(integrationPool, {
       requestId: `queue-second-ticket-${crypto.randomUUID()}`,
-      rating: 1_500
+      rating: 1_500,
     });
     const firstRoom = await firstRoomPromise;
     unsubscribe();
@@ -641,26 +637,26 @@ describe("Workers Client SDK 横断統合", () => {
     const matchId = snapshot.room.matchId;
     const resultId = `integration-result-${crypto.randomUUID()}`;
     const resultPath = `/v1/matchmaking/pools/${encodeURIComponent(
-      integrationPool.id
+      integrationPool.id,
     )}/matches/${encodeURIComponent(matchId)}/result`;
     const [firstResult, duplicateResult] = await Promise.all([
       matched.firstClient.request<{ applied: boolean }>(resultPath, {
         method: "POST",
-        body: { resultId, result: 1 }
+        body: { resultId, result: 1 },
       }),
       matched.secondClient.request<{ applied: boolean }>(resultPath, {
         method: "POST",
-        body: { resultId, result: 1 }
-      })
+        body: { resultId, result: 1 },
+      }),
     ]);
 
     expect([firstResult.applied, duplicateResult.applied]).toContain(true);
     expect(
-      [firstResult.applied, duplicateResult.applied].filter(Boolean)
+      [firstResult.applied, duplicateResult.applied].filter(Boolean),
     ).toHaveLength(1);
 
     const matchRows = await env.FLARE_LOBBY_DB.prepare(
-      "SELECT COUNT(*) AS count FROM flarelobby_rating_matches WHERE match_id = ?"
+      "SELECT COUNT(*) AS count FROM flarelobby_rating_matches WHERE match_id = ?",
     )
       .bind(matchId)
       .first<{ count: number }>();
@@ -668,11 +664,11 @@ describe("Workers Client SDK 横断統合", () => {
 
     const updatedRatings = await Promise.all([
       matched.firstClient.getRating(integrationPool),
-      matched.secondClient.getRating(integrationPool)
+      matched.secondClient.getRating(integrationPool),
     ]);
     expect(updatedRatings.some((rating) => rating.value !== 1_500)).toBe(true);
     expect(
-      updatedRatings.reduce((total, rating) => total + rating.value, 0)
+      updatedRatings.reduce((total, rating) => total + rating.value, 0),
     ).toBe(3_000);
   });
 
@@ -681,7 +677,7 @@ describe("Workers Client SDK 横断統合", () => {
     const client = createClient(clientLabel);
     const room = await client.client.createCustomRoom({
       requestId: `alarm-create-${crypto.randomUUID()}`,
-      maxPlayers: 2
+      maxPlayers: 2,
     });
     const roomStub = env.FLARE_LOBBY_ROOMS.getByName(room.id);
     const operationId = `integration-alarm-${crypto.randomUUID()}`;
@@ -690,14 +686,14 @@ describe("Workers Client SDK 横断統合", () => {
       instance.scheduleOperation({
         id: operationId,
         dueAt: Date.now() - 1,
-        kind: "noop"
-      })
+        kind: "noop",
+      }),
     );
     expect(await roomStub.getSnapshot()).toEqual(room.snapshot);
     const alarmRan = await runDurableObjectAlarm(roomStub);
     const remainingOperations = await roomStub.listScheduledOperations();
     const operationWasConsumed = !remainingOperations.some(
-      (operation: { readonly id: string }) => operation.id === operationId
+      (operation: { readonly id: string }) => operation.id === operationId,
     );
     expect(alarmRan || operationWasConsumed).toBe(true);
     expect(operationWasConsumed).toBe(true);
@@ -711,7 +707,7 @@ describe("Workers Client SDK 横断統合", () => {
 
     const gatewayPrincipal = await createGatewayPrincipalEnvelope(
       env.FLARE_LOBBY_TOKEN_SECRET,
-      { id: clientLabel, playerId: `${clientLabel}-player` }
+      { id: clientLabel, playerId: `${clientLabel}-player` },
     );
     if (!gatewayPrincipal.ok) {
       throw new Error("テスト用 Gateway 主体証明を作成できません。");
@@ -720,9 +716,8 @@ describe("Workers Client SDK 横断統合", () => {
       gatewayPrincipal: gatewayPrincipal.value,
       participantId: room.participantId,
       ready: true,
-      requestId: `alarm-after-eviction-${crypto.randomUUID()}`
+      requestId: `alarm-after-eviction-${crypto.randomUUID()}`,
     });
     expect(changed.revision).toBeGreaterThan(revisionBeforeEviction);
-
   });
 });

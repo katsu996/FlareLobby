@@ -3,18 +3,15 @@ import type {
   AnyFlareLobbyApp,
   FlareLobbyApp,
   ProtocolResult,
-  RoomStatus
+  RoomStatus,
 } from "@flarelobby/core";
 
 import type {
   CustomRoomIndexJoinMethod,
-  CustomRoomIndexRecord
+  CustomRoomIndexRecord,
 } from "./custom-room-index.js";
 import { queryCustomRoomIndex } from "./custom-room-index.js";
-import type {
-  FlareLobbyBindings,
-  FlareLobbyConfiguration
-} from "./config.js";
+import type { FlareLobbyBindings, FlareLobbyConfiguration } from "./config.js";
 
 const CURSOR_VERSION = 1 as const;
 const DEFAULT_PAGE_SIZE = 20;
@@ -90,16 +87,16 @@ interface CursorPayload {
 /** `GET /v1/custom-rooms` を処理します。公開一覧のため認証なしで利用できます。 */
 export async function listCustomRooms<
   TEnv extends FlareLobbyBindings,
-  TApp extends AnyFlareLobbyApp = FlareLobbyApp
+  TApp extends AnyFlareLobbyApp = FlareLobbyApp,
 >(
   request: Request,
   env: TEnv,
-  _configuration: FlareLobbyConfiguration<TApp>
+  _configuration: FlareLobbyConfiguration<TApp>,
 ): Promise<ProtocolResult<CustomRoomListResult>> {
   try {
     const query = await normalizeCustomRoomListQuery(
       readCustomRoomListQuery(request),
-      env.FLARE_LOBBY_TOKEN_SECRET
+      env.FLARE_LOBBY_TOKEN_SECRET,
     );
     const rows = await queryCustomRoomIndex(env.FLARE_LOBBY_DB, {
       ...(query.mode === undefined ? {} : { mode: query.mode }),
@@ -115,10 +112,10 @@ export async function listCustomRooms<
             cursor: await decodeCursor(
               query.cursor,
               env.FLARE_LOBBY_TOKEN_SECRET,
-              createQueryFingerprint(query)
-            )
+              createQueryFingerprint(query),
+            ),
           }),
-      limit: query.limit + 1
+      limit: query.limit + 1,
     });
     const hasNextPage = rows.length > query.limit;
     const page = rows.slice(0, query.limit).map(toRoomSummary);
@@ -134,12 +131,12 @@ export async function listCustomRooms<
                 env.FLARE_LOBBY_TOKEN_SECRET,
                 {
                   createdAt: last.createdAt,
-                  roomId: last.roomId
+                  roomId: last.roomId,
                 },
-                createQueryFingerprint(query)
+                createQueryFingerprint(query),
               )
-            : null
-      }
+            : null,
+      },
     };
   } catch (error) {
     return {
@@ -147,7 +144,7 @@ export async function listCustomRooms<
       error:
         error instanceof FlareLobbyError
           ? error
-          : new FlareLobbyError("CONNECTION_FAILED")
+          : new FlareLobbyError("CONNECTION_FAILED"),
     };
   }
 }
@@ -179,16 +176,16 @@ function readCustomRoomListQuery(request: Request): CustomRoomListQuery {
     ...(stateValues.length === 0
       ? {}
       : {
-          state: (stateValues.length === 1
-            ? stateValues[0]
-            : stateValues) as RoomStatus | readonly RoomStatus[]
+          state: (stateValues.length === 1 ? stateValues[0] : stateValues) as
+            | RoomStatus
+            | readonly RoomStatus[],
         }),
     ...(statusValues.length === 0
       ? {}
       : {
           status: (statusValues.length === 1
             ? statusValues[0]
-            : statusValues) as RoomStatus | readonly RoomStatus[]
+            : statusValues) as RoomStatus | readonly RoomStatus[],
         }),
     ...(available === null
       ? {}
@@ -196,26 +193,23 @@ function readCustomRoomListQuery(request: Request): CustomRoomListQuery {
     ...(availableSlots === null
       ? {}
       : {
-          availableSlots: parseQueryNumber(
-            availableSlots,
-            "availableSlots"
-          )
+          availableSlots: parseQueryNumber(availableSlots, "availableSlots"),
         }),
     ...(minAvailableSlots === null
       ? {}
       : {
           minAvailableSlots: parseQueryNumber(
             minAvailableSlots,
-            "minAvailableSlots"
-          )
-        })
+            "minAvailableSlots",
+          ),
+        }),
   };
 }
 
 function parseQueryNumber(value: string, name: string): number {
   if (!/^\d+$/u.test(value)) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: `${name} は 0 以上の整数で指定してください。`
+      message: `${name} は 0 以上の整数で指定してください。`,
     });
   }
 
@@ -223,7 +217,7 @@ function parseQueryNumber(value: string, name: string): number {
 
   if (!Number.isSafeInteger(parsed)) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: `${name} は安全な整数で指定してください。`
+      message: `${name} は安全な整数で指定してください。`,
     });
   }
 
@@ -240,17 +234,17 @@ function parseQueryBoolean(value: string, name: string): boolean {
   }
 
   throw new FlareLobbyError("INVALID_PAYLOAD", {
-    message: `${name} は true または false で指定してください。`
+    message: `${name} は true または false で指定してください。`,
   });
 }
 
 async function normalizeCustomRoomListQuery(
   query: CustomRoomListQuery,
-  tokenSecret: string
+  tokenSecret: string,
 ): Promise<NormalizedCustomRoomListQuery> {
   if (query.cursor !== undefined && query.cursor.length > MAX_CURSOR_LENGTH) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "cursor が長すぎます。"
+      message: "cursor が長すぎます。",
     });
   }
 
@@ -262,7 +256,7 @@ async function normalizeCustomRoomListQuery(
     limitValue > MAX_PAGE_SIZE
   ) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: `limit は 1 以上 ${MAX_PAGE_SIZE} 以下の整数で指定してください。`
+      message: `limit は 1 以上 ${MAX_PAGE_SIZE} 以下の整数で指定してください。`,
     });
   }
 
@@ -272,7 +266,7 @@ async function normalizeCustomRoomListQuery(
     query.limit !== query.pageSize
   ) {
     throw new FlareLobbyError("CONFLICT", {
-      message: "limit と pageSize が一致しません。"
+      message: "limit と pageSize が一致しません。",
     });
   }
 
@@ -288,7 +282,7 @@ async function normalizeCustomRoomListQuery(
     (!Number.isSafeInteger(availableSlots) || availableSlots < 0)
   ) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "availableSlots は 0 以上の整数で指定してください。"
+      message: "availableSlots は 0 以上の整数で指定してください。",
     });
   }
 
@@ -297,7 +291,7 @@ async function normalizeCustomRoomListQuery(
     (!Number.isSafeInteger(minAvailableSlots) || minAvailableSlots < 0)
   ) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "minAvailableSlots は 0 以上の整数で指定してください。"
+      message: "minAvailableSlots は 0 以上の整数で指定してください。",
     });
   }
 
@@ -307,7 +301,7 @@ async function normalizeCustomRoomListQuery(
     availableSlots !== minAvailableSlots
   ) {
     throw new FlareLobbyError("CONFLICT", {
-      message: "availableSlots と minAvailableSlots が一致しません。"
+      message: "availableSlots と minAvailableSlots が一致しません。",
     });
   }
 
@@ -322,8 +316,8 @@ async function normalizeCustomRoomListQuery(
         minAvailableSlots:
           availableSlots === undefined ? minAvailableSlots : availableSlots,
         requireAvailable,
-        limit: limitValue
-      })
+        limit: limitValue,
+      }),
     );
   }
 
@@ -335,7 +329,7 @@ async function normalizeCustomRoomListQuery(
     minAvailableSlots:
       availableSlots === undefined ? minAvailableSlots : availableSlots,
     limit: limitValue,
-    cursor: query.cursor ?? null
+    cursor: query.cursor ?? null,
   };
 }
 
@@ -350,7 +344,7 @@ function normalizeFilter(value: unknown, name: string): string | undefined {
     value.trim().length > MAX_FILTER_LENGTH
   ) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: `${name} は 1 文字以上 ${MAX_FILTER_LENGTH} 文字以下で指定してください。`
+      message: `${name} は 1 文字以上 ${MAX_FILTER_LENGTH} 文字以下で指定してください。`,
     });
   }
 
@@ -359,7 +353,7 @@ function normalizeFilter(value: unknown, name: string): string | undefined {
 
 function normalizeState(
   state: RoomStatus | readonly RoomStatus[] | undefined,
-  status: RoomStatus | readonly RoomStatus[] | undefined
+  status: RoomStatus | readonly RoomStatus[] | undefined,
 ): readonly RoomStatus[] | undefined {
   const normalizedState = normalizeStates(state, "state");
   const normalizedStatus = normalizeStates(status, "status");
@@ -370,7 +364,7 @@ function normalizeState(
     !sameValues(normalizedState, normalizedStatus)
   ) {
     throw new FlareLobbyError("CONFLICT", {
-      message: "state と status が一致しません。"
+      message: "state と status が一致しません。",
     });
   }
 
@@ -379,7 +373,7 @@ function normalizeState(
 
 function normalizeStates(
   value: RoomStatus | readonly RoomStatus[] | undefined,
-  name: string
+  name: string,
 ): readonly RoomStatus[] | undefined {
   if (value === undefined) {
     return undefined;
@@ -389,18 +383,18 @@ function normalizeStates(
 
   if (values.length === 0 || !values.every(isRoomStatus)) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: `${name} は waiting、preparing、in_progress、finished のいずれかで指定してください。`
+      message: `${name} は waiting、preparing、in_progress、finished のいずれかで指定してください。`,
     });
   }
 
   return Object.freeze(
-    [...new Set(values)].sort((left, right) => left.localeCompare(right))
+    [...new Set(values)].sort((left, right) => left.localeCompare(right)),
   );
 }
 
 function sameValues(
   left: readonly string[],
-  right: readonly string[]
+  right: readonly string[],
 ): boolean {
   return (
     left.length === right.length &&
@@ -417,23 +411,21 @@ function isRoomStatus(value: unknown): value is RoomStatus {
   );
 }
 
-function createQueryFingerprint(
-  query: {
-    readonly mode: string | undefined;
-    readonly region: string | undefined;
-    readonly states: readonly RoomStatus[] | undefined;
-    readonly minAvailableSlots: number | undefined;
-    readonly requireAvailable: boolean;
-    readonly limit: number;
-  }
-): string {
+function createQueryFingerprint(query: {
+  readonly mode: string | undefined;
+  readonly region: string | undefined;
+  readonly states: readonly RoomStatus[] | undefined;
+  readonly minAvailableSlots: number | undefined;
+  readonly requireAvailable: boolean;
+  readonly limit: number;
+}): string {
   return JSON.stringify({
     mode: query.mode ?? null,
     region: query.region ?? null,
     states: query.states ?? null,
     minAvailableSlots: query.minAvailableSlots ?? null,
     requireAvailable: query.requireAvailable,
-    limit: query.limit
+    limit: query.limit,
   });
 }
 
@@ -457,23 +449,23 @@ function toRoomSummary(record: CustomRoomIndexRecord): RoomSummary {
     availableSpectatorSlots: record.availableSpectatorSlots,
     revision: record.revision,
     createdAt: record.createdAt,
-    updatedAt: record.updatedAt
+    updatedAt: record.updatedAt,
   });
 }
 
 async function encodeCursor(
   tokenSecret: string,
   position: { readonly createdAt: number; readonly roomId: string },
-  fingerprint: string
+  fingerprint: string,
 ): Promise<string> {
   const payload: CursorPayload = {
     version: CURSOR_VERSION,
     createdAt: position.createdAt,
     roomId: position.roomId,
-    fingerprint
+    fingerprint,
   };
   const encodedPayload = encodeBase64Url(
-    new TextEncoder().encode(JSON.stringify(payload))
+    new TextEncoder().encode(JSON.stringify(payload)),
   );
   const signature = await signCursor(tokenSecret, encodedPayload);
 
@@ -483,7 +475,7 @@ async function encodeCursor(
 async function decodeCursor(
   cursor: string,
   tokenSecret: string,
-  expectedFingerprint: string
+  expectedFingerprint: string,
 ): Promise<{ readonly createdAt: number; readonly roomId: string }> {
   if (!isNonEmptyString(tokenSecret) || !isNonEmptyString(cursor)) {
     throw new FlareLobbyError("CONNECTION_FAILED");
@@ -497,7 +489,7 @@ async function decodeCursor(
     encodedSignature === undefined
   ) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "cursor が正しくありません。"
+      message: "cursor が正しくありません。",
     });
   }
 
@@ -506,7 +498,7 @@ async function decodeCursor(
 
   if (!constantTimeEqual(expectedSignature, actualSignature)) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "cursor が正しくありません。"
+      message: "cursor が正しくありません。",
     });
   }
 
@@ -514,26 +506,24 @@ async function decodeCursor(
 
   try {
     payload = JSON.parse(
-      new TextDecoder().decode(decodeBase64Url(encodedPayload))
+      new TextDecoder().decode(decodeBase64Url(encodedPayload)),
     );
   } catch {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "cursor が正しくありません。"
+      message: "cursor が正しくありません。",
     });
   }
 
   if (!isRecord(payload)) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "cursor が検索条件または一覧の形式と一致しません。"
+      message: "cursor が検索条件または一覧の形式と一致しません。",
     });
   }
 
   const createdAt = isSafeInteger(payload["createdAt"])
     ? payload["createdAt"]
     : null;
-  const roomId = isNonEmptyString(payload["roomId"])
-    ? payload["roomId"]
-    : null;
+  const roomId = isNonEmptyString(payload["roomId"]) ? payload["roomId"] : null;
 
   if (
     payload["version"] !== CURSOR_VERSION ||
@@ -542,19 +532,19 @@ async function decodeCursor(
     payload["fingerprint"] !== expectedFingerprint
   ) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "cursor が検索条件または一覧の形式と一致しません。"
+      message: "cursor が検索条件または一覧の形式と一致しません。",
     });
   }
 
   return {
     createdAt,
-    roomId
+    roomId,
   };
 }
 
 async function signCursor(
   tokenSecret: string,
-  encodedPayload: string
+  encodedPayload: string,
 ): Promise<Uint8Array> {
   if (!isNonEmptyString(tokenSecret)) {
     throw new FlareLobbyError("CONNECTION_FAILED");
@@ -565,12 +555,14 @@ async function signCursor(
     new TextEncoder().encode(tokenSecret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"]
+    ["sign"],
   );
   const signature = await crypto.subtle.sign(
     "HMAC",
     key,
-    new TextEncoder().encode(`flarelobby-room-list-v${CURSOR_VERSION}:${encodedPayload}`)
+    new TextEncoder().encode(
+      `flarelobby-room-list-v${CURSOR_VERSION}:${encodedPayload}`,
+    ),
   );
 
   return new Uint8Array(signature);
@@ -592,7 +584,7 @@ function encodeBase64Url(bytes: Uint8Array): string {
 function decodeBase64Url(value: string): Uint8Array {
   if (!/^[A-Za-z0-9_-]+$/u.test(value)) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "cursor が正しくありません。"
+      message: "cursor が正しくありません。",
     });
   }
 
@@ -601,7 +593,7 @@ function decodeBase64Url(value: string): Uint8Array {
     return Uint8Array.from(binary, (character) => character.charCodeAt(0));
   } catch {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "cursor が正しくありません。"
+      message: "cursor が正しくありません。",
     });
   }
 }

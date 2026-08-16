@@ -1,7 +1,7 @@
 import type {
   RatingCalculation,
   RatingCalculationInput,
-  RatingEngine
+  RatingEngine,
 } from "../src/index.js";
 
 const customEngine: RatingEngine = {
@@ -12,15 +12,15 @@ const customEngine: RatingEngine = {
       deltaA: 0,
       deltaB: 0,
       updatedRatingA: input.ratingA,
-      updatedRatingB: input.ratingB
+      updatedRatingB: input.ratingB,
     };
-  }
+  },
 };
 
 const calculation = customEngine.calculate({
   ratingA: 1_000,
   ratingB: 1_000,
-  result: 0.5
+  result: 0.5,
 });
 
 void calculation;

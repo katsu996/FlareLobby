@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   authenticateGatewayRequest,
   defineFlareLobby,
-  RoomDurableObject
+  RoomDurableObject,
 } from "../src/index.js";
 
 const testLobby = defineFlareLobby({
@@ -12,7 +12,7 @@ const testLobby = defineFlareLobby({
     maxPlayers: 4,
     maxSpectators: 8,
     defaultSettings: { map: "forest", mode: "casual" },
-    finishedRoomRetentionMs: 60_000
+    finishedRoomRetentionMs: 60_000,
   },
   matchmakingPools: [],
   authenticate: (request) => {
@@ -20,111 +20,103 @@ const testLobby = defineFlareLobby({
 
     return {
       id,
-      playerId: `${id}-player`
+      playerId: `${id}-player`,
     };
   },
   authorization: {
     authorizeJoin: () => true,
-    authorizeSpectate: () => true
+    authorizeSpectate: () => true,
   },
   inputLimits: {
     maxHttpRequestBytes: 16 * 1024,
     maxWebSocketMessageBytes: 8 * 1024,
     maxMessagesPerMinute: 60,
-    maxRoomCreationsPerMinute: 10
-  }
+    maxRoomCreationsPerMinute: 10,
+  },
 });
 
 const testWorker = testLobby.createGatewayWorker<Env>();
 
 function createRequest(
   body: unknown,
-  principalId = `principal-${crypto.randomUUID()}`
+  principalId = `principal-${crypto.randomUUID()}`,
 ): Request {
   return new Request("https://example.test/v1/custom-rooms", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-test-principal": principalId
+      "x-test-principal": principalId,
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
   });
 }
 
 function operationRequest(
   path: string,
   body: unknown,
-  principalId: string
+  principalId: string,
 ): Request {
   return new Request(`https://example.test${path}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-test-principal": principalId
+      "x-test-principal": principalId,
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
   });
 }
 
 async function createRoom(
   body: unknown,
   principalId?: string,
-  customEnv: Env = env
+  customEnv: Env = env,
 ): Promise<Response> {
-  const request = createRequest(
-    body,
-    principalId
-  ) as unknown as Parameters<typeof testWorker.fetch>[0];
+  const request = createRequest(body, principalId) as unknown as Parameters<
+    typeof testWorker.fetch
+  >[0];
 
-  return testWorker.fetch(
-    request,
-    customEnv,
-    {} as ExecutionContext
-  );
+  return testWorker.fetch(request, customEnv, {} as ExecutionContext);
 }
 
 async function joinRoom(
   body: unknown,
   principalId: string,
-  path = "/v1/custom-rooms/join"
+  path = "/v1/custom-rooms/join",
 ): Promise<Response> {
   return testWorker.fetch(
     operationRequest(path, body, principalId) as unknown as Parameters<
       typeof testWorker.fetch
     >[0],
     env,
-    {} as ExecutionContext
+    {} as ExecutionContext,
   );
 }
 
 async function leaveRoom(
   body: unknown,
   principalId: string,
-  path = "/v1/custom-rooms/leave"
+  path = "/v1/custom-rooms/leave",
 ): Promise<Response> {
   return testWorker.fetch(
     operationRequest(path, body, principalId) as unknown as Parameters<
       typeof testWorker.fetch
     >[0],
     env,
-    {} as ExecutionContext
+    {} as ExecutionContext,
   );
 }
 
 describe("カスタムルーム作成 Gateway", () => {
   it("未認証要求を作成処理へ到達させない", async () => {
-    const response = await SELF.fetch(
-      "https://example.test/v1/custom-rooms",
-      {
-        method: "POST",
-        body: JSON.stringify({ requestId: crypto.randomUUID() })
-      }
-    );
+    const response = await SELF.fetch("https://example.test/v1/custom-rooms", {
+      method: "POST",
+      body: JSON.stringify({ requestId: crypto.randomUUID() }),
+    });
 
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({
       code: "UNAUTHENTICATED",
-      message: "認証が必要です。"
+      message: "認証が必要です。",
     });
   });
 
@@ -132,7 +124,7 @@ describe("カスタムルーム作成 Gateway", () => {
     const principalId = `principal-default-${crypto.randomUUID()}`;
     const response = await createRoom(
       { requestId: `request-default-${crypto.randomUUID()}` },
-      principalId
+      principalId,
     );
     const result = await response.json<{
       roomId: string;
@@ -157,16 +149,16 @@ describe("カスタムルーム作成 Gateway", () => {
     expect(result.joinMethod).toBe("public");
     expect(result.joinToken).toContain(".");
     expect(result.websocketUrl).toBe(
-      `wss://example.test/v1/custom-rooms/${encodeURIComponent(result.roomId)}/ws`
+      `wss://example.test/v1/custom-rooms/${encodeURIComponent(result.roomId)}/ws`,
     );
     expect(result.snapshot.room).toMatchObject({
       kind: "custom",
       metadata: { name: "ルーム" },
-      settings: { map: "forest", mode: "casual" }
+      settings: { map: "forest", mode: "casual" },
     });
     expect(result.snapshot.host).toEqual({
       participantId: `participant-${result.roomId}`,
-      playerId: `${principalId}-player`
+      playerId: `${principalId}-player`,
     });
     expect(result.snapshot.participants).toEqual([
       {
@@ -174,8 +166,8 @@ describe("カスタムルーム作成 Gateway", () => {
         id: `participant-${result.roomId}`,
         player: { id: `${principalId}-player` },
         teamId: null,
-        ready: false
-      }
+        ready: false,
+      },
     ]);
   });
 
@@ -187,7 +179,7 @@ describe("カスタムルーム作成 Gateway", () => {
       joinMethod: "invitation",
       maxPlayers: 2,
       maxSpectators: 3,
-      settings: { map: "desert", rules: { friendlyFire: false } }
+      settings: { map: "desert", rules: { friendlyFire: false } },
     });
     const result = await response.json<{
       roomId: string;
@@ -208,7 +200,7 @@ describe("カスタムルーム作成 Gateway", () => {
     expect(result.snapshot.room).toMatchObject({
       visibility: "unlisted",
       settings: { map: "desert", rules: { friendlyFire: false } },
-      metadata: { name: "招待ルーム" }
+      metadata: { name: "招待ルーム" },
     });
 
     await runInDurableObject(
@@ -219,12 +211,12 @@ describe("カスタムルーム作成 Gateway", () => {
             maxSpectators: number;
             joinMethod: string;
           }>(
-            "SELECT max_spectators AS maxSpectators, join_method AS joinMethod FROM flarelobby_rooms"
+            "SELECT max_spectators AS maxSpectators, join_method AS joinMethod FROM flarelobby_rooms",
           )
           .one();
 
         expect(row).toEqual({ maxSpectators: 3, joinMethod: "invitation" });
-      }
+      },
     );
   });
 
@@ -235,20 +227,19 @@ describe("カスタムルーム作成 Gateway", () => {
       name: "同時作成",
       maxPlayers: 2,
       maxSpectators: 1,
-      settings: { map: "forest" }
+      settings: { map: "forest" },
     };
     const responses = await Promise.all(
-      Array.from({ length: 4 }, () => createRoom(body, principalId))
+      Array.from({ length: 4 }, () => createRoom(body, principalId)),
     );
     const results = await Promise.all(
-      responses.map((response) => response.json<{ roomId: string; joinToken: string }>())
+      responses.map((response) =>
+        response.json<{ roomId: string; joinToken: string }>(),
+      ),
     );
 
     expect(responses.map((response) => response.status)).toEqual([
-      201,
-      201,
-      201,
-      201
+      201, 201, 201, 201,
     ]);
     expect(new Set(results.map((result) => result.roomId)).size).toBe(1);
     expect(new Set(results.map((result) => result.joinToken)).size).toBe(1);
@@ -264,24 +255,24 @@ describe("カスタムルーム作成 Gateway", () => {
       (_instance: RoomDurableObject, state) => {
         const roomCount = state.storage.sql
           .exec<{ count: number }>(
-            "SELECT COUNT(*) AS count FROM flarelobby_rooms"
+            "SELECT COUNT(*) AS count FROM flarelobby_rooms",
           )
           .one().count;
         const participantCount = state.storage.sql
           .exec<{ count: number }>(
-            "SELECT COUNT(*) AS count FROM flarelobby_room_participants"
+            "SELECT COUNT(*) AS count FROM flarelobby_room_participants",
           )
           .one().count;
         const commandCount = state.storage.sql
           .exec<{ count: number }>(
-            "SELECT COUNT(*) AS count FROM flarelobby_processed_commands"
+            "SELECT COUNT(*) AS count FROM flarelobby_processed_commands",
           )
           .one().count;
 
         expect(roomCount).toBe(1);
         expect(participantCount).toBe(1);
         expect(commandCount).toBe(1);
-      }
+      },
     );
   });
 
@@ -291,18 +282,18 @@ describe("カスタムルーム作成 Gateway", () => {
 
     await expect(
       createRoom({ requestId, name: "最初のルーム" }, principalId).then(
-        (response) => response.status
-      )
+        (response) => response.status,
+      ),
     ).resolves.toBe(201);
 
     const response = await createRoom(
       { requestId, name: "別のルーム" },
-      principalId
+      principalId,
     );
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
-      code: "CONFLICT"
+      code: "CONFLICT",
     });
   });
 
@@ -312,9 +303,9 @@ describe("カスタムルーム作成 Gateway", () => {
       {
         requestId: `request-capacity-${crypto.randomUUID()}`,
         maxPlayers: 2,
-        maxSpectators: 2
+        maxSpectators: 2,
       },
-      ownerId
+      ownerId,
     );
     const created = await createdResponse.json<{ roomId: string }>();
 
@@ -323,32 +314,31 @@ describe("カスタムルーム作成 Gateway", () => {
         {
           requestId: `request-spectator-1-${crypto.randomUUID()}`,
           roomId: created.roomId,
-          role: "spectator"
+          role: "spectator",
         },
-        `principal-spectator-1-${crypto.randomUUID()}`
+        `principal-spectator-1-${crypto.randomUUID()}`,
       ),
       joinRoom(
         {
           requestId: `request-spectator-2-${crypto.randomUUID()}`,
           roomId: created.roomId,
-          role: "spectator"
+          role: "spectator",
         },
-        `principal-spectator-2-${crypto.randomUUID()}`
-      )
+        `principal-spectator-2-${crypto.randomUUID()}`,
+      ),
     ]);
 
     expect(spectatorResponses.map((response) => response.status)).toEqual([
-      200,
-      200
+      200, 200,
     ]);
 
     const playerResponse = await joinRoom(
       {
         requestId: `request-player-${crypto.randomUUID()}`,
         roomId: created.roomId,
-        role: "player"
+        role: "player",
       },
-      `principal-player-${crypto.randomUUID()}`
+      `principal-player-${crypto.randomUUID()}`,
     );
     expect(playerResponse.status).toBe(200);
 
@@ -356,33 +346,33 @@ describe("カスタムルーム作成 Gateway", () => {
       {
         requestId: `request-spectator-full-${crypto.randomUUID()}`,
         roomId: created.roomId,
-        role: "spectator"
+        role: "spectator",
       },
-      `principal-spectator-full-${crypto.randomUUID()}`
+      `principal-spectator-full-${crypto.randomUUID()}`,
     );
     expect(fullSpectatorResponse.status).toBe(400);
     await expect(fullSpectatorResponse.json()).resolves.toMatchObject({
-      code: "ROOM_FULL"
+      code: "ROOM_FULL",
     });
 
     const fullPlayerResponse = await joinRoom(
       {
         requestId: `request-player-full-${crypto.randomUUID()}`,
         roomId: created.roomId,
-        role: "player"
+        role: "player",
       },
-      `principal-player-full-${crypto.randomUUID()}`
+      `principal-player-full-${crypto.randomUUID()}`,
     );
     expect(fullPlayerResponse.status).toBe(400);
     await expect(fullPlayerResponse.json()).resolves.toMatchObject({
-      code: "ROOM_FULL"
+      code: "ROOM_FULL",
     });
   });
 
   it("同時参加でもプレイヤー定員を超えず、同じ参加要求は冪等になる", async () => {
     const createdResponse = await createRoom({
       requestId: `request-concurrent-join-room-${crypto.randomUUID()}`,
-      maxPlayers: 3
+      maxPlayers: 3,
     });
     const created = await createdResponse.json<{ roomId: string }>();
     const concurrentResponses = await Promise.all(
@@ -391,32 +381,34 @@ describe("カスタムルーム作成 Gateway", () => {
           {
             requestId: `request-capacity-${index}-${crypto.randomUUID()}`,
             roomId: created.roomId,
-            role: "player"
+            role: "player",
           },
-          `principal-capacity-${index}-${crypto.randomUUID()}`
-        )
-      )
+          `principal-capacity-${index}-${crypto.randomUUID()}`,
+        ),
+      ),
     );
 
     expect(
-      concurrentResponses.filter((response) => response.status === 200)
+      concurrentResponses.filter((response) => response.status === 200),
     ).toHaveLength(2);
     expect(
-      concurrentResponses.filter((response) => response.status === 400)
+      concurrentResponses.filter((response) => response.status === 400),
     ).toHaveLength(2);
     for (const response of concurrentResponses.filter(
-      (candidate) => candidate.status === 400
+      (candidate) => candidate.status === 400,
     )) {
       await expect(response.json()).resolves.toMatchObject({
-        code: "ROOM_FULL"
+        code: "ROOM_FULL",
       });
     }
 
     const duplicateRoomResponse = await createRoom({
       requestId: `request-duplicate-join-room-${crypto.randomUUID()}`,
-      maxPlayers: 3
+      maxPlayers: 3,
     });
-    const duplicateRoom = await duplicateRoomResponse.json<{ roomId: string }>();
+    const duplicateRoom = await duplicateRoomResponse.json<{
+      roomId: string;
+    }>();
     const duplicatePrincipal = `principal-duplicate-join-${crypto.randomUUID()}`;
     const duplicateRequestId = `request-duplicate-join-${crypto.randomUUID()}`;
     const duplicateResponses = await Promise.all(
@@ -425,56 +417,58 @@ describe("カスタムルーム作成 Gateway", () => {
           {
             requestId: duplicateRequestId,
             roomId: duplicateRoom.roomId,
-            role: "player"
+            role: "player",
           },
-          duplicatePrincipal
-        )
-      )
+          duplicatePrincipal,
+        ),
+      ),
     );
     const duplicateResults = await Promise.all(
       duplicateResponses.map((response) =>
-        response.json<{ participantId: string; joinToken: string }>()
-      )
+        response.json<{ participantId: string; joinToken: string }>(),
+      ),
     );
 
     expect(duplicateResponses.map((response) => response.status)).toEqual([
-      200,
-      200,
-      200
+      200, 200, 200,
     ]);
-    expect(new Set(duplicateResults.map((result) => result.participantId))).toHaveLength(1);
-    expect(new Set(duplicateResults.map((result) => result.joinToken))).toHaveLength(1);
+    expect(
+      new Set(duplicateResults.map((result) => result.participantId)),
+    ).toHaveLength(1);
+    expect(
+      new Set(duplicateResults.map((result) => result.joinToken)),
+    ).toHaveLength(1);
 
     await runInDurableObject(
       env.FLARE_LOBBY_ROOMS.getByName(created.roomId),
       (_instance: RoomDurableObject, state) => {
         const playerCount = state.storage.sql
           .exec<{ count: number }>(
-            "SELECT COUNT(*) AS count FROM flarelobby_room_participants WHERE kind = 'player'"
+            "SELECT COUNT(*) AS count FROM flarelobby_room_participants WHERE kind = 'player'",
           )
           .one().count;
         expect(playerCount).toBe(3);
-      }
+      },
     );
   });
 
   it("不正な役割を参加処理へ渡さない", async () => {
     const createdResponse = await createRoom({
-      requestId: `request-invalid-role-room-${crypto.randomUUID()}`
+      requestId: `request-invalid-role-room-${crypto.randomUUID()}`,
     });
     const created = await createdResponse.json<{ roomId: string }>();
     const response = await joinRoom(
       {
         requestId: `request-invalid-role-${crypto.randomUUID()}`,
         roomId: created.roomId,
-        role: "admin"
+        role: "admin",
       },
-      `principal-invalid-role-${crypto.randomUUID()}`
+      `principal-invalid-role-${crypto.randomUUID()}`,
     );
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
-      code: "INVALID_PAYLOAD"
+      code: "INVALID_PAYLOAD",
     });
   });
 
@@ -482,7 +476,7 @@ describe("カスタムルーム作成 Gateway", () => {
     const invitationResponse = await createRoom({
       requestId: `request-invitation-join-${crypto.randomUUID()}`,
       joinMethod: "invitation",
-      maxPlayers: 2
+      maxPlayers: 2,
     });
     const invitationRoom = await invitationResponse.json<{
       roomId: string;
@@ -492,18 +486,18 @@ describe("カスタムルーム作成 Gateway", () => {
     const invited = await joinRoom(
       {
         requestId: `request-invited-${crypto.randomUUID()}`,
-        invitationCode: invitationRoom.invitationCode
+        invitationCode: invitationRoom.invitationCode,
       },
-      `principal-invited-${crypto.randomUUID()}`
+      `principal-invited-${crypto.randomUUID()}`,
     );
     expect(invited.status).toBe(200);
 
     const invalidInvitation = await joinRoom(
       {
         requestId: `request-invalid-invitation-${crypto.randomUUID()}`,
-        invitationCode: "AAAAAA"
+        invitationCode: "AAAAAA",
       },
-      `principal-invalid-invitation-${crypto.randomUUID()}`
+      `principal-invalid-invitation-${crypto.randomUUID()}`,
     );
     expect(invalidInvitation.status).toBe(403);
 
@@ -512,7 +506,7 @@ describe("カスタムルーム作成 Gateway", () => {
       requestId: `request-password-join-${crypto.randomUUID()}`,
       joinMethod: "password",
       password,
-      maxPlayers: 2
+      maxPlayers: 2,
     });
     const passwordRoom = await passwordResponse.json<{ roomId: string }>();
 
@@ -520,9 +514,9 @@ describe("カスタムルーム作成 Gateway", () => {
       {
         requestId: `request-wrong-password-${crypto.randomUUID()}`,
         roomId: passwordRoom.roomId,
-        password: "wrong-password"
+        password: "wrong-password",
       },
-      `principal-wrong-password-${crypto.randomUUID()}`
+      `principal-wrong-password-${crypto.randomUUID()}`,
     );
     expect(wrongPassword.status).toBe(403);
 
@@ -530,9 +524,9 @@ describe("カスタムルーム作成 Gateway", () => {
       {
         requestId: `request-correct-password-${crypto.randomUUID()}`,
         roomId: passwordRoom.roomId,
-        password
+        password,
       },
-      `principal-correct-password-${crypto.randomUUID()}`
+      `principal-correct-password-${crypto.randomUUID()}`,
     );
     expect(correctPassword.status).toBe(200);
 
@@ -544,13 +538,13 @@ describe("カスタムルーム作成 Gateway", () => {
             salt: string | null;
             hash: string | null;
           }>(
-            "SELECT join_password_salt AS salt, join_password_hash AS hash FROM flarelobby_rooms"
+            "SELECT join_password_salt AS salt, join_password_hash AS hash FROM flarelobby_rooms",
           )
           .one();
         expect(row.salt).toBeTruthy();
         expect(row.hash).toBeTruthy();
         expect(JSON.stringify(row)).not.toContain(password);
-      }
+      },
     );
   });
 
@@ -560,17 +554,17 @@ describe("カスタムルーム作成 Gateway", () => {
     const createdResponse = await createRoom(
       {
         requestId: `request-leave-room-${crypto.randomUUID()}`,
-        maxPlayers: 3
+        maxPlayers: 3,
       },
-      ownerId
+      ownerId,
     );
     const created = await createdResponse.json<{ roomId: string }>();
     const joinedResponse = await joinRoom(
       {
         requestId: `request-leave-join-${crypto.randomUUID()}`,
-        roomId: created.roomId
+        roomId: created.roomId,
       },
-      guestId
+      guestId,
     );
     const joined = await joinedResponse.json<{
       participantId: string;
@@ -584,15 +578,15 @@ describe("カスタムルーム作成 Gateway", () => {
       (_instance: RoomDurableObject, state) => {
         state.storage.sql.exec(
           "UPDATE flarelobby_room_participants SET team_id = 'red', ready = 1 WHERE participant_id = ?",
-          joined.participantId
+          joined.participantId,
         );
-      }
+      },
     );
 
     const authenticated = await authenticateGatewayRequest(
       new Request("https://example.test/rooms"),
       () => ({ id: guestId, playerId: `${guestId}-player` }),
-      env.FLARE_LOBBY_TOKEN_SECRET
+      env.FLARE_LOBBY_TOKEN_SECRET,
     );
     if (!authenticated.ok) {
       throw authenticated.error;
@@ -603,13 +597,13 @@ describe("カスタムルーム作成 Gateway", () => {
         instance.disconnect({
           gatewayPrincipal: authenticated.value.gatewayPrincipal,
           participantId: joined.participantId,
-          role: "player"
-        })
+          role: "player",
+        }),
     );
     expect(
       disconnected.participants.some(
-        (participant) => participant.id === joined.participantId
-      )
+        (participant) => participant.id === joined.participantId,
+      ),
     ).toBe(true);
 
     const leaveBody = {
@@ -617,7 +611,7 @@ describe("カスタムルーム作成 Gateway", () => {
       roomId: created.roomId,
       participantId: joined.participantId,
       role: "player",
-      joinToken: joined.joinToken
+      joinToken: joined.joinToken,
     } as const;
     const leaveResponse = await leaveRoom(leaveBody, guestId);
     const left = await leaveResponse.json<{
@@ -632,8 +626,8 @@ describe("カスタムルーム作成 Gateway", () => {
     expect(left.snapshot.revision).toBe(joined.snapshot.revision + 1);
     expect(
       left.snapshot.participants.some(
-        (participant) => participant.id === joined.participantId
-      )
+        (participant) => participant.id === joined.participantId,
+      ),
     ).toBe(false);
 
     const duplicateLeaveResponse = await leaveRoom(leaveBody, guestId);
@@ -643,9 +637,9 @@ describe("カスタムルーム作成 Gateway", () => {
     const rejoinedResponse = await joinRoom(
       {
         requestId: `request-rejoin-${crypto.randomUUID()}`,
-        roomId: created.roomId
+        roomId: created.roomId,
       },
-      guestId
+      guestId,
     );
     const rejoined = await rejoinedResponse.json<{
       participantId: string;
@@ -661,8 +655,8 @@ describe("カスタムルーム作成 Gateway", () => {
     expect(rejoined.participantId).not.toBe(joined.participantId);
     expect(
       rejoined.snapshot.participants.find(
-        (participant) => participant.id === rejoined.participantId
-      )
+        (participant) => participant.id === rejoined.participantId,
+      ),
     ).toMatchObject({ teamId: null, ready: false });
 
     const oldTokenResponse = await leaveRoom(
@@ -671,9 +665,9 @@ describe("カスタムルーム作成 Gateway", () => {
         roomId: created.roomId,
         participantId: joined.participantId,
         role: "player",
-        joinToken: joined.joinToken
+        joinToken: joined.joinToken,
       },
-      guestId
+      guestId,
     );
     expect(oldTokenResponse.status).toBe(403);
   });
@@ -684,16 +678,16 @@ describe("カスタムルーム作成 Gateway", () => {
     ["maxSpectatorsが負数", { maxSpectators: -1 }],
     ["visibilityが不正", { visibility: "private" }],
     ["joinMethodが不正", { joinMethod: "password" }],
-    ["settingsが配列", { settings: [] }]
+    ["settingsが配列", { settings: [] }],
   ])("%sを明確なPayloadエラーで拒否する", async (_label, overrides) => {
     const response = await createRoom({
       requestId: `request-invalid-${crypto.randomUUID()}`,
-      ...overrides
+      ...overrides,
     });
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
-      code: "INVALID_PAYLOAD"
+      code: "INVALID_PAYLOAD",
     });
   });
 
@@ -706,24 +700,24 @@ describe("カスタムルーム作成 Gateway", () => {
         },
         recordProcessedCommand: async () => {
           throw new Error("到達しない");
-        }
-      })
+        },
+      }),
     } as unknown as Env["FLARE_LOBBY_ROOMS"];
     const failingEnv = {
       ...env,
-      FLARE_LOBBY_ROOMS: failingRooms
+      FLARE_LOBBY_ROOMS: failingRooms,
     } as Env;
 
     const response = await createRoom(
       { requestId: `request-failure-${crypto.randomUUID()}` },
       `principal-failure-${crypto.randomUUID()}`,
-      failingEnv
+      failingEnv,
     );
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
       code: "CONNECTION_FAILED",
-      message: "通信接続に失敗しました。"
+      message: "通信接続に失敗しました。",
     });
   });
 });

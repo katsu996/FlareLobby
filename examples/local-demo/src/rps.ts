@@ -3,7 +3,7 @@ import {
   createErrorResponse,
   createMatchmakingPoolKey,
   readValidatedJsonBody,
-  registerMatchResult
+  registerMatchResult,
 } from "@flarelobby/cloudflare";
 import type {
   AuthenticatedGatewayRequest,
@@ -11,14 +11,14 @@ import type {
   FlareLobbyConfiguration,
   MatchmakingMatchIntent,
   MatchmakingTicketRecord,
-  MatchmakingPoolConfiguration
+  MatchmakingPoolConfiguration,
 } from "@flarelobby/cloudflare";
 import { FlareLobbyError } from "@flarelobby/core";
 import type {
   AnyFlareLobbyApp,
   JsonObject,
   MatchmakingPool,
-  RatingResult
+  RatingResult,
 } from "@flarelobby/core";
 import {
   createRpsResultId,
@@ -26,7 +26,6 @@ import {
   isRatingResult,
   isRpsMove,
   resolveRpsResult,
-  RPS_MOVES
 } from "./rps-game.js";
 import type { RpsMove, RpsOutcome } from "./rps-game.js";
 
@@ -36,7 +35,7 @@ export {
   isRatingResult,
   isRpsMove,
   resolveRpsResult,
-  RPS_MOVES
+  RPS_MOVES,
 } from "./rps-game.js";
 export type { RpsMove, RpsOutcome } from "./rps-game.js";
 
@@ -47,7 +46,7 @@ interface MatchPoolGatewayStub {
   getMatchIntent(
     matchIdOrCandidateId:
       | string
-      | { readonly matchId?: string; readonly candidateId?: string }
+      | { readonly matchId?: string; readonly candidateId?: string },
   ): Promise<MatchmakingMatchIntent | null>;
   getTicket(ticketId: string): Promise<MatchmakingTicketRecord | null>;
 }
@@ -77,26 +76,24 @@ interface RpsMatchResponse {
   readonly ready: boolean;
   readonly yourMove: RpsMove | null;
   readonly opponentMove: RpsMove | null;
-  readonly result:
-    | {
-        readonly value: RatingResult;
-        readonly outcome: RpsOutcome;
-        readonly resultId: string;
-        readonly applied: boolean | null;
-      }
-    | null;
+  readonly result: {
+    readonly value: RatingResult;
+    readonly outcome: RpsOutcome;
+    readonly resultId: string;
+    readonly applied: boolean | null;
+  } | null;
   readonly rating?: { readonly value: number };
 }
 
 /** ローカルサンプルのランク戦 API を処理します。 */
 export async function handleDemoRpsRequest<
   TEnv extends FlareLobbyBindings,
-  TApp extends AnyFlareLobbyApp = AnyFlareLobbyApp
+  TApp extends AnyFlareLobbyApp = AnyFlareLobbyApp,
 >(
   request: Request,
   env: TEnv,
   configuration: FlareLobbyConfiguration<TApp>,
-  authenticatedRequest: AuthenticatedGatewayRequest
+  authenticatedRequest: AuthenticatedGatewayRequest,
 ): Promise<Response | null> {
   const route = parseRpsRoute(new URL(request.url).pathname);
   if (route === null) {
@@ -108,7 +105,7 @@ export async function handleDemoRpsRequest<
       env,
       configuration,
       route.matchId,
-      authenticatedRequest
+      authenticatedRequest,
     );
 
     if (route.action === "state") {
@@ -118,7 +115,7 @@ export async function handleDemoRpsRequest<
 
       const row = await readRpsMatch(env.FLARE_LOBBY_DB, matched.matchId);
       return Response.json(
-        toRpsResponse(row, matched.actorSlot, null, matched.matchId)
+        toRpsResponse(row, matched.actorSlot, null, matched.matchId),
       );
     }
 
@@ -131,29 +128,29 @@ export async function handleDemoRpsRequest<
       env,
       configuration,
       authenticatedRequest,
-      matched
+      matched,
     );
   } catch (error) {
     return createErrorResponse(
       error instanceof FlareLobbyError
         ? error
-        : new FlareLobbyError("CONNECTION_FAILED")
+        : new FlareLobbyError("CONNECTION_FAILED"),
     );
   }
 }
 
 /** Worker入口でBearerトークンを検証する補助関数です。 */
 export async function authenticateDemoRpsRequest<
-  TApp extends AnyFlareLobbyApp = AnyFlareLobbyApp
+  TApp extends AnyFlareLobbyApp = AnyFlareLobbyApp,
 >(
   request: Request,
   configuration: FlareLobbyConfiguration<TApp>,
-  tokenSecret: string
+  tokenSecret: string,
 ): Promise<Response | AuthenticatedGatewayRequest> {
   const authenticated = await authenticateGatewayRequest(
     request,
     configuration.authenticate,
-    tokenSecret
+    tokenSecret,
   );
 
   return authenticated.ok
@@ -162,10 +159,11 @@ export async function authenticateDemoRpsRequest<
 }
 
 function parseRpsRoute(
-  pathname: string
+  pathname: string,
 ): { readonly action: "state" | "move"; readonly matchId: string } | null {
-  const match =
-    /^\/v1\/demo\/rps\/matches\/([^/]+)(?:\/(move))?$/u.exec(pathname);
+  const match = /^\/v1\/demo\/rps\/matches\/([^/]+)(?:\/(move))?$/u.exec(
+    pathname,
+  );
 
   if (match?.[1] === undefined) {
     return null;
@@ -184,18 +182,21 @@ function parseRpsRoute(
 
   return {
     matchId,
-    action: match[2] === "move" ? "move" : "state"
+    action: match[2] === "move" ? "move" : "state",
   };
 }
 
-async function readMatchedPlayers<TEnv extends FlareLobbyBindings, TApp extends AnyFlareLobbyApp>(
+async function readMatchedPlayers<
+  TEnv extends FlareLobbyBindings,
+  TApp extends AnyFlareLobbyApp,
+>(
   env: TEnv,
   configuration: FlareLobbyConfiguration<TApp>,
   matchId: string,
-  authenticatedRequest: AuthenticatedGatewayRequest
+  authenticatedRequest: AuthenticatedGatewayRequest,
 ): Promise<MatchedPlayers> {
   const poolConfiguration = configuration.matchmakingPools.find(
-    (candidate) => candidate.id === DEMO_RANKED_POOL_ID
+    (candidate) => candidate.id === DEMO_RANKED_POOL_ID,
   );
 
   if (poolConfiguration === undefined) {
@@ -204,7 +205,7 @@ async function readMatchedPlayers<TEnv extends FlareLobbyBindings, TApp extends 
 
   const pool = toPool(poolConfiguration);
   const poolStub = env.FLARE_LOBBY_MATCH_POOLS.getByName(
-    createMatchmakingPoolKey(pool)
+    createMatchmakingPoolKey(pool),
   ) as unknown as MatchPoolGatewayStub;
   const intent = await poolStub.getMatchIntent({ matchId });
 
@@ -243,21 +244,24 @@ async function readMatchedPlayers<TEnv extends FlareLobbyBindings, TApp extends 
     matchId,
     playerAId: playerATicket.player.id,
     playerBId: playerBTicket.player.id,
-    actorSlot
+    actorSlot,
   };
 }
 
-async function acceptRpsMove<TEnv extends FlareLobbyBindings, TApp extends AnyFlareLobbyApp>(
+async function acceptRpsMove<
+  TEnv extends FlareLobbyBindings,
+  TApp extends AnyFlareLobbyApp,
+>(
   request: Request,
   env: TEnv,
   configuration: FlareLobbyConfiguration<TApp>,
   authenticatedRequest: AuthenticatedGatewayRequest,
-  matched: MatchedPlayers
+  matched: MatchedPlayers,
 ): Promise<Response> {
   const body = await readValidatedJsonBody(
     request,
     configuration.inputLimits.maxHttpRequestBytes,
-    isJsonObject
+    isJsonObject,
   );
 
   if (!body.ok) {
@@ -273,25 +277,29 @@ async function acceptRpsMove<TEnv extends FlareLobbyBindings, TApp extends AnyFl
     env.FLARE_LOBBY_DB,
     matched.matchId,
     matched.playerAId,
-    matched.playerBId
+    matched.playerBId,
   );
 
   const rowBefore = await readRpsMatch(env.FLARE_LOBBY_DB, matched.matchId);
-  const existingMove = matched.actorSlot === "A" ? rowBefore?.moveA : rowBefore?.moveB;
+  const existingMove =
+    matched.actorSlot === "A" ? rowBefore?.moveA : rowBefore?.moveB;
 
-  if (existingMove !== null && existingMove !== undefined && existingMove !== move) {
+  if (
+    existingMove !== null &&
+    existingMove !== undefined &&
+    existingMove !== move
+  ) {
     throw new FlareLobbyError("CONFLICT", {
-      message: "この試合では手を変更できません。"
+      message: "この試合では手を変更できません。",
     });
   }
 
   const moveColumn = matched.actorSlot === "A" ? "move_a" : "move_b";
-  await env.FLARE_LOBBY_DB
-    .prepare(
-      `UPDATE flarelobby_demo_rps_matches
+  await env.FLARE_LOBBY_DB.prepare(
+    `UPDATE flarelobby_demo_rps_matches
        SET ${moveColumn} = COALESCE(${moveColumn}, ?)
-       WHERE match_id = ?`
-    )
+       WHERE match_id = ?`,
+  )
     .bind(move, matched.matchId)
     .run();
 
@@ -311,25 +319,24 @@ async function acceptRpsMove<TEnv extends FlareLobbyBindings, TApp extends AnyFl
         matchId: matched.matchId,
         playerAId: matched.playerAId,
         playerBId: matched.playerBId,
-        result
+        result,
       },
-      matched.poolConfiguration.rating ?? {}
+      matched.poolConfiguration.rating ?? {},
     );
     registrationApplied = registration.applied;
 
-    await env.FLARE_LOBBY_DB
-      .prepare(
-        `UPDATE flarelobby_demo_rps_matches
+    await env.FLARE_LOBBY_DB.prepare(
+      `UPDATE flarelobby_demo_rps_matches
          SET result = COALESCE(result, ?),
              result_id = COALESCE(result_id, ?),
              applied_at = COALESCE(applied_at, ?)
-         WHERE match_id = ?`
-      )
+         WHERE match_id = ?`,
+    )
       .bind(
         result,
         createRpsResultId(matched.matchId),
         Date.now(),
-        matched.matchId
+        matched.matchId,
       )
       .run();
 
@@ -340,24 +347,27 @@ async function acceptRpsMove<TEnv extends FlareLobbyBindings, TApp extends AnyFl
 
     const response = toRpsResponse(row, matched.actorSlot, registrationApplied);
     const playerRating = registration.match.participants.find(
-      (participant) => participant.playerId === authenticatedRequest.principal.playerId
+      (participant) =>
+        participant.playerId === authenticatedRequest.principal.playerId,
     )?.ratingAfter;
 
     return Response.json(
       playerRating === undefined
         ? response
-        : { ...response, rating: { value: playerRating } }
+        : { ...response, rating: { value: playerRating } },
     );
   }
 
-  return Response.json(toRpsResponse(row, matched.actorSlot, registrationApplied));
+  return Response.json(
+    toRpsResponse(row, matched.actorSlot, registrationApplied),
+  );
 }
 
 async function ensureRpsMatch(
   database: D1Database,
   matchId: string,
   playerAId: string,
-  playerBId: string
+  playerBId: string,
 ): Promise<void> {
   await database
     .prepare(
@@ -365,7 +375,7 @@ async function ensureRpsMatch(
          match_id, player_a_id, player_b_id, move_a, move_b,
          result, result_id, applied_at
        ) VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL)
-       ON CONFLICT(match_id) DO NOTHING`
+       ON CONFLICT(match_id) DO NOTHING`,
     )
     .bind(matchId, playerAId, playerBId)
     .run();
@@ -373,7 +383,7 @@ async function ensureRpsMatch(
 
 async function readRpsMatch(
   database: D1Database,
-  matchId: string
+  matchId: string,
 ): Promise<RpsMatchRow | null> {
   const row = await database
     .prepare(
@@ -387,7 +397,7 @@ async function readRpsMatch(
          result_id AS resultId,
          applied_at AS appliedAt
        FROM flarelobby_demo_rps_matches
-       WHERE match_id = ?`
+       WHERE match_id = ?`,
     )
     .bind(matchId)
     .first<{
@@ -421,7 +431,7 @@ async function readRpsMatch(
     moveB: row.moveB as RpsMove | null,
     result: row.result as RatingResult | null,
     resultId: row.resultId,
-    appliedAt: row.appliedAt
+    appliedAt: row.appliedAt,
   };
 }
 
@@ -429,7 +439,7 @@ function toRpsResponse(
   row: RpsMatchRow | null,
   actorSlot: "A" | "B",
   applied: boolean | null,
-  fallbackMatchId = ""
+  fallbackMatchId = "",
 ): RpsMatchResponse {
   if (row === null) {
     return {
@@ -437,7 +447,7 @@ function toRpsResponse(
       ready: false,
       yourMove: null,
       opponentMove: null,
-      result: null
+      result: null,
     };
   }
 
@@ -450,7 +460,7 @@ function toRpsResponse(
           value: row.result,
           outcome: getRpsOutcome(row.result, actorSlot),
           resultId: row.resultId,
-          applied
+          applied,
         };
 
   return {
@@ -458,7 +468,7 @@ function toRpsResponse(
     ready: row.moveA !== null && row.moveB !== null,
     yourMove,
     opponentMove: result === null ? null : opponentMove,
-    result
+    result,
   };
 }
 
@@ -468,7 +478,7 @@ function toPool(configuration: MatchmakingPoolConfiguration): MatchmakingPool {
     gameId: configuration.gameId,
     seasonId: configuration.seasonId,
     mode: configuration.mode,
-    region: configuration.region
+    region: configuration.region,
   };
 }
 

@@ -15,9 +15,9 @@ authenticate: async (request) => {
     ? null
     : {
         id: account.subjectId,
-        playerId: account.gamePlayerId
+        playerId: account.gamePlayerId,
       };
-}
+};
 ```
 
 `authenticateRequest()` は戻り値の `id` と `playerId` を空でない文字列として検証し、余分なプロパティを除いた読み取り専用の `Principal` に正規化します。HTTP 本文、Query、WebSocket Payload に含まれる `playerId` は本人確認へ使いません。認証 Hook の例外や不正な戻り値も、公開エラーの詳細を増やさず未認証として扱います。
@@ -52,12 +52,15 @@ HTTP 本文には `readValidatedJsonBody(request, maxBytes, validator)` を使�
 検証関数は型ガードとして書けます。
 
 ```ts
-const roomInput = await readValidatedJsonBody(request, limits.maxHttpRequestBytes, (value): value is { title: string } =>
-  typeof value === "object" &&
-  value !== null &&
-  "title" in value &&
-  typeof value.title === "string" &&
-  value.title.length <= 80
+const roomInput = await readValidatedJsonBody(
+  request,
+  limits.maxHttpRequestBytes,
+  (value): value is { title: string } =>
+    typeof value === "object" &&
+    value !== null &&
+    "title" in value &&
+    typeof value.title === "string" &&
+    value.title.length <= 80,
 );
 ```
 
@@ -86,12 +89,12 @@ WebSocket メッセージの直前に `consumeWebSocketMessageRateLimit()`、ル
 const issued = await issueResumeToken(env.FLARE_LOBBY_TOKEN_SECRET, {
   principal: authenticatedRequest.principal,
   roomId,
-  expiresAt: Date.now() + 10 * 60 * 1000
+  expiresAt: Date.now() + 10 * 60 * 1000,
 });
 
 const verified = await verifyResumeToken(env.FLARE_LOBBY_TOKEN_SECRET, token, {
   principal: authenticatedRequest.principal,
-  roomId
+  roomId,
 });
 ```
 

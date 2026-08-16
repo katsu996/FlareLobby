@@ -4,18 +4,18 @@
 
 ## クエリ
 
-| パラメーター | 内容 |
-| --- | --- |
-| `mode` | Room 設定の `settings.mode` 完全一致 |
-| `region` | Room 設定の `settings.region` 完全一致 |
-| `state` | `waiting`、`preparing`、`in_progress`、`finished` |
-| `status` | `state` の別名 |
-| `available` | `true` のとき、プレイヤー空き枠があるルームだけ |
-| `availableSlots` | プレイヤー空き枠が指定値以上 |
-| `minAvailableSlots` | `availableSlots` の別名 |
-| `limit` | 1〜100 件。既定値は 20 |
-| `pageSize` | `limit` の別名 |
-| `cursor` | 前ページの `nextCursor` |
+| パラメーター        | 内容                                              |
+| ------------------- | ------------------------------------------------- |
+| `mode`              | Room 設定の `settings.mode` 完全一致              |
+| `region`            | Room 設定の `settings.region` 完全一致            |
+| `state`             | `waiting`、`preparing`、`in_progress`、`finished` |
+| `status`            | `state` の別名                                    |
+| `available`         | `true` のとき、プレイヤー空き枠があるルームだけ   |
+| `availableSlots`    | プレイヤー空き枠が指定値以上                      |
+| `minAvailableSlots` | `availableSlots` の別名                           |
+| `limit`             | 1〜100 件。既定値は 20                            |
+| `pageSize`          | `limit` の別名                                    |
+| `cursor`            | 前ページの `nextCursor`                           |
 
 `state` と `status`、`availableSlots` と `minAvailableSlots` を同時に指定する場合は、値を一致させます。`state` と `status` は複数指定にも対応します。ページングは `createdAt DESC, roomId DESC` の固定順で行い、カーソルには検索条件・件数・位置を束ねた HMAC 署名を付けます。別の条件へカーソルを持ち越すことはできません。
 

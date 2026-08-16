@@ -4,7 +4,12 @@
   "description": "FlareLobby のプラットフォーム非依存ドメインロジック",
   "license": "MIT",
   "author": "katsu996",
-  "keywords": ["cloudflare", "game", "matchmaking", "typescript"],
+  "keywords": [
+    "cloudflare",
+    "game",
+    "matchmaking",
+    "typescript"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/katsu996/FlareLobby.git",
@@ -24,7 +29,12 @@
     }
   },
   "types": "./dist/index.d.ts",
-  "files": ["dist", "!dist/.tsbuildinfo", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "!dist/.tsbuildinfo",
+    "README.md",
+    "LICENSE"
+  ],
   "publishConfig": {
     "access": "public"
   },

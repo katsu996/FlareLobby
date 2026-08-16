@@ -10,19 +10,14 @@ export type RpsOutcome = "win" | "draw" | "lose";
 const RPS_RESULT_ID_PREFIX = "demo-rps-result:";
 
 /** じゃんけんの勝敗を A 側の得点（1 / 0.5 / 0）で返します。 */
-export function resolveRpsResult(
-  moveA: RpsMove,
-  moveB: RpsMove
-): RatingResult {
+export function resolveRpsResult(moveA: RpsMove, moveB: RpsMove): RatingResult {
   if (moveA === moveB) {
     return 0.5;
   }
 
-  return (
-    (moveA === "rock" && moveB === "scissors") ||
+  return (moveA === "rock" && moveB === "scissors") ||
     (moveA === "paper" && moveB === "rock") ||
     (moveA === "scissors" && moveB === "paper")
-  )
     ? 1
     : 0;
 }
@@ -30,7 +25,7 @@ export function resolveRpsResult(
 /** A 側の結果を指定したスロットから見た表示用の勝敗へ変換します。 */
 export function getRpsOutcome(
   result: RatingResult,
-  slot: "A" | "B"
+  slot: "A" | "B",
 ): RpsOutcome {
   if (result === 0.5) {
     return "draw";
@@ -46,7 +41,10 @@ export function createRpsResultId(matchId: string): string {
 }
 
 export function isRpsMove(value: unknown): value is RpsMove {
-  return typeof value === "string" && (RPS_MOVES as readonly string[]).includes(value);
+  return (
+    typeof value === "string" &&
+    (RPS_MOVES as readonly string[]).includes(value)
+  );
 }
 
 export function isRatingResult(value: unknown): value is RatingResult {

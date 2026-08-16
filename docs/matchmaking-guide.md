@@ -25,8 +25,8 @@ const lobby = defineFlareLobby({
         stages: [
           { afterMs: 0, maxRatingDifference: 75 },
           { afterMs: 20_000, maxRatingDifference: 150 },
-          { afterMs: 60_000, maxRatingDifference: 400 }
-        ]
+          { afterMs: 60_000, maxRatingDifference: 400 },
+        ],
       },
       matchRoom: {
         settings: { map: "forest" },
@@ -34,13 +34,13 @@ const lobby = defineFlareLobby({
         teamIds: ["blue", "red"],
         maxPlayers: 2,
         minimumPlayers: 2,
-        requireAllPlayersReady: false
+        requireAllPlayersReady: false,
       },
-      rating: { initialRating: 1_500, kFactor: 24 }
-    }
+      rating: { initialRating: 1_500, kFactor: 24 },
+    },
   ],
   authenticate,
-  inputLimits
+  inputLimits,
 });
 ```
 
@@ -57,7 +57,7 @@ const ticket = await client.joinMatchmaking("ranked-jp", {
   rating: 1_500,
   region: "jp",
   inputMethod: "keyboard_mouse",
-  ttlMs: 60_000
+  ttlMs: 60_000,
 });
 
 const stop = ticket.on("progress", (progress) => {
@@ -65,7 +65,7 @@ const stop = ticket.on("progress", (progress) => {
     status: progress.ticket.status,
     waitingTimeMs: progress.waitingTimeMs,
     searchWidth: progress.searchWidth,
-    waitingCount: progress.waitingCount
+    waitingCount: progress.waitingCount,
   });
 });
 
@@ -87,7 +87,7 @@ stop();
 ```ts
 const room = await client.findMatch("ranked-jp", {
   signal: abortController.signal,
-  reconnect: { maxAttempts: 5 }
+  reconnect: { maxAttempts: 5 },
 });
 
 const ticket = await client.joinMatchmaking("ranked-jp");

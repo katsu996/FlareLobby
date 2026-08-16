@@ -5,7 +5,7 @@ import type {
   MatchmakingTicketId,
   Player,
   Rating,
-  Timestamp
+  Timestamp,
 } from "./index.js";
 
 /** 検索幅を切り替える時刻と、その時点で許容するレート差です。 */
@@ -54,7 +54,7 @@ export const DEFAULT_MATCHMAKING_SEARCH_WIDTH_STAGES: readonly MatchmakingSearch
   Object.freeze([
     Object.freeze({ afterMs: 0, maxRatingDifference: 75 }),
     Object.freeze({ afterMs: 20_000, maxRatingDifference: 150 }),
-    Object.freeze({ afterMs: 60_000, maxRatingDifference: 400 })
+    Object.freeze({ afterMs: 60_000, maxRatingDifference: 400 }),
   ]);
 
 /** 1 回の探索で読む待機チケット数の既定上限です。 */
@@ -121,48 +121,41 @@ export interface MatchmakingCandidateEvaluationOptions {
 
 /** 候補探索設定を既定値込みで正規化します。 */
 export function normalizeMatchmakingSearchPolicy(
-  input: unknown = {}
+  input: unknown = {},
 ): NormalizedMatchmakingSearchPolicy {
   if (!isRecord(input)) {
     throw new TypeError("候補探索設定はオブジェクトで指定してください。");
   }
 
-  const stages = normalizeStages(
-    input["stages"],
-    input["searchWidthStages"]
-  );
+  const stages = normalizeStages(input["stages"], input["searchWidthStages"]);
   const maxRatingDifference = readAliasedNonNegativeSafeInteger(
     input["maxRatingDifference"],
     input["maxSearchWidth"],
     "maxRatingDifference",
-    stages[stages.length - 1]!.maxRatingDifference
+    stages[stages.length - 1]!.maxRatingDifference,
   );
   const maxTicketsPerSearch = readAliasedPositiveSafeInteger(
     input["maxTicketsPerSearch"],
     input["maxSearchTickets"],
     "maxTicketsPerSearch",
-    DEFAULT_MATCHMAKING_MAX_TICKETS_PER_SEARCH
+    DEFAULT_MATCHMAKING_MAX_TICKETS_PER_SEARCH,
   );
   const maxCandidatesPerSearch = readAliasedPositiveSafeInteger(
     input["maxCandidatesPerSearch"],
     input["maxSearchCandidates"],
     "maxCandidatesPerSearch",
-    DEFAULT_MATCHMAKING_MAX_CANDIDATES_PER_SEARCH
+    DEFAULT_MATCHMAKING_MAX_CANDIDATES_PER_SEARCH,
   );
   const maxMatchesPerSearch = readAliasedPositiveSafeInteger(
     input["maxMatchesPerSearch"],
     input["maxSearchMatches"],
     "maxMatchesPerSearch",
-    DEFAULT_MATCHMAKING_MAX_MATCHES_PER_SEARCH
+    DEFAULT_MATCHMAKING_MAX_MATCHES_PER_SEARCH,
   );
 
-  if (
-    stages.some(
-      (stage) => stage.maxRatingDifference > maxRatingDifference
-    )
-  ) {
+  if (stages.some((stage) => stage.maxRatingDifference > maxRatingDifference)) {
     throw new RangeError(
-      "検索幅の段階は maxRatingDifference 以下で指定してください。"
+      "検索幅の段階は maxRatingDifference 以下で指定してください。",
     );
   }
 
@@ -171,14 +164,17 @@ export function normalizeMatchmakingSearchPolicy(
     maxRatingDifference,
     maxTicketsPerSearch,
     maxCandidatesPerSearch,
-    maxMatchesPerSearch
+    maxMatchesPerSearch,
   });
 }
 
 /** 待機時間に対応する現在の検索幅を返します。境界時刻は新しい段階を使用します。 */
 export function getMatchmakingSearchWidth(
-  policy: MatchmakingSearchPolicy | NormalizedMatchmakingSearchPolicy | undefined,
-  waitingTimeMs: number
+  policy:
+    | MatchmakingSearchPolicy
+    | NormalizedMatchmakingSearchPolicy
+    | undefined,
+  waitingTimeMs: number,
 ): number {
   const normalized = normalizeMatchmakingSearchPolicy(policy);
 
@@ -200,9 +196,12 @@ export function getMatchmakingSearchWidth(
 
 /** 次の検索幅へ切り替える時刻を返します。最終段階の後は `null` です。 */
 export function getNextMatchmakingSearchAt(
-  policy: MatchmakingSearchPolicy | NormalizedMatchmakingSearchPolicy | undefined,
+  policy:
+    | MatchmakingSearchPolicy
+    | NormalizedMatchmakingSearchPolicy
+    | undefined,
   queuedAt: number | Timestamp,
-  now: number
+  now: number,
 ): number | null {
   const normalized = normalizeMatchmakingSearchPolicy(policy);
   const queuedAtMs = normalizeTimestampMs(queuedAt, "queuedAt");
@@ -225,7 +224,7 @@ export function getNextMatchmakingSearchAt(
 export function evaluateMatchCandidate(
   firstTicket: MatchmakingSearchTicket,
   secondTicket: MatchmakingSearchTicket,
-  options: MatchmakingCandidateEvaluationOptions
+  options: MatchmakingCandidateEvaluationOptions,
 ): MatchmakingCandidateEvaluation | null {
   const nowMs = normalizeNow(options.now);
   const policy = normalizeMatchmakingSearchPolicy(options.policy);
@@ -241,19 +240,22 @@ export function evaluateMatchCandidate(
     return null;
   }
 
-  const ordered = first.id <= second.id ? [first, second] as const : [second, first] as const;
+  const ordered =
+    first.id <= second.id
+      ? ([first, second] as const)
+      : ([second, first] as const);
   const firstWaitingTimeMs = getWaitingTimeMs(ordered[0]!.queuedAt, nowMs);
   const secondWaitingTimeMs = getWaitingTimeMs(ordered[1]!.queuedAt, nowMs);
   const firstSearchWidth = getMatchmakingSearchWidth(
     policy,
-    firstWaitingTimeMs
+    firstWaitingTimeMs,
   );
   const secondSearchWidth = getMatchmakingSearchWidth(
     policy,
-    secondWaitingTimeMs
+    secondWaitingTimeMs,
   );
   const ratingDifference = Math.abs(
-    ordered[0]!.rating.value - ordered[1]!.rating.value
+    ordered[0]!.rating.value - ordered[1]!.rating.value,
   );
 
   if (
@@ -268,7 +270,7 @@ export function evaluateMatchCandidate(
     id: createMatchCandidateId(ordered[0]!.id, ordered[1]!.id),
     pool: ordered[0]!.pool,
     ticketIds: [ordered[0]!.id, ordered[1]!.id] as const,
-    createdAt: new Date(nowMs).toISOString()
+    createdAt: new Date(nowMs).toISOString(),
   });
   const quality = Object.freeze({
     ratingDifference,
@@ -277,9 +279,8 @@ export function evaluateMatchCandidate(
     newestWaitingTimeMs: Math.min(firstWaitingTimeMs, secondWaitingTimeMs),
     searchWidth: [firstSearchWidth, secondSearchWidth] as const,
     regionMatch: ordered[0]!.region === ordered[1]!.region,
-    inputMethodMatch:
-      ordered[0]!.inputMethod === ordered[1]!.inputMethod,
-    score: ratingDifference
+    inputMethodMatch: ordered[0]!.inputMethod === ordered[1]!.inputMethod,
+    score: ratingDifference,
   });
 
   return Object.freeze({ candidate, quality });
@@ -288,7 +289,7 @@ export function evaluateMatchCandidate(
 /** 待機チケットから、決定論的に最適な候補を複数選びます。 */
 export function selectMatchCandidates(
   tickets: readonly MatchmakingSearchTicket[],
-  options: MatchmakingCandidateSearchOptions
+  options: MatchmakingCandidateSearchOptions,
 ): readonly MatchmakingCandidateEvaluation[] {
   const nowMs = normalizeNow(options.now);
   const policy = normalizeMatchmakingSearchPolicy(options.policy);
@@ -303,12 +304,14 @@ export function selectMatchCandidates(
   const selectedTicketIds = new Set<string>();
   let evaluatedCount = 0;
 
-  while (
-    selected.length < Math.min(maxMatches, policy.maxMatchesPerSearch)
-  ) {
+  while (selected.length < Math.min(maxMatches, policy.maxMatchesPerSearch)) {
     let best: MatchmakingCandidateEvaluation | null = null;
 
-    outer: for (let firstIndex = 0; firstIndex < orderedTickets.length; firstIndex += 1) {
+    outer: for (
+      let firstIndex = 0;
+      firstIndex < orderedTickets.length;
+      firstIndex += 1
+    ) {
       const first = orderedTickets[firstIndex]!;
 
       if (selectedTicketIds.has(first.id)) {
@@ -333,7 +336,7 @@ export function selectMatchCandidates(
         evaluatedCount += 1;
         const evaluation = evaluateMatchCandidate(first, second, {
           now: nowMs,
-          policy
+          policy,
         });
 
         if (
@@ -364,7 +367,7 @@ export function selectMatchCandidates(
 /** 待機チケットから、決定論的に最適な 1 件の候補を選びます。 */
 export function findBestMatchCandidate(
   tickets: readonly MatchmakingSearchTicket[],
-  options: MatchmakingCandidateSearchOptions
+  options: MatchmakingCandidateSearchOptions,
 ): MatchmakingCandidateEvaluation | null {
   return (
     selectMatchCandidates(tickets, { ...options, maxMatches: 1 })[0] ?? null
@@ -374,13 +377,13 @@ export function findBestMatchCandidate(
 /** 候補品質の比較関数です。待機開始時刻とチケット ID が安定 Tie Break になります。 */
 export function compareMatchCandidateQuality(
   left: MatchmakingCandidateEvaluation,
-  right: MatchmakingCandidateEvaluation
+  right: MatchmakingCandidateEvaluation,
 ): number {
   const leftQuality = left.quality;
   const rightQuality = right.quality;
   const qualityComparison = compareNumbers(
     leftQuality.ratingDifference,
-    rightQuality.ratingDifference
+    rightQuality.ratingDifference,
   );
 
   if (qualityComparison !== 0) {
@@ -389,7 +392,7 @@ export function compareMatchCandidateQuality(
 
   const inputMethodComparison = compareNumbers(
     leftQuality.inputMethodMatch ? 0 : 1,
-    rightQuality.inputMethodMatch ? 0 : 1
+    rightQuality.inputMethodMatch ? 0 : 1,
   );
 
   if (inputMethodComparison !== 0) {
@@ -398,7 +401,7 @@ export function compareMatchCandidateQuality(
 
   const waitingComparison = compareNumbers(
     rightQuality.oldestWaitingTimeMs,
-    leftQuality.oldestWaitingTimeMs
+    leftQuality.oldestWaitingTimeMs,
   );
 
   if (waitingComparison !== 0) {
@@ -407,7 +410,7 @@ export function compareMatchCandidateQuality(
 
   const newestWaitingComparison = compareNumbers(
     rightQuality.newestWaitingTimeMs,
-    leftQuality.newestWaitingTimeMs
+    leftQuality.newestWaitingTimeMs,
   );
 
   if (newestWaitingComparison !== 0) {
@@ -429,7 +432,7 @@ export const findBestMatchmakingCandidate = findBestMatchCandidate;
 
 function normalizeStages(
   firstValue: unknown,
-  secondValue: unknown
+  secondValue: unknown,
 ): readonly MatchmakingSearchWidthStage[] {
   if (
     firstValue !== undefined &&
@@ -437,7 +440,7 @@ function normalizeStages(
     JSON.stringify(firstValue) !== JSON.stringify(secondValue)
   ) {
     throw new RangeError(
-      "stages と searchWidthStages に異なる検索幅を指定できません。"
+      "stages と searchWidthStages に異なる検索幅を指定できません。",
     );
   }
 
@@ -449,7 +452,9 @@ function normalizeStages(
         : DEFAULT_MATCHMAKING_SEARCH_WIDTH_STAGES;
 
   if (!Array.isArray(value) || value.length === 0 || value.length > 32) {
-    throw new RangeError("検索幅の段階は 1 件以上 32 件以下で指定してください。");
+    throw new RangeError(
+      "検索幅の段階は 1 件以上 32 件以下で指定してください。",
+    );
   }
 
   const stages: MatchmakingSearchWidthStage[] = [];
@@ -463,12 +468,14 @@ function normalizeStages(
     const maxRatingDifference = item["maxRatingDifference"];
 
     if (!isNonNegativeSafeInteger(afterMs)) {
-      throw new RangeError("検索幅の afterMs は 0 以上の安全な整数で指定してください。");
+      throw new RangeError(
+        "検索幅の afterMs は 0 以上の安全な整数で指定してください。",
+      );
     }
 
     if (!isNonNegativeSafeInteger(maxRatingDifference)) {
       throw new RangeError(
-        "検索幅の maxRatingDifference は 0 以上の安全な整数で指定してください。"
+        "検索幅の maxRatingDifference は 0 以上の安全な整数で指定してください。",
       );
     }
 
@@ -481,7 +488,7 @@ function normalizeStages(
           maxRatingDifference < previous.maxRatingDifference))
     ) {
       throw new RangeError(
-        "検索幅の段階は afterMs と maxRatingDifference が単調増加するよう指定してください。"
+        "検索幅の段階は afterMs と maxRatingDifference が単調増加するよう指定してください。",
       );
     }
 
@@ -495,7 +502,7 @@ function readAliasedNonNegativeSafeInteger(
   firstValue: unknown,
   secondValue: unknown,
   name: string,
-  defaultValue: number
+  defaultValue: number,
 ): number {
   const aliasedValue = readAliasedValue(firstValue, secondValue, name);
   const value = aliasedValue === undefined ? defaultValue : aliasedValue;
@@ -511,7 +518,7 @@ function readAliasedPositiveSafeInteger(
   firstValue: unknown,
   secondValue: unknown,
   name: string,
-  defaultValue: number
+  defaultValue: number,
 ): number {
   const aliasedValue = readAliasedValue(firstValue, secondValue, name);
   const value = aliasedValue === undefined ? defaultValue : aliasedValue;
@@ -526,7 +533,7 @@ function readAliasedPositiveSafeInteger(
 function readAliasedValue(
   firstValue: unknown,
   secondValue: unknown,
-  name: string
+  name: string,
 ): unknown {
   if (
     firstValue !== undefined &&
@@ -540,7 +547,7 @@ function readAliasedValue(
 }
 
 function normalizeSearchTicket(
-  ticket: MatchmakingSearchTicket
+  ticket: MatchmakingSearchTicket,
 ): MatchmakingSearchTicket {
   if (
     !isRecord(ticket) ||
@@ -576,10 +583,12 @@ function normalizeSearchTicket(
 
 function createMatchCandidateId(
   firstTicketId: MatchmakingTicketId,
-  secondTicketId: MatchmakingTicketId
+  secondTicketId: MatchmakingTicketId,
 ): string {
-  const first = firstTicketId <= secondTicketId ? firstTicketId : secondTicketId;
-  const second = firstTicketId <= secondTicketId ? secondTicketId : firstTicketId;
+  const first =
+    firstTicketId <= secondTicketId ? firstTicketId : secondTicketId;
+  const second =
+    firstTicketId <= secondTicketId ? secondTicketId : firstTicketId;
   return `candidate:${encodeURIComponent(first)}:${encodeURIComponent(second)}`;
 }
 
@@ -589,11 +598,11 @@ function getWaitingTimeMs(queuedAt: Timestamp, nowMs: number): number {
 
 function compareSearchTickets(
   left: MatchmakingSearchTicket,
-  right: MatchmakingSearchTicket
+  right: MatchmakingSearchTicket,
 ): number {
   const queuedAtComparison = compareNumbers(
     normalizeTimestampMs(left.queuedAt, "queuedAt"),
-    normalizeTimestampMs(right.queuedAt, "queuedAt")
+    normalizeTimestampMs(right.queuedAt, "queuedAt"),
   );
 
   return queuedAtComparison !== 0

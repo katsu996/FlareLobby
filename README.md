@@ -30,30 +30,30 @@ TypeScript の Client SDK から、認証済みのルーム作成・参加、1 �
 
 ## まず読む文書
 
-| 目的 | 文書 |
-| --- | --- |
-| 5 分でローカル Worker を起動する | [導入とローカルサンプル](./docs/getting-started.md) |
-| Client SDK を使う | [クライアントSDK](./docs/client.md) |
-| カスタムルームを作成・参加・操作する | [カスタムルーム利用ガイド](./docs/custom-room-guide.md) |
-| ランクマッチと ELO を使う | [マッチメイキング利用ガイド](./docs/matchmaking-guide.md) |
-| 引数、戻り値、イベント、HTTP API を調べる | [APIリファレンス](./docs/api-reference.md) |
-| Cloudflare Binding、Migration、デプロイを設定する | [Cloudflare 設定](./docs/cloudflare-configuration.md) |
-| 設計境界と状態遷移を確認する | [アーキテクチャ](./docs/architecture.md) |
-| テスト、シミュレーション、文書検証を実行する | [テストと検証](./docs/testing.md) |
-| v0.1.0 の既知の制限と公開前確認を読む | [v0.1.0 Release Note](./docs/releases/v0.1.0.md) |
+| 目的                                              | 文書                                                      |
+| ------------------------------------------------- | --------------------------------------------------------- |
+| 5 分でローカル Worker を起動する                  | [導入とローカルサンプル](./docs/getting-started.md)       |
+| Client SDK を使う                                 | [クライアントSDK](./docs/client.md)                       |
+| カスタムルームを作成・参加・操作する              | [カスタムルーム利用ガイド](./docs/custom-room-guide.md)   |
+| ランクマッチと ELO を使う                         | [マッチメイキング利用ガイド](./docs/matchmaking-guide.md) |
+| 引数、戻り値、イベント、HTTP API を調べる         | [APIリファレンス](./docs/api-reference.md)                |
+| Cloudflare Binding、Migration、デプロイを設定する | [Cloudflare 設定](./docs/cloudflare-configuration.md)     |
+| 設計境界と状態遷移を確認する                      | [アーキテクチャ](./docs/architecture.md)                  |
+| テスト、シミュレーション、文書検証を実行する      | [テストと検証](./docs/testing.md)                         |
+| v0.1.0 の既知の制限と公開前確認を読む             | [v0.1.0 Release Note](./docs/releases/v0.1.0.md)          |
 
 設計の正本は GitHub の [Issue #1](https://github.com/katsu996/FlareLobby/issues/1) です。
 公開 API の説明を変更するときは、実装・テスト・このリファレンスを同時に更新します。
 
 ## パッケージ構成
 
-| パス | パッケージ | 役割 |
-| --- | --- | --- |
-| `packages/core` | `@flarelobby/core` | JSON 型、状態モデル、プロトコル、マッチング、ELO |
-| `packages/cloudflare` | `@flarelobby/cloudflare` | Gateway Worker、Durable Objects、D1、認証境界 |
-| `packages/client` | `@flarelobby/client` | ブラウザ向け HTTP/WebSocket Client SDK |
-| `packages/testing` | `@flarelobby/testing` | 仮想時計、固定乱数、マッチングシミュレーター |
-| `examples/local-demo` | `@flarelobby/example-local-demo` | ローカル確認用の最小 Worker |
+| パス                  | パッケージ                       | 役割                                             |
+| --------------------- | -------------------------------- | ------------------------------------------------ |
+| `packages/core`       | `@flarelobby/core`               | JSON 型、状態モデル、プロトコル、マッチング、ELO |
+| `packages/cloudflare` | `@flarelobby/cloudflare`         | Gateway Worker、Durable Objects、D1、認証境界    |
+| `packages/client`     | `@flarelobby/client`             | ブラウザ向け HTTP/WebSocket Client SDK           |
+| `packages/testing`    | `@flarelobby/testing`            | 仮想時計、固定乱数、マッチングシミュレーター     |
+| `examples/local-demo` | `@flarelobby/example-local-demo` | ローカル確認用の最小 Worker                      |
 
 すべてのパッケージは ES Modules です。公開識別子は TypeScript の慣習に従って
 英語、説明文とコメントは日本語で記載しています。
@@ -78,6 +78,10 @@ mise を使わない場合も、上記と同じ Node.js/pnpm のバージョン�
 ## 開発・検証コマンド
 
 ```sh
+pnpm lint
+pnpm lint:fix
+pnpm format:check
+pnpm format
 pnpm build
 pnpm typecheck
 pnpm test:unit
@@ -87,14 +91,16 @@ pnpm check:esm
 pnpm release:check
 ```
 
-`pnpm test` は単体テストと Workers 統合テストを順に実行します。`check:docs` は
-必須文書、公開 Export と API リファレンス、エラーコード、状態名、コード例の
-型検査を確認します。
+`pnpm lint` は Oxlint による静的解析、`pnpm lint:fix` は安全に自動修正可能な
+指摘の修正を行います。`pnpm format:check` は Oxfmt による整形状態を確認し、
+`pnpm format` は整形を反映します。`pnpm test` は単体テストと Workers 統合テストを
+順に実行します。`check:docs` は必須文書、公開 Export と API リファレンス、
+エラーコード、状態名、コード例の型検査を確認します。
 
-`release:check` は上記を含む全 build・テストに加え、Workers 型、4 package の
-npm publish dry-run、サンプル Worker の `wrangler deploy --dry-run`、MIT License、
-公開対象ファイルを一括検証します。実際の npm publish や Cloudflare upload は
-行いません。
+`release:check` は Oxlint・Oxfmt の確認を含む全 build・テストに加え、Workers 型、
+4 package の npm publish dry-run、サンプル Worker の `wrangler deploy --dry-run`、
+MIT License、公開対象ファイルを一括検証します。実際の npm publish や Cloudflare
+upload は行いません。
 
 ## Cloudflare Worker
 

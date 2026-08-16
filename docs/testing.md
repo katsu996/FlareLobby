@@ -18,7 +18,7 @@ pnpm --filter @flarelobby/testing run typecheck
 import {
   SeededRandom,
   VirtualClock,
-  generateSimulationPlayers
+  generateSimulationPlayers,
 } from "@flarelobby/testing";
 
 const clock = new VirtualClock("2026-08-11T00:00:00.000Z");
@@ -32,15 +32,15 @@ const players = generateSimulationPlayers(
       mean: 1_500,
       standardDeviation: 120,
       min: 800,
-      max: 2_200
+      max: 2_200,
     },
     joinedAt: {
       kind: "uniform",
       from: "2026-08-11T00:00:00.000Z",
-      to: "2026-08-11T00:05:00.000Z"
-    }
+      to: "2026-08-11T00:05:00.000Z",
+    },
   },
-  new SeededRandom("example-seed")
+  new SeededRandom("example-seed"),
 );
 ```
 
@@ -57,7 +57,7 @@ const players = generateSimulationPlayers(
 ```ts
 import {
   formatSimulationOutput,
-  simulateMatchmaking
+  simulateMatchmaking,
 } from "@flarelobby/testing";
 
 const result = simulateMatchmaking({
@@ -68,16 +68,16 @@ const result = simulateMatchmaking({
     joinedAt: {
       kind: "uniform",
       from: "2026-08-11T00:00:00.000Z",
-      to: "2026-08-11T00:10:00.000Z"
-    }
+      to: "2026-08-11T00:10:00.000Z",
+    },
   },
   startAt: "2026-08-11T00:00:00.000Z",
   durationMs: 10 * 60_000,
   tickMs: 1_000,
   cancellation: {
     probability: 0.1,
-    afterMs: { kind: "uniform", min: 5_000, max: 120_000 }
-  }
+    afterMs: { kind: "uniform", min: 5_000, max: 120_000 },
+  },
 });
 
 const output = formatSimulationOutput(result);
@@ -109,10 +109,7 @@ console.log(output.json);
 ## 検索幅の比較と失敗ケースの再現
 
 ```ts
-import {
-  compareSearchPolicies,
-  replaySimulation
-} from "@flarelobby/testing";
+import { compareSearchPolicies, replaySimulation } from "@flarelobby/testing";
 
 const comparison = compareSearchPolicies(config, narrow, wide);
 // comparison.delta は wide - narrow の差分
@@ -133,14 +130,14 @@ Durable Objects は `wrangler.jsonc` の SQLite migration と同じ Binding を�
 Client SDK からの実行経路は `test/client-integration.test.ts` に集約しています。
 テスト名と完了条件の対応は次のとおりです。
 
-| テスト名 | 検証内容 |
-| --- | --- |
-| `Client SDKからカスタムルームの作成、参加、準備、開始、退出を完了できる` | 2クライアントの主要導線と状態同期 |
-| `満員直前の同時参加で定員を超えず、同じチケット作成要求を重複処理しない` | 同時参加の定員競合とチケット冪等性 |
-| `WebSocket切断後に再接続し、切断中のSnapshotを復元できる` | 再開トークン、revision、切断猶予、復元 |
-| `2クライアントのランクキューを成立させ、対戦ルームへ接続できる` | Client SDKのキュー参加、成立、対戦Room接続 |
-| `同じ試合結果を同時登録してもELO更新を一度だけ適用する` | 結果識別子、D1、ELO、二重登録防止 |
-| `Alarm実行後とDurable Object再生成後も状態変更を継続できる` | 単一Alarm、SQLite復元、DO再生成 |
+| テスト名                                                                 | 検証内容                                   |
+| ------------------------------------------------------------------------ | ------------------------------------------ |
+| `Client SDKからカスタムルームの作成、参加、準備、開始、退出を完了できる` | 2クライアントの主要導線と状態同期          |
+| `満員直前の同時参加で定員を超えず、同じチケット作成要求を重複処理しない` | 同時参加の定員競合とチケット冪等性         |
+| `WebSocket切断後に再接続し、切断中のSnapshotを復元できる`                | 再開トークン、revision、切断猶予、復元     |
+| `2クライアントのランクキューを成立させ、対戦ルームへ接続できる`          | Client SDKのキュー参加、成立、対戦Room接続 |
+| `同じ試合結果を同時登録してもELO更新を一度だけ適用する`                  | 結果識別子、D1、ELO、二重登録防止          |
+| `Alarm実行後とDurable Object再生成後も状態変更を継続できる`              | 単一Alarm、SQLite復元、DO再生成            |
 
 各テストはテストファイル間で状態を共有せず、ルーム・プール・主体へ一意な
 識別子を使います。`pnpm test:integration` を複数回実行し、競合テストを含めて
@@ -153,12 +150,12 @@ Client SDK からの実行経路は `test/client-integration.test.ts` に集約�
 README、利用ガイド、API リファレンスのコード例は、動作説明だけの貼り付けに
 せず、次のファイルへ実行可能な TypeScript 例として集約しています。
 
-| 例 | 検証内容 |
-| --- | --- |
-| `docs/examples/core-api.ts` | 公開型、ELO、検索幅、Protocol の引数と戻り値 |
-| `docs/examples/client-api.ts` | Client、Room、購読、型付きゲームメッセージ |
-| `docs/examples/cloudflare-config.ts` | Gateway 設定、認証 Hook、Binding 契約 |
-| `examples/local-demo/src/index.ts` | ローカル Worker、Room/Pool/Rate Limit Binding |
+| 例                                   | 検証内容                                      |
+| ------------------------------------ | --------------------------------------------- |
+| `docs/examples/core-api.ts`          | 公開型、ELO、検索幅、Protocol の引数と戻り値  |
+| `docs/examples/client-api.ts`        | Client、Room、購読、型付きゲームメッセージ    |
+| `docs/examples/cloudflare-config.ts` | Gateway 設定、認証 Hook、Binding 契約         |
+| `examples/local-demo/src/index.ts`   | ローカル Worker、Room/Pool/Rate Limit Binding |
 
 `pnpm check:docs` は `scripts/verify-docs.mjs` で次を確認した後、
 `docs/tsconfig.json` を TypeScript で検査します。
@@ -171,15 +168,15 @@ README、利用ガイド、API リファレンスのコード例は、動作説�
 
 ## Issue #26 完了条件と検証先
 
-| 完了条件 | 検証先 |
-| --- | --- |
-| 文書だけでサンプルを起動できる | `docs/getting-started.md`、`examples/local-demo/` |
-| 設計の正本の公開 API を説明する | `docs/api-reference.md`、`scripts/verify-docs.mjs` |
-| 全エラーコードと対処を説明する | `docs/api-reference.md#エラーコード` |
-| 状態遷移と再接続を図または表で理解できる | `docs/architecture.md`、`docs/custom-room-guide.md` |
-| コード例を型検査する | `docs/examples/`、`pnpm check:docs` |
-| Issue/PR Template が日本語である | `.github/ISSUE_TEMPLATE/`、`.github/pull_request_template.md` |
-| 未実装機能を利用可能と誤認させない | `README.md` の対象範囲、各ガイドの対象外記載 |
+| 完了条件                                 | 検証先                                                        |
+| ---------------------------------------- | ------------------------------------------------------------- |
+| 文書だけでサンプルを起動できる           | `docs/getting-started.md`、`examples/local-demo/`             |
+| 設計の正本の公開 API を説明する          | `docs/api-reference.md`、`scripts/verify-docs.mjs`            |
+| 全エラーコードと対処を説明する           | `docs/api-reference.md#エラーコード`                          |
+| 状態遷移と再接続を図または表で理解できる | `docs/architecture.md`、`docs/custom-room-guide.md`           |
+| コード例を型検査する                     | `docs/examples/`、`pnpm check:docs`                           |
+| Issue/PR Template が日本語である         | `.github/ISSUE_TEMPLATE/`、`.github/pull_request_template.md` |
+| 未実装機能を利用可能と誤認させない       | `README.md` の対象範囲、各ガイドの対象外記載                  |
 
 ## v0.1.0 公開前チェック
 
@@ -206,12 +203,12 @@ npm dry-run には `--no-git-checks` を使いますが、version、public acces
 一時的な bundle を検証後に削除します。CI も同じ個別コマンドを新規 checkout 上で
 実行するため、ローカルの未追跡成果物へ依存しません。
 
-| Issue #28 完了条件 | 検証先 |
-| --- | --- |
-| Milestone 内の必須 Issue | GitHub Milestone と `docs/releases/v0.1.0.md` |
-| 型検査、単体・統合テスト、build | `pnpm release:check`、Continuous Verification |
-| 公開 API と文書 | `scripts/verify-docs.mjs`、`docs/api-reference.md` |
-| npm package に必要なファイルだけを含む | `scripts/verify-packages.mjs` の許可リスト |
-| 既知の制限と対象外 | `docs/releases/v0.1.0.md` |
-| クリーンな Cloudflare 環境で deploy bundle を生成 | `scripts/verify-cloudflare-deploy.mjs`、CI |
-| 承認前に公開しない | npm/Cloudflare は dry-run のみ。GitHub Release は作成しない |
+| Issue #28 完了条件                                | 検証先                                                      |
+| ------------------------------------------------- | ----------------------------------------------------------- |
+| Milestone 内の必須 Issue                          | GitHub Milestone と `docs/releases/v0.1.0.md`               |
+| 型検査、単体・統合テスト、build                   | `pnpm release:check`、Continuous Verification               |
+| 公開 API と文書                                   | `scripts/verify-docs.mjs`、`docs/api-reference.md`          |
+| npm package に必要なファイルだけを含む            | `scripts/verify-packages.mjs` の許可リスト                  |
+| 既知の制限と対象外                                | `docs/releases/v0.1.0.md`                                   |
+| クリーンな Cloudflare 環境で deploy bundle を生成 | `scripts/verify-cloudflare-deploy.mjs`、CI                  |
+| 承認前に公開しない                                | npm/Cloudflare は dry-run のみ。GitHub Release は作成しない |

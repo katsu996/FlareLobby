@@ -11,14 +11,14 @@ declare const auth: { getAccessToken(): string | Promise<string> };
 
 const lobby = createFlareLobbyClient<ExampleApp>({
   endpoint: "https://lobby.example.com",
-  getAccessToken: () => auth.getAccessToken()
+  getAccessToken: () => auth.getAccessToken(),
 });
 
 const host = await lobby.createCustomRoom({
   name: "型検査対象のルーム",
   visibility: "unlisted",
   joinMethod: "invitation",
-  settings: { map: "forest" }
+  settings: { map: "forest" },
 });
 
 const stop = host.onMessage("chat", (message) => {
@@ -30,7 +30,7 @@ await host.setReady(true);
 await host.send("chat", { text: "準備完了" });
 const spectator = await lobby.joinCustomRoom({
   roomId: host.id,
-  role: "spectator"
+  role: "spectator",
 });
 await spectator.leave();
 stop();

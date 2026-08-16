@@ -4,7 +4,7 @@ import type { RoomSnapshot } from "@flarelobby/core";
 import {
   createFlareLobbyClient,
   type FetchImplementation,
-  type WebSocketConstructor
+  type WebSocketConstructor,
 } from "../src/index.js";
 
 class FakeWebSocket {
@@ -17,7 +17,7 @@ class FakeWebSocket {
 
   public constructor(
     public readonly url: string,
-    public readonly protocols?: string | string[]
+    public readonly protocols?: string | string[],
   ) {
     FakeWebSocket.instances.push(this);
     queueMicrotask(() => this.emit("open", new Event("open")));
@@ -50,15 +50,15 @@ class FakeWebSocket {
       "close",
       new CloseEvent("close", {
         code: code ?? 1000,
-        reason: reason ?? ""
-      })
+        reason: reason ?? "",
+      }),
     );
   }
 
   public receive(value: unknown): void {
     this.emit(
       "message",
-      new MessageEvent("message", { data: JSON.stringify(value) })
+      new MessageEvent("message", { data: JSON.stringify(value) }),
     );
   }
 
@@ -82,7 +82,7 @@ function createSnapshot(
     readonly participantId?: string;
     readonly hostParticipantId?: string;
     readonly status?: string;
-  } = {}
+  } = {},
 ): RoomSnapshot {
   const roomId = options.roomId ?? "room-1";
   const participantId = options.participantId ?? "participant-owner";
@@ -97,11 +97,11 @@ function createSnapshot(
       invitationCode: "ABC123",
       visibility: "public",
       settings: { map: "forest" },
-      metadata: { name: "練習ルーム" }
+      metadata: { name: "練習ルーム" },
     },
     host: {
       participantId: hostParticipantId,
-      playerId: "owner-player"
+      playerId: "owner-player",
     },
     participants: [
       {
@@ -109,17 +109,17 @@ function createSnapshot(
         id: participantId,
         player: { id: "owner-player" },
         teamId: null,
-        ready: false
+        ready: false,
       },
       {
         kind: "player",
         id: "participant-guest",
         player: { id: "guest-player" },
         teamId: null,
-        ready: false
-      }
+        ready: false,
+      },
     ],
-    teams: [{ id: "red" }, { id: "blue" }]
+    teams: [{ id: "red" }, { id: "blue" }],
   } as RoomSnapshot;
 }
 
@@ -132,7 +132,7 @@ function creationResponse(snapshot = createSnapshot(1)): Response {
     invitationCode: "ABC123",
     joinToken: "join-token-owner",
     websocketUrl: `wss://example.test/v1/custom-rooms/${snapshot.room.id}/ws`,
-    snapshot
+    snapshot,
   });
 }
 
@@ -141,8 +141,8 @@ function joinResponse(
   snapshot = createSnapshot(2, {
     participantId:
       role === "spectator" ? "participant-spectator" : "participant-guest",
-    hostParticipantId: "participant-owner"
-  })
+    hostParticipantId: "participant-owner",
+  }),
 ): Response {
   return Response.json({
     roomId: snapshot.room.id,
@@ -151,7 +151,7 @@ function joinResponse(
     role,
     joinToken: `join-token-${role}`,
     websocketUrl: `wss://example.test/v1/custom-rooms/${snapshot.room.id}/ws`,
-    snapshot
+    snapshot,
   });
 }
 
@@ -162,7 +162,7 @@ function createClient(fetch: FetchImplementation) {
     getAccessToken: () => "access-token",
     fetch,
     webSocket,
-    requestIdFactory: () => `request-${++requestNumber}`
+    requestIdFactory: () => `request-${++requestNumber}`,
   });
 }
 
@@ -203,10 +203,10 @@ describe("@flarelobby/client custom room API", () => {
               visibility: "public",
               state: "waiting",
               playerCount: 1,
-              maxPlayers: 4
-            }
+              maxPlayers: 4,
+            },
           ],
-          nextCursor: "next-page"
+          nextCursor: "next-page",
         });
       }
       if (url.endsWith("/v1/custom-rooms/join")) {
@@ -218,46 +218,50 @@ describe("@flarelobby/client custom room API", () => {
 
     const host = await client.createCustomRoom({
       maxPlayers: 4,
-      name: "練習ルーム"
+      name: "練習ルーム",
     });
     const spectator = await client.joinCustomRoom({
       invitationCode: "ABC123",
-      role: "spectator"
+      role: "spectator",
     });
     const page = await client.listCustomRooms({
       mode: "casual",
       status: ["waiting"],
       available: true,
-      cursor: "first"
+      cursor: "first",
     });
 
     expect(host.role).toBe("host");
     expect(host.participantRole).toBe("player");
     expect(FakeWebSocket.instances[0]?.protocols).toContain(
-      `flarelobby.auth.${encodeWebSocketToken("join-token-owner")}`
+      `flarelobby.auth.${encodeWebSocketToken("join-token-owner")}`,
     );
     expect(spectator.role).toBe("spectator");
     expect(page.nextCursor).toBe("next-page");
     expect(page.rooms[0]?.id).toBe("room-1");
 
     const createCall = fetchImplementation.mock.calls[0];
-    expect(createCall?.[0].toString()).toBe("https://example.test/v1/custom-rooms");
+    expect(createCall?.[0].toString()).toBe(
+      "https://example.test/v1/custom-rooms",
+    );
     expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({
       name: "練習ルーム",
-      maxPlayers: 4
+      maxPlayers: 4,
     });
     expect(fetchImplementation.mock.calls[1]?.[0].toString()).toBe(
-      "https://example.test/v1/custom-rooms/join"
+      "https://example.test/v1/custom-rooms/join",
     );
-    expect(JSON.parse(String(fetchImplementation.mock.calls[1]?.[1]?.body))).toEqual({
+    expect(
+      JSON.parse(String(fetchImplementation.mock.calls[1]?.[1]?.body)),
+    ).toEqual({
       invitationCode: "ABC123",
-      role: "spectator"
+      role: "spectator",
     });
     expect(fetchImplementation.mock.calls[2]?.[0].toString()).toContain(
-      "status=waiting"
+      "status=waiting",
     );
     expect(fetchImplementation.mock.calls[2]?.[0].toString()).toContain(
-      "available=true"
+      "available=true",
     );
   });
 
@@ -267,7 +271,7 @@ describe("@flarelobby/client custom room API", () => {
         return Response.json({
           snapshot: createSnapshot(10),
           participantId: "participant-owner",
-          role: "player"
+          role: "player",
         });
       }
       return creationResponse();
@@ -283,7 +287,8 @@ describe("@flarelobby/client custom room API", () => {
     expect(Object.isFrozen(room.snapshot)).toBe(true);
     expect(Object.isFrozen(room.snapshot.room)).toBe(true);
     expect(() => {
-      (room.snapshot.room as { metadata: { name: string } }).metadata.name = "変更";
+      (room.snapshot.room as { metadata: { name: string } }).metadata.name =
+        "変更";
     }).toThrow();
 
     socket.receive({
@@ -291,7 +296,7 @@ describe("@flarelobby/client custom room API", () => {
       kind: "event",
       event: "room.snapshot",
       revision: 2,
-      payload: createSnapshot(2)
+      payload: createSnapshot(2),
     });
     expect(room.snapshot.revision).toBe(2);
 
@@ -303,33 +308,33 @@ describe("@flarelobby/client custom room API", () => {
       {
         call: () => room.setReady(true),
         command: "room.set_ready",
-        payload: { ready: true }
+        payload: { ready: true },
       },
       {
         call: () => room.selectTeam("red"),
         command: "room.select_team",
-        payload: { teamId: "red" }
+        payload: { teamId: "red" },
       },
       {
         call: () => room.updateSettings({ map: "desert" }),
         command: "room.update_settings",
-        payload: { settings: { map: "desert" } }
+        payload: { settings: { map: "desert" } },
       },
       {
         call: () => room.transferHost("participant-guest"),
         command: "room.transfer_host",
-        payload: { targetParticipantId: "participant-guest" }
+        payload: { targetParticipantId: "participant-guest" },
       },
       {
         call: () => room.kick("participant-guest"),
         command: "room.kick",
-        payload: { targetParticipantId: "participant-guest" }
+        payload: { targetParticipantId: "participant-guest" },
       },
       {
         call: () => room.startMatch({ at: "2026-08-11T00:00:00.000Z" }),
         command: "room.start_match",
-        payload: { at: "2026-08-11T00:00:00.000Z" }
-      }
+        payload: { at: "2026-08-11T00:00:00.000Z" },
+      },
     ];
 
     for (const [index, operation] of operations.entries()) {
@@ -337,16 +342,16 @@ describe("@flarelobby/client custom room API", () => {
       await new Promise<void>((resolve) => queueMicrotask(resolve));
       expect(lastCommand(socket)).toMatchObject({
         command: operation.command,
-        payload: operation.payload
+        payload: operation.payload,
       });
       socket.receive({
         protocolVersion: 1,
         kind: "success",
         requestId: lastCommand(socket).requestId,
-        payload: createSnapshot(index + 2)
+        payload: createSnapshot(index + 2),
       });
       await expect(promise).resolves.toMatchObject({
-        revision: index + 2
+        revision: index + 2,
       });
     }
 
@@ -354,13 +359,13 @@ describe("@flarelobby/client custom room API", () => {
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(lastCommand(socket)).toMatchObject({
       command: "chat.message",
-      payload: { text: "こんにちは" }
+      payload: { text: "こんにちは" },
     });
     socket.receive({
       protocolVersion: 1,
       kind: "success",
       requestId: lastCommand(socket).requestId,
-      payload: null
+      payload: null,
     });
     await expect(sendPromise).resolves.toBeUndefined();
 
@@ -371,7 +376,7 @@ describe("@flarelobby/client custom room API", () => {
       protocolVersion: 1,
       kind: "success",
       requestId: lastCommand(socket).requestId,
-      payload: createSnapshot(9, { status: "finished" })
+      payload: createSnapshot(9, { status: "finished" }),
     });
     await expect(closePromise).resolves.toMatchObject({ revision: 9 });
     expect(room.closed).toBe(true);
@@ -379,37 +384,43 @@ describe("@flarelobby/client custom room API", () => {
 
   it("退出を HTTP で完了し、観戦者と非ホストの権限違反を公開エラーにする", async () => {
     let joinCount = 0;
-    const fetchImplementation: FetchImplementation = vi.fn(async (input, init) => {
-      if (input.toString().endsWith("/join")) {
-        joinCount += 1;
-        return joinResponse(joinCount === 1 ? "spectator" : "player");
-      }
-      if (input.toString().endsWith("/leave")) {
-        expect(String(init?.body)).toContain("join-token-spectator");
-        return Response.json({
-          snapshot: createSnapshot(3, {
-            participantId: "participant-spectator"
-          }),
-          participantId: "participant-spectator",
-          role: "spectator"
-        });
-      }
-      return creationResponse();
-    });
+    const fetchImplementation: FetchImplementation = vi.fn(
+      async (input, init) => {
+        if (input.toString().endsWith("/join")) {
+          joinCount += 1;
+          return joinResponse(joinCount === 1 ? "spectator" : "player");
+        }
+        if (input.toString().endsWith("/leave")) {
+          expect(String(init?.body)).toContain("join-token-spectator");
+          return Response.json({
+            snapshot: createSnapshot(3, {
+              participantId: "participant-spectator",
+            }),
+            participantId: "participant-spectator",
+            role: "spectator",
+          });
+        }
+        return creationResponse();
+      },
+    );
     const client = createClient(fetchImplementation);
     const spectator = await client.joinCustomRoom({
       invitationCode: "ABC123",
-      role: "spectator"
+      role: "spectator",
     });
     const player = await client.joinCustomRoom("ABC123");
 
     await expect(
-      (spectator as unknown as { setReady: () => Promise<unknown> }).setReady()
+      (spectator as unknown as { setReady: () => Promise<unknown> }).setReady(),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(
-      (player as unknown as {
-        updateSettings: (settings: { readonly map: string }) => Promise<unknown>;
-      }).updateSettings({ map: "desert" })
+      (
+        player as unknown as {
+          updateSettings: (settings: {
+            readonly map: string;
+          }) => Promise<unknown>;
+        }
+      ).updateSettings({ map: "desert" }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(spectator.leave()).resolves.toMatchObject({ revision: 3 });
     expect(spectator.closed).toBe(true);
@@ -430,11 +441,11 @@ describe("@flarelobby/client custom room API", () => {
       protocolVersion: 1,
       kind: "failure",
       requestId: lastCommand(socket).requestId,
-      error: { code: "FORBIDDEN", message: "権限がありません。" }
+      error: { code: "FORBIDDEN", message: "権限がありません。" },
     });
     await expect(promise).rejects.toMatchObject({
       code: "FORBIDDEN",
-      message: "権限がありません。"
+      message: "権限がありません。",
     });
   });
 });

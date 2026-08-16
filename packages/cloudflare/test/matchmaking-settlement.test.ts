@@ -5,7 +5,7 @@ import type {
   MatchmakingPool,
   MatchmakingSearchPolicy,
   Participant,
-  Team
+  Team,
 } from "@flarelobby/core";
 
 import {
@@ -13,14 +13,14 @@ import {
   createGatewayPrincipalEnvelope,
   createMatchmakingMatchId,
   createMatchmakingPoolKey,
-  createMatchmakingRoomId
+  createMatchmakingRoomId,
 } from "../src/index.js";
 import type {
   GatewayPrincipalEnvelope,
   MatchmakingMatchIntent,
   MatchmakingMatchRoomOptions,
   MatchmakingTicketCreationOptions,
-  RoomInitializationOptions
+  RoomInitializationOptions,
 } from "../src/index.js";
 
 function createPool(suffix = crypto.randomUUID()): MatchmakingPool {
@@ -29,7 +29,7 @@ function createPool(suffix = crypto.randomUUID()): MatchmakingPool {
     gameId: `test-game-${suffix}`,
     seasonId: "season-1",
     mode: "ranked-1v1",
-    region: "jp"
+    region: "jp",
   };
 }
 
@@ -39,16 +39,16 @@ function createNarrowSearchPolicy(): MatchmakingSearchPolicy {
     maxRatingDifference: 10,
     maxTicketsPerSearch: 16,
     maxCandidatesPerSearch: 64,
-    maxMatchesPerSearch: 4
+    maxMatchesPerSearch: 4,
   };
 }
 
 async function createGatewayPrincipal(
-  principalId: string
+  principalId: string,
 ): Promise<GatewayPrincipalEnvelope> {
   const result = await createGatewayPrincipalEnvelope(
     env.FLARE_LOBBY_TOKEN_SECRET,
-    { id: principalId, playerId: `${principalId}-player` }
+    { id: principalId, playerId: `${principalId}-player` },
   );
 
   if (!result.ok) {
@@ -60,7 +60,7 @@ async function createGatewayPrincipal(
 
 function createTicketOptions(
   gatewayPrincipal: GatewayPrincipalEnvelope,
-  overrides: Partial<MatchmakingTicketCreationOptions> = {}
+  overrides: Partial<MatchmakingTicketCreationOptions> = {},
 ): MatchmakingTicketCreationOptions {
   return {
     gatewayPrincipal,
@@ -69,7 +69,7 @@ function createTicketOptions(
     inputMethod: "keyboard_mouse",
     searchAttributes: { platform: "web", role: "duelist" },
     expiresAt: Date.now() + 60_000,
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -78,13 +78,13 @@ async function createInitializedPool(
   options: {
     readonly matchRoom?: MatchmakingMatchRoomOptions;
     readonly searchPolicy?: MatchmakingSearchPolicy;
-  } = {}
+  } = {},
 ): Promise<{
   readonly pool: MatchmakingPool;
   readonly stub: DurableObjectStub<MatchPoolDurableObject>;
 }> {
   const stub = env.FLARE_LOBBY_MATCH_POOLS.getByName(
-    createMatchmakingPoolKey(pool)
+    createMatchmakingPoolKey(pool),
   );
   await stub.initialize({
     pool,
@@ -93,7 +93,7 @@ async function createInitializedPool(
       : { searchPolicy: options.searchPolicy }),
     ...(options.matchRoom === undefined
       ? {}
-      : { matchRoom: options.matchRoom })
+      : { matchRoom: options.matchRoom }),
   });
   return { pool, stub };
 }
@@ -101,7 +101,7 @@ async function createInitializedPool(
 function createCandidate(
   pool: MatchmakingPool,
   firstTicketId: string,
-  secondTicketId: string
+  secondTicketId: string,
 ): MatchCandidate {
   const ticketIds = [firstTicketId, secondTicketId].sort() as [string, string];
 
@@ -109,7 +109,7 @@ function createCandidate(
     id: `candidate:${encodeURIComponent(ticketIds[0]!)}:${encodeURIComponent(ticketIds[1]!)}`,
     pool,
     ticketIds,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -120,7 +120,7 @@ async function initializeConflictingCustomRoom(roomId: string): Promise<void> {
     id: "conflict-participant",
     player: { id: "conflict-player" },
     teamId: null,
-    ready: false
+    ready: false,
   };
 
   await room.initialize({
@@ -130,14 +130,14 @@ async function initializeConflictingCustomRoom(roomId: string): Promise<void> {
       invitationCode: "CONFLICT",
       visibility: "unlisted",
       settings: {},
-      metadata: {}
+      metadata: {},
     },
     host: {
       participantId: participant.id,
-      playerId: participant.player.id
+      playerId: participant.player.id,
     },
     participants: [participant],
-    maxPlayers: 4
+    maxPlayers: 4,
   });
 }
 
@@ -152,17 +152,17 @@ async function removeRoomState(roomId: string): Promise<void> {
         "flarelobby_processed_commands",
         "flarelobby_room_participants",
         "flarelobby_room_teams",
-        "flarelobby_rooms"
+        "flarelobby_rooms",
       ]) {
         state.storage.sql.exec(`DELETE FROM ${table}`);
       }
-    }
+    },
   );
 }
 
 function createMatchRoomInitialization(
   intent: Pick<MatchmakingMatchIntent, "matchId" | "room">,
-  ticketPlayers: readonly [string, string]
+  ticketPlayers: readonly [string, string],
 ): RoomInitializationOptions {
   const participants: readonly Participant[] = ticketPlayers.map(
     (playerId, index) => ({
@@ -170,8 +170,8 @@ function createMatchRoomInitialization(
       id: `participant_${intent.matchId}_${index + 1}`,
       player: { id: playerId },
       teamId: index === 0 ? "blue" : "red",
-      ready: false
-    })
+      ready: false,
+    }),
   );
   const teams: readonly Team[] = [{ id: "blue" }, { id: "red" }];
 
@@ -181,7 +181,7 @@ function createMatchRoomInitialization(
     teams,
     maxPlayers: 2,
     minimumPlayers: 2,
-    requireAllPlayersReady: false
+    requireAllPlayersReady: false,
   };
 }
 
@@ -189,14 +189,14 @@ describe("Matchmaking match settlement", () => {
   it("2 チケットから 1 Room を作成し、両チケットへ同じ成立結果を返す", async () => {
     const { pool, stub } = await createInitializedPool();
     const firstPrincipal = await createGatewayPrincipal(
-      `principal-${crypto.randomUUID()}`
+      `principal-${crypto.randomUUID()}`,
     );
     const secondPrincipal = await createGatewayPrincipal(
-      `principal-${crypto.randomUUID()}`
+      `principal-${crypto.randomUUID()}`,
     );
     const first = await stub.createTicket(createTicketOptions(firstPrincipal));
     const second = await stub.createTicket(
-      createTicketOptions(secondPrincipal, { rating: 1_501 })
+      createTicketOptions(secondPrincipal, { rating: 1_501 }),
     );
 
     expect(first.status).toBe("waiting");
@@ -208,14 +208,17 @@ describe("Matchmaking match settlement", () => {
     expect(currentFirst?.status).toBe("matched");
     expect(currentSecond?.status).toBe("matched");
 
-    if (currentFirst?.status !== "matched" || currentSecond?.status !== "matched") {
+    if (
+      currentFirst?.status !== "matched" ||
+      currentSecond?.status !== "matched"
+    ) {
       throw new Error("両チケットが matched へ遷移していません。");
     }
 
     expect(currentFirst.result.matchId).toBe(currentSecond.result.matchId);
     expect(currentFirst.result.room.id).toBe(currentSecond.result.room.id);
     expect(currentFirst.result.candidate.ticketIds).toEqual(
-      currentSecond.result.candidate.ticketIds
+      currentSecond.result.candidate.ticketIds,
     );
     expect(currentFirst.result.room.pool).toEqual(pool);
 
@@ -223,51 +226,51 @@ describe("Matchmaking match settlement", () => {
     expect(intent).toMatchObject({
       matchId: currentFirst.result.matchId,
       status: "matched",
-      result: currentFirst.result
+      result: currentFirst.result,
     });
 
-    const roomSnapshot = await env.FLARE_LOBBY_ROOMS
-      .getByName(currentFirst.result.room.id)
-      .getSnapshot();
+    const roomSnapshot = await env.FLARE_LOBBY_ROOMS.getByName(
+      currentFirst.result.room.id,
+    ).getSnapshot();
     expect(roomSnapshot?.room).toMatchObject({
       kind: "match",
       id: currentFirst.result.room.id,
-      matchId: currentFirst.result.matchId
+      matchId: currentFirst.result.matchId,
     });
     expect(roomSnapshot?.participants).toHaveLength(2);
     expect(roomSnapshot?.teams).toHaveLength(2);
 
     const firstEvents = await stub.getTicketEvents({
       gatewayPrincipal: firstPrincipal,
-      ticketId: first.id
+      ticketId: first.id,
     });
     const secondEvents = await stub.getTicketEvents({
       gatewayPrincipal: secondPrincipal,
-      ticketId: second.id
+      ticketId: second.id,
     });
     expect(firstEvents.at(-1)?.type).toBe("matched");
     expect(secondEvents.at(-1)?.type).toBe("matched");
     expect(firstEvents.at(-1)?.ticket).toMatchObject({
       id: first.id,
-      status: "matched"
+      status: "matched",
     });
     expect(secondEvents.at(-1)?.ticket).toMatchObject({
       id: second.id,
-      status: "matched"
+      status: "matched",
     });
   });
 
   it("同じ成立処理と Room 初期化を再実行しても Room と成立意図を増やさない", async () => {
     const { stub } = await createInitializedPool();
     const firstPrincipal = await createGatewayPrincipal(
-      `principal-${crypto.randomUUID()}`
+      `principal-${crypto.randomUUID()}`,
     );
     const secondPrincipal = await createGatewayPrincipal(
-      `principal-${crypto.randomUUID()}`
+      `principal-${crypto.randomUUID()}`,
     );
     const first = await stub.createTicket(createTicketOptions(firstPrincipal));
     await stub.createTicket(
-      createTicketOptions(secondPrincipal, { rating: 1_502 })
+      createTicketOptions(secondPrincipal, { rating: 1_502 }),
     );
     const matched = await stub.getTicket(first.id);
 
@@ -284,21 +287,23 @@ describe("Matchmaking match settlement", () => {
     const roomCounts = await runInDurableObject(room, (_instance, state) => ({
       rooms: state.storage.sql
         .exec<{ count: number }>(
-          "SELECT COUNT(*) AS count FROM flarelobby_rooms"
+          "SELECT COUNT(*) AS count FROM flarelobby_rooms",
         )
         .one().count,
       participants: state.storage.sql
         .exec<{ count: number }>(
-          "SELECT COUNT(*) AS count FROM flarelobby_room_participants"
+          "SELECT COUNT(*) AS count FROM flarelobby_room_participants",
         )
         .one().count,
     }));
-    const intentCount = await runInDurableObject(stub, (_instance, state) =>
-      state.storage.sql
-        .exec<{ count: number }>(
-          "SELECT COUNT(*) AS count FROM flarelobby_matchmaking_match_intents"
-        )
-        .one().count
+    const intentCount = await runInDurableObject(
+      stub,
+      (_instance, state) =>
+        state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM flarelobby_matchmaking_match_intents",
+          )
+          .one().count,
     );
 
     expect(processed).toEqual([]);
@@ -312,17 +317,17 @@ describe("Matchmaking match settlement", () => {
   it("Room 通知の送信失敗でも状態イベントを永続化し、成立を中断しない", async () => {
     const pool = createPool();
     const { stub } = await createInitializedPool(pool, {
-      searchPolicy: createNarrowSearchPolicy()
+      searchPolicy: createNarrowSearchPolicy(),
     });
     const firstPrincipal = await createGatewayPrincipal(
-      `principal-${crypto.randomUUID()}`
+      `principal-${crypto.randomUUID()}`,
     );
     const secondPrincipal = await createGatewayPrincipal(
-      `principal-${crypto.randomUUID()}`
+      `principal-${crypto.randomUUID()}`,
     );
     const first = await stub.createTicket(createTicketOptions(firstPrincipal));
     const second = await stub.createTicket(
-      createTicketOptions(secondPrincipal, { rating: 1_600 })
+      createTicketOptions(secondPrincipal, { rating: 1_600 }),
     );
     const candidate = createCandidate(pool, first.id, second.id);
     let closeCount = 0;
@@ -336,7 +341,7 @@ describe("Matchmaking match settlement", () => {
           },
           close: () => {
             closeCount += 1;
-          }
+          },
         } as unknown as WebSocket;
         const getWebSockets = vi
           .spyOn(state, "getWebSockets")
@@ -347,23 +352,23 @@ describe("Matchmaking match settlement", () => {
         } finally {
           getWebSockets.mockRestore();
         }
-      }
+      },
     );
 
     expect(results.map((ticket) => ticket.status)).toEqual([
       "matched",
-      "matched"
+      "matched",
     ]);
     expect(closeCount).toBeGreaterThanOrEqual(2);
     const events = await stub.getTicketEvents({
       gatewayPrincipal: firstPrincipal,
-      ticketId: first.id
+      ticketId: first.id,
     });
     expect(events.map((event) => event.type)).toEqual([
       "creating",
       "waiting",
       "reserved",
-      "matched"
+      "matched",
     ]);
   });
 
@@ -371,17 +376,17 @@ describe("Matchmaking match settlement", () => {
     const pool = createPool();
     const { stub } = await createInitializedPool(pool, {
       searchPolicy: createNarrowSearchPolicy(),
-      matchRoom: { maxAttempts: 3 }
+      matchRoom: { maxAttempts: 3 },
     });
     const firstPrincipal = await createGatewayPrincipal(
-      `principal-${crypto.randomUUID()}`
+      `principal-${crypto.randomUUID()}`,
     );
     const secondPrincipal = await createGatewayPrincipal(
-      `principal-${crypto.randomUUID()}`
+      `principal-${crypto.randomUUID()}`,
     );
     const first = await stub.createTicket(createTicketOptions(firstPrincipal));
     const second = await stub.createTicket(
-      createTicketOptions(secondPrincipal, { rating: 1_600 })
+      createTicketOptions(secondPrincipal, { rating: 1_600 }),
     );
     const candidate = createCandidate(pool, first.id, second.id);
     const matchId = createMatchmakingMatchId(candidate.id);
@@ -391,13 +396,13 @@ describe("Matchmaking match settlement", () => {
     const reserved = await stub.reserveCandidate({ candidate });
     expect(reserved.map((ticket) => ticket.status)).toEqual([
       "reserved",
-      "reserved"
+      "reserved",
     ]);
     const pending = await stub.getMatchIntent(candidate.id);
     expect(pending).toMatchObject({
       status: "pending",
       attemptCount: 1,
-      lastErrorCode: "CONFLICT"
+      lastErrorCode: "CONFLICT",
     });
     if (pending === null || pending.nextAttemptAt === null) {
       throw new Error("再試行予定の成立意図がありません。");
@@ -407,75 +412,66 @@ describe("Matchmaking match settlement", () => {
     await evictDurableObject(stub);
     const firstCurrent = await stub.getTicket(first.id);
     const secondCurrent = await stub.getTicket(second.id);
-    if (
-      firstCurrent === null ||
-      secondCurrent === null ||
-      pending === null
-    ) {
+    if (firstCurrent === null || secondCurrent === null || pending === null) {
       throw new Error("再試行に必要な状態を取得できません。");
     }
 
     await env.FLARE_LOBBY_ROOMS.getByName(roomId).initialize(
       createMatchRoomInitialization(pending, [
         firstCurrent.player.id,
-        secondCurrent.player.id
-      ])
+        secondCurrent.player.id,
+      ]),
     );
     const processed = await stub.processPendingMatches({
-      now: pending.nextAttemptAt + 1
+      now: pending.nextAttemptAt + 1,
     });
     const intent = await stub.getMatchIntent(candidate.id);
 
     expect(processed[0]?.status).toBe("matched");
     expect(intent?.status).toBe("matched");
     await expect(stub.getTicket(first.id)).resolves.toMatchObject({
-      status: "matched"
+      status: "matched",
     });
     await expect(stub.getTicket(second.id)).resolves.toMatchObject({
-      status: "matched"
+      status: "matched",
     });
   });
 
   it("成立とキャンセルの競合で reserved/matched の中間状態を残さない", async () => {
     const pool = createPool();
     const { stub } = await createInitializedPool(pool, {
-      searchPolicy: createNarrowSearchPolicy()
+      searchPolicy: createNarrowSearchPolicy(),
     });
     const firstPrincipal = await createGatewayPrincipal(
-      `principal-${crypto.randomUUID()}`
+      `principal-${crypto.randomUUID()}`,
     );
     const secondPrincipal = await createGatewayPrincipal(
-      `principal-${crypto.randomUUID()}`
+      `principal-${crypto.randomUUID()}`,
     );
     const first = await stub.createTicket(createTicketOptions(firstPrincipal));
     const second = await stub.createTicket(
-      createTicketOptions(secondPrincipal, { rating: 1_600 })
+      createTicketOptions(secondPrincipal, { rating: 1_600 }),
     );
     const candidate = createCandidate(pool, first.id, second.id);
 
-    await runInDurableObject(
-      stub,
-      async (instance: MatchPoolDurableObject) => {
-        await Promise.all([
-          instance.reserveCandidate({ candidate }).catch(() => undefined),
-          instance
-            .cancelTicket({
-              gatewayPrincipal: firstPrincipal,
-              ticketId: first.id
-            })
-            .catch(() => undefined)
-        ]);
-      }
-    );
+    await runInDurableObject(stub, async (instance: MatchPoolDurableObject) => {
+      await Promise.all([
+        instance.reserveCandidate({ candidate }).catch(() => undefined),
+        instance
+          .cancelTicket({
+            gatewayPrincipal: firstPrincipal,
+            ticketId: first.id,
+          })
+          .catch(() => undefined),
+      ]);
+    });
 
     const currentFirst = await stub.getTicket(first.id);
     const currentSecond = await stub.getTicket(second.id);
-    expect(
-      [currentFirst?.status, currentSecond?.status]
-    ).toEqual(
+    expect([currentFirst?.status, currentSecond?.status]).toEqual(
       ["matched", "matched"].includes(currentFirst?.status ?? "")
         ? ["matched", "matched"]
-        : ["cancelled", "waiting"]
+        : ["cancelled", "waiting"],
     );
   });
 
@@ -483,38 +479,40 @@ describe("Matchmaking match settlement", () => {
     const pool = createPool();
     const { stub } = await createInitializedPool(pool, {
       searchPolicy: createNarrowSearchPolicy(),
-      matchRoom: { maxAttempts: 1 }
+      matchRoom: { maxAttempts: 1 },
     });
     const firstPrincipal = await createGatewayPrincipal(
-      `principal-${crypto.randomUUID()}`
+      `principal-${crypto.randomUUID()}`,
     );
     const secondPrincipal = await createGatewayPrincipal(
-      `principal-${crypto.randomUUID()}`
+      `principal-${crypto.randomUUID()}`,
     );
     const first = await stub.createTicket(createTicketOptions(firstPrincipal));
     const second = await stub.createTicket(
-      createTicketOptions(secondPrincipal, { rating: 1_600 })
+      createTicketOptions(secondPrincipal, { rating: 1_600 }),
     );
     const candidate = createCandidate(pool, first.id, second.id);
-    const roomId = createMatchmakingRoomId(createMatchmakingMatchId(candidate.id));
+    const roomId = createMatchmakingRoomId(
+      createMatchmakingMatchId(candidate.id),
+    );
 
     await initializeConflictingCustomRoom(roomId);
     const result = await stub.reserveCandidate({ candidate });
     const intent = await stub.getMatchIntent(candidate.id);
     const events = await stub.getTicketEvents({
       gatewayPrincipal: firstPrincipal,
-      ticketId: first.id
+      ticketId: first.id,
     });
 
     expect(result.map((ticket) => ticket.status)).toEqual([
       "cancelled",
-      "cancelled"
+      "cancelled",
     ]);
     expect(intent).toMatchObject({
       status: "failed",
       attemptCount: 1,
       lastErrorCode: "CONFLICT",
-      nextAttemptAt: null
+      nextAttemptAt: null,
     });
     expect(events.map((event) => event.type)).not.toContain("matched");
   });

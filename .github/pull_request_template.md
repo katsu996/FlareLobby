@@ -20,6 +20,8 @@ Closes #
 ## 検証
 
 ```text
+pnpm lint
+pnpm format:check
 pnpm build
 pnpm typecheck
 pnpm test:unit

@@ -1,10 +1,7 @@
 import { defineFlareLobby } from "@flarelobby/cloudflare";
 import type { FlareLobbyBindings } from "@flarelobby/cloudflare";
 import type { FlareLobbyApp } from "@flarelobby/core";
-import {
-  authenticateDemoRpsRequest,
-  handleDemoRpsRequest
-} from "./rps.js";
+import { authenticateDemoRpsRequest, handleDemoRpsRequest } from "./rps.js";
 
 type DemoApp = FlareLobbyApp<
   { map: "forest" | "desert" },
@@ -26,7 +23,7 @@ const lobby = defineFlareLobby<DemoApp>({
   customRooms: {
     maxPlayers: 4,
     maxSpectators: 2,
-    defaultSettings: { map: "forest" }
+    defaultSettings: { map: "forest" },
   },
   matchmakingPools: [
     {
@@ -41,10 +38,10 @@ const lobby = defineFlareLobby<DemoApp>({
         teamIds: ["blue", "red"],
         maxPlayers: 2,
         minimumPlayers: 2,
-        requireAllPlayersReady: false
+        requireAllPlayersReady: false,
       },
-      rating: { initialRating: 1_500, kFactor: 24 }
-    }
+      rating: { initialRating: 1_500, kFactor: 24 },
+    },
   ],
   // この認証はローカル確認専用。本番へ持ち込まず、実際の認証サービスへ置き換える。
   authenticate: (request) => {
@@ -58,14 +55,14 @@ const lobby = defineFlareLobby<DemoApp>({
     authorizeJoin: () => true,
     authorizeSpectate: () => true,
     authorizeHostOperation: () => true,
-    authorizeMatchResult: () => true
+    authorizeMatchResult: () => true,
   },
   inputLimits: {
     maxHttpRequestBytes: 16 * 1024,
     maxWebSocketMessageBytes: 8 * 1024,
     maxMessagesPerMinute: 60,
-    maxRoomCreationsPerMinute: 10
-  }
+    maxRoomCreationsPerMinute: 10,
+  },
 });
 
 type DemoAssets = {
@@ -82,7 +79,7 @@ const demoWorker = {
   async fetch(
     request: Request,
     env: DemoEnv,
-    context: ExecutionContext
+    context: ExecutionContext,
   ): Promise<Response> {
     const pathname = new URL(request.url).pathname;
 
@@ -92,9 +89,12 @@ const demoWorker = {
 
     if (pathname.startsWith("/v1/demo/rps/")) {
       const authenticated = await authenticateDemoRpsRequest(
-        request as unknown as Request<unknown, IncomingRequestCfProperties<unknown>>,
+        request as unknown as Request<
+          unknown,
+          IncomingRequestCfProperties<unknown>
+        >,
         lobby.configuration,
-        env.FLARE_LOBBY_TOKEN_SECRET
+        env.FLARE_LOBBY_TOKEN_SECRET,
       );
 
       if (authenticated instanceof Response) {
@@ -105,7 +105,7 @@ const demoWorker = {
         request,
         env,
         lobby.configuration,
-        authenticated
+        authenticated,
       );
 
       if (response !== null) {
@@ -122,14 +122,14 @@ const demoWorker = {
     return gateway.fetch(
       request as unknown as Parameters<NonNullable<typeof gateway.fetch>>[0],
       env,
-      context
+      context,
     );
-  }
+  },
 };
 
 export default demoWorker satisfies ExportedHandler<DemoEnv>;
 export {
   MatchPoolDurableObject,
   RateLimitDurableObject,
-  RoomDurableObject
+  RoomDurableObject,
 } from "@flarelobby/cloudflare";

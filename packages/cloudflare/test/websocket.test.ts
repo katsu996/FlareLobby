@@ -4,14 +4,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
   defineFlareLobby,
   getRoomWebSocketTag,
-  RoomDurableObject
+  RoomDurableObject,
 } from "../src/index.js";
 
 const testLobby = defineFlareLobby({
   customRooms: {
     maxPlayers: 4,
     maxSpectators: 2,
-    defaultSettings: { map: "forest", mode: "casual" }
+    defaultSettings: { map: "forest", mode: "casual" },
   },
   matchmakingPools: [],
   authenticate: (request) => {
@@ -21,14 +21,14 @@ const testLobby = defineFlareLobby({
   },
   authorization: {
     authorizeJoin: () => true,
-    authorizeSpectate: () => true
+    authorizeSpectate: () => true,
   },
   inputLimits: {
     maxHttpRequestBytes: 16 * 1024,
     maxWebSocketMessageBytes: 8 * 1024,
     maxMessagesPerMinute: 60,
-    maxRoomCreationsPerMinute: 10
-  }
+    maxRoomCreationsPerMinute: 10,
+  },
 });
 
 const testWorker = testLobby.createGatewayWorker<Env>();
@@ -56,19 +56,19 @@ interface SocketInbox {
 const socketInboxes = new WeakMap<WebSocket, SocketInbox>();
 
 async function createRoom(
-  principalId = `principal-${crypto.randomUUID()}`
+  principalId = `principal-${crypto.randomUUID()}`,
 ): Promise<RoomResult> {
   const response = await testWorker.fetch(
     new Request("https://example.test/v1/custom-rooms", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-test-principal": principalId
+        "x-test-principal": principalId,
       },
-      body: JSON.stringify({ requestId: `request-${crypto.randomUUID()}` })
+      body: JSON.stringify({ requestId: `request-${crypto.randomUUID()}` }),
     }) as unknown as Parameters<typeof testWorker.fetch>[0],
     env,
-    {} as ExecutionContext
+    {} as ExecutionContext,
   );
 
   expect(response.status).toBe(201);
@@ -78,23 +78,23 @@ async function createRoom(
 async function joinRoom(
   roomId: string,
   principalId = `principal-${crypto.randomUUID()}`,
-  role: "player" | "spectator" = "player"
+  role: "player" | "spectator" = "player",
 ): Promise<RoomResult> {
   const response = await testWorker.fetch(
     new Request("https://example.test/v1/custom-rooms/join", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-test-principal": principalId
+        "x-test-principal": principalId,
       },
       body: JSON.stringify({
         requestId: `request-${crypto.randomUUID()}`,
         roomId,
-        role
-      })
+        role,
+      }),
     }) as unknown as Parameters<typeof testWorker.fetch>[0],
     env,
-    {} as ExecutionContext
+    {} as ExecutionContext,
   );
 
   expect(response.status).toBe(200);
@@ -119,7 +119,7 @@ function createWebSocketRequest(
   roomId: string,
   token: string,
   protocol = "flarelobby.v1",
-  lastRevision?: number
+  lastRevision?: number,
 ): Request {
   const query =
     lastRevision === undefined ? "" : `?lastRevision=${lastRevision}`;
@@ -130,9 +130,9 @@ function createWebSocketRequest(
       method: "GET",
       headers: {
         Upgrade: "websocket",
-        "Sec-WebSocket-Protocol": `${protocol}, flarelobby.auth.${encodeWebSocketToken(token)}`
-      }
-    }
+        "Sec-WebSocket-Protocol": `${protocol}, flarelobby.auth.${encodeWebSocketToken(token)}`,
+      },
+    },
   );
 }
 
@@ -143,14 +143,17 @@ async function connect(room: RoomResult): Promise<WebSocket> {
 async function connectWithToken(
   roomId: string,
   token: string,
-  lastRevision?: number
+  lastRevision?: number,
 ): Promise<WebSocket> {
   const response = await testWorker.fetch(
-    createWebSocketRequest(roomId, token, "flarelobby.v1", lastRevision) as unknown as Parameters<
-      typeof testWorker.fetch
-    >[0],
+    createWebSocketRequest(
+      roomId,
+      token,
+      "flarelobby.v1",
+      lastRevision,
+    ) as unknown as Parameters<typeof testWorker.fetch>[0],
     env,
-    {} as ExecutionContext
+    {} as ExecutionContext,
   );
 
   expect(response.status).toBe(101);
@@ -168,7 +171,9 @@ async function connectWithToken(
   let socketError: Error | null = null;
 
   socket.addEventListener("message", (event: Event) => {
-    const message = JSON.parse((event as MessageEvent).data as string) as WebSocketEvent;
+    const message = JSON.parse(
+      (event as MessageEvent).data as string,
+    ) as WebSocketEvent;
     const waiter = waiters.shift();
 
     if (waiter) {
@@ -178,7 +183,9 @@ async function connectWithToken(
     }
   });
   socket.addEventListener("error", () => {
-    socketError = new Error("WebSocket のメッセージ待機中にエラーが発生しました。");
+    socketError = new Error(
+      "WebSocket のメッセージ待機中にエラーが発生しました。",
+    );
 
     for (const waiter of waiters.splice(0)) {
       waiter.reject(socketError);
@@ -209,7 +216,7 @@ async function connectWithToken(
               clearTimeout(timeout);
             }
             reject(error);
-          }
+          },
         };
 
         waiters.push(waiter);
@@ -223,14 +230,17 @@ async function connectWithToken(
           reject(new Error("WebSocket メッセージがタイムアウトしました。"));
         }, timeoutMs);
       });
-    }
+    },
   });
 
   socket.accept();
   return socket;
 }
 
-function waitForMessage(webSocket: WebSocket, timeoutMs?: number): Promise<WebSocketEvent> {
+function waitForMessage(
+  webSocket: WebSocket,
+  timeoutMs?: number,
+): Promise<WebSocketEvent> {
   const inbox = socketInboxes.get(webSocket);
 
   if (inbox === undefined) {
@@ -242,7 +252,7 @@ function waitForMessage(webSocket: WebSocket, timeoutMs?: number): Promise<WebSo
 
 async function waitForDisconnectedConnections(
   roomId: string,
-  expectedCount: number
+  expectedCount: number,
 ): Promise<void> {
   const deadline = Date.now() + 1_000;
 
@@ -253,9 +263,9 @@ async function waitForDisconnectedConnections(
         state.storage.sql
           .exec<{ count: number }>(
             "SELECT COUNT(*) AS count FROM flarelobby_room_connections WHERE room_id = ? AND disconnected_at IS NOT NULL",
-            roomId
+            roomId,
           )
-          .one().count
+          .one().count,
     );
 
     if (count >= expectedCount) {
@@ -272,7 +282,7 @@ function sendCommand(
   webSocket: WebSocket,
   command: string,
   payload: unknown,
-  requestId = `request-${crypto.randomUUID()}`
+  requestId = `request-${crypto.randomUUID()}`,
 ): void {
   webSocket.send(
     JSON.stringify({
@@ -280,8 +290,8 @@ function sendCommand(
       kind: "command",
       requestId,
       command,
-      payload
-    })
+      payload,
+    }),
   );
 }
 
@@ -302,16 +312,16 @@ describe("Room Hibernation WebSocket", () => {
     await expect(waitForMessage(ownerSocket)).resolves.toMatchObject({
       kind: "event",
       event: "room.snapshot",
-      payload: { room: { id: owner.roomId } }
+      payload: { room: { id: owner.roomId } },
     });
     const playerInitialEvent = await waitForMessage(playerSocket);
     expect(playerInitialEvent).toMatchObject({
       kind: "event",
-      event: "room.snapshot"
+      event: "room.snapshot",
     });
     await expect(waitForMessage(otherSocket)).resolves.toMatchObject({
       kind: "event",
-      event: "room.snapshot"
+      event: "room.snapshot",
     });
 
     await runInDurableObject(
@@ -327,18 +337,18 @@ describe("Room Hibernation WebSocket", () => {
           resumeId: expect.any(String),
           principal: {
             id: expect.any(String),
-            playerId: expect.any(String)
-          }
+            playerId: expect.any(String),
+          },
         });
         expect(
           state.storage.sql
             .exec<{ count: number }>(
               "SELECT COUNT(*) AS count FROM flarelobby_room_connections WHERE room_id = ? AND disconnected_at IS NULL",
-              owner.roomId
+              owner.roomId,
             )
-            .one().count
+            .one().count,
         ).toBe(2);
-      }
+      },
     );
 
     sendCommand(playerSocket, "room.set_ready", { ready: true });
@@ -352,21 +362,21 @@ describe("Room Hibernation WebSocket", () => {
       payload: {
         room: { id: owner.roomId },
         participants: expect.arrayContaining([
-          expect.objectContaining({ id: player.participantId, ready: true })
-        ])
-      }
+          expect.objectContaining({ id: player.participantId, ready: true }),
+        ]),
+      },
     });
     expect(playerEvent).toMatchObject({
       kind: "event",
-      event: "room.snapshot"
+      event: "room.snapshot",
     });
     expect(playerResponse).toMatchObject({
       kind: "success",
-      requestId: expect.any(String)
+      requestId: expect.any(String),
     });
 
     await expect(waitForMessage(otherSocket, 50)).rejects.toThrow(
-      "WebSocket メッセージがタイムアウトしました。"
+      "WebSocket メッセージがタイムアウトしました。",
     );
 
     await closeSocket(ownerSocket);
@@ -381,11 +391,11 @@ describe("Room Hibernation WebSocket", () => {
           state.storage.sql
             .exec<{ count: number }>(
               "SELECT COUNT(*) AS count FROM flarelobby_room_participants WHERE participant_id = ?",
-              player.participantId
+              player.participantId,
             )
-            .one().count
+            .one().count,
         ).toBe(1);
-      }
+      },
     );
   });
 
@@ -393,24 +403,27 @@ describe("Room Hibernation WebSocket", () => {
     const owner = await createRoom();
     const spectator = await joinRoom(owner.roomId, undefined, "spectator");
     const invalidTokenResponse = await testWorker.fetch(
-      createWebSocketRequest(owner.roomId, "invalid-token") as unknown as Parameters<
-        typeof testWorker.fetch
-      >[0],
+      createWebSocketRequest(
+        owner.roomId,
+        "invalid-token",
+      ) as unknown as Parameters<typeof testWorker.fetch>[0],
       env,
-      {} as ExecutionContext
+      {} as ExecutionContext,
     );
     expect(invalidTokenResponse.status).toBe(401);
 
     const invalidProtocolResponse = await testWorker.fetch(
-      createWebSocketRequest(owner.roomId, owner.joinToken, "flarelobby.v2") as unknown as Parameters<
-        typeof testWorker.fetch
-      >[0],
+      createWebSocketRequest(
+        owner.roomId,
+        owner.joinToken,
+        "flarelobby.v2",
+      ) as unknown as Parameters<typeof testWorker.fetch>[0],
       env,
-      {} as ExecutionContext
+      {} as ExecutionContext,
     );
     expect(invalidProtocolResponse.status).toBe(400);
     await expect(invalidProtocolResponse.json()).resolves.toMatchObject({
-      code: "INVALID_MESSAGE"
+      code: "INVALID_MESSAGE",
     });
 
     const spectatorSocket = await connect(spectator);
@@ -419,19 +432,19 @@ describe("Room Hibernation WebSocket", () => {
     sendCommand(spectatorSocket, "room.set_ready", { ready: true });
     await expect(waitForMessage(spectatorSocket)).resolves.toMatchObject({
       kind: "failure",
-      error: { code: "FORBIDDEN" }
+      error: { code: "FORBIDDEN" },
     });
 
     sendCommand(spectatorSocket, "game.chat", { text: "閲覧者からの送信" });
     await expect(waitForMessage(spectatorSocket)).resolves.toMatchObject({
       kind: "failure",
-      error: { code: "FORBIDDEN" }
+      error: { code: "FORBIDDEN" },
     });
 
     sendCommand(spectatorSocket, "room.set_ready", { ready: "yes" });
     await expect(waitForMessage(spectatorSocket)).resolves.toMatchObject({
       kind: "failure",
-      error: { code: "INVALID_PAYLOAD" }
+      error: { code: "INVALID_PAYLOAD" },
     });
 
     const unsupportedVersion = JSON.stringify({
@@ -439,12 +452,12 @@ describe("Room Hibernation WebSocket", () => {
       kind: "command",
       requestId: `request-${crypto.randomUUID()}`,
       command: "room.set_ready",
-      payload: { ready: true }
+      payload: { ready: true },
     });
     spectatorSocket.send(unsupportedVersion);
     await expect(waitForMessage(spectatorSocket)).resolves.toMatchObject({
       kind: "failure",
-      error: { code: "UNSUPPORTED_PROTOCOL_VERSION" }
+      error: { code: "UNSUPPORTED_PROTOCOL_VERSION" },
     });
 
     await closeSocket(spectatorSocket);
@@ -458,7 +471,7 @@ describe("Room Hibernation WebSocket", () => {
 
     await Promise.all([
       waitForMessage(ownerSocket),
-      waitForMessage(playerSocket)
+      waitForMessage(playerSocket),
     ]);
 
     await runInDurableObject(
@@ -481,7 +494,7 @@ describe("Room Hibernation WebSocket", () => {
         vi.spyOn(ownerServerSocket, "send").mockImplementation(() => {
           throw new Error("意図的な送信失敗");
         });
-      }
+      },
     );
 
     sendCommand(playerSocket, "room.set_ready", { ready: true });
@@ -490,12 +503,12 @@ describe("Room Hibernation WebSocket", () => {
       event: "room.snapshot",
       payload: {
         participants: expect.arrayContaining([
-          expect.objectContaining({ id: player.participantId, ready: true })
-        ])
-      }
+          expect.objectContaining({ id: player.participantId, ready: true }),
+        ]),
+      },
     });
     await expect(waitForMessage(playerSocket)).resolves.toMatchObject({
-      kind: "success"
+      kind: "success",
     });
 
     await Promise.all([closeSocket(ownerSocket), closeSocket(playerSocket)]);
@@ -512,7 +525,7 @@ describe("Room Hibernation WebSocket", () => {
     await Promise.all([
       waitForMessage(ownerSocket),
       waitForMessage(playerSocket),
-      waitForMessage(otherSocket)
+      waitForMessage(otherSocket),
     ]);
 
     sendCommand(playerSocket, "game.chat", { text: "こんにちは" });
@@ -526,23 +539,23 @@ describe("Room Hibernation WebSocket", () => {
       payload: {
         name: "game.chat",
         payload: { text: "こんにちは" },
-        sender: { participantId: player.participantId, role: "player" }
-      }
+        sender: { participantId: player.participantId, role: "player" },
+      },
     });
     expect(playerEvent).toMatchObject({
       kind: "event",
-      event: "game.message"
+      event: "game.message",
     });
     expect(playerResponse).toMatchObject({ kind: "success" });
 
     await expect(waitForMessage(otherSocket, 50)).rejects.toThrow(
-      "WebSocket メッセージがタイムアウトしました。"
+      "WebSocket メッセージがタイムアウトしました。",
     );
 
     await Promise.all([
       closeSocket(ownerSocket),
       closeSocket(playerSocket),
-      closeSocket(otherSocket)
+      closeSocket(otherSocket),
     ]);
   });
 
@@ -561,11 +574,11 @@ describe("Room Hibernation WebSocket", () => {
         resume: {
           participantId: owner.participantId,
           role: "player",
-          resumed: false
+          resumed: false,
         },
         resumeToken: expect.any(String),
-        resumeTokenExpiresAt: expect.any(Number)
-      }
+        resumeTokenExpiresAt: expect.any(Number),
+      },
     });
     expect(typeof resumeToken).toBe("string");
 
@@ -574,10 +587,10 @@ describe("Room Hibernation WebSocket", () => {
       await expect(waitForMessage(socket)).resolves.toMatchObject({
         kind: "event",
         event: "room.snapshot",
-        revision: expect.any(Number)
+        revision: expect.any(Number),
       });
       await expect(waitForMessage(socket)).resolves.toMatchObject({
-        kind: "success"
+        kind: "success",
       });
     }
 
@@ -587,38 +600,35 @@ describe("Room Hibernation WebSocket", () => {
     const multipleMissing = await connectWithToken(
       owner.roomId,
       resumeToken as string,
-      0
+      0,
     );
     const multipleMessages = [
       await waitForMessage(multipleMissing),
       await waitForMessage(multipleMissing),
       await waitForMessage(multipleMissing),
-      await waitForMessage(multipleMissing)
+      await waitForMessage(multipleMissing),
     ];
 
     expect(multipleMessages.map((message) => message.revision)).toEqual([
-      1,
-      2,
-      3,
-      3
+      1, 2, 3, 3,
     ]);
     expect(multipleMessages[0]).toMatchObject({
       kind: "event",
       event: "room.snapshot",
-      payload: { participants: expect.any(Array) }
+      payload: { participants: expect.any(Array) },
     });
     expect(multipleMessages[3]).toMatchObject({
       kind: "event",
       event: "room.snapshot",
       payload: {
         participants: expect.arrayContaining([
-          expect.objectContaining({ id: owner.participantId, ready: true })
+          expect.objectContaining({ id: owner.participantId, ready: true }),
         ]),
         resume: {
           participantId: owner.participantId,
-          resumed: true
-        }
-      }
+          resumed: true,
+        },
+      },
     });
 
     await closeSocket(multipleMissing);
@@ -627,18 +637,18 @@ describe("Room Hibernation WebSocket", () => {
     const oneMissing = await connectWithToken(
       owner.roomId,
       resumeToken as string,
-      2
+      2,
     );
     await expect(waitForMessage(oneMissing)).resolves.toMatchObject({
       kind: "event",
       event: "room.snapshot",
-      revision: 3
+      revision: 3,
     });
     await expect(waitForMessage(oneMissing)).resolves.toMatchObject({
       kind: "event",
       event: "room.snapshot",
       revision: 3,
-      payload: { resume: { resumed: true } }
+      payload: { resume: { resumed: true } },
     });
 
     await closeSocket(oneMissing);
@@ -649,24 +659,24 @@ describe("Room Hibernation WebSocket", () => {
       (_instance: RoomDurableObject, state) => {
         state.storage.sql.exec(
           "DELETE FROM flarelobby_room_events WHERE revision = ?",
-          1
+          1,
         );
-      }
+      },
     );
 
     const insufficientHistory = await connectWithToken(
       owner.roomId,
       resumeToken as string,
-      0
+      0,
     );
     await expect(waitForMessage(insufficientHistory)).resolves.toMatchObject({
       kind: "event",
       event: "room.snapshot",
       revision: 3,
-      payload: { resume: { resumed: true } }
+      payload: { resume: { resumed: true } },
     });
     await expect(waitForMessage(insufficientHistory, 50)).rejects.toThrow(
-      "WebSocket メッセージがタイムアウトしました。"
+      "WebSocket メッセージがタイムアウトしました。",
     );
     await closeSocket(insufficientHistory);
 
@@ -674,16 +684,16 @@ describe("Room Hibernation WebSocket", () => {
     const outOfRange = await connectWithToken(
       owner.roomId,
       resumeToken as string,
-      999
+      999,
     );
     await expect(waitForMessage(outOfRange)).resolves.toMatchObject({
       kind: "event",
       event: "room.snapshot",
       revision: 3,
-      payload: { resume: { resumed: true } }
+      payload: { resume: { resumed: true } },
     });
     await expect(waitForMessage(outOfRange, 50)).rejects.toThrow(
-      "WebSocket メッセージがタイムアウトしました。"
+      "WebSocket メッセージがタイムアウトしました。",
     );
     await closeSocket(outOfRange);
   });
@@ -703,28 +713,29 @@ describe("Room Hibernation WebSocket", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-test-principal": principalId
+          "x-test-principal": principalId,
         },
         body: JSON.stringify({
           requestId: `leave-${crypto.randomUUID()}`,
           roomId: owner.roomId,
           joinToken: owner.joinToken,
           participantId: owner.participantId,
-          role: "player"
-        })
+          role: "player",
+        }),
       }) as unknown as Parameters<typeof testWorker.fetch>[0],
       env,
-      {} as ExecutionContext
+      {} as ExecutionContext,
     );
 
     expect(leaveResponse.status).toBe(200);
 
     const oldTokenResponse = await testWorker.fetch(
-      createWebSocketRequest(owner.roomId, resumeToken as string) as unknown as Parameters<
-        typeof testWorker.fetch
-      >[0],
+      createWebSocketRequest(
+        owner.roomId,
+        resumeToken as string,
+      ) as unknown as Parameters<typeof testWorker.fetch>[0],
       env,
-      {} as ExecutionContext
+      {} as ExecutionContext,
     );
     expect(oldTokenResponse.status).toBe(403);
 
@@ -732,11 +743,12 @@ describe("Room Hibernation WebSocket", () => {
       (resumeToken as string).endsWith("A") ? "B" : "A"
     }`;
     const tamperedResponse = await testWorker.fetch(
-      createWebSocketRequest(owner.roomId, tamperedToken) as unknown as Parameters<
-        typeof testWorker.fetch
-      >[0],
+      createWebSocketRequest(
+        owner.roomId,
+        tamperedToken,
+      ) as unknown as Parameters<typeof testWorker.fetch>[0],
       env,
-      {} as ExecutionContext
+      {} as ExecutionContext,
     );
     expect(tamperedResponse.status).toBe(401);
 

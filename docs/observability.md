@@ -6,20 +6,20 @@ FlareLobby の観測は、Gateway Worker から Room Durable Object、Match Pool
 
 ログは 1 操作 1 JSON レコードで、次の項目を持ちます。
 
-| 項目 | 内容 |
-| --- | --- |
-| `schemaVersion` | 構造化ログの版。現在は `1` |
-| `event` | `flarelobby.operation` 固定 |
-| `timestamp` | 出力時刻（ISO 8601） |
-| `level` | 成功時 `info`、失敗時 `error` |
-| `correlationId` | Gateway の入口で発行する要求追跡 ID |
-| `requestId` | 冪等性要求と対応する論理要求 ID |
-| `operation` | `room.create`、`room.join`、`room.connect`、`room.reconnect`、`matchmaking.ticket.create`、`matchmaking.match`、`rating.result` など |
-| `durationMs` | 操作の所要時間 |
-| `result` | `success` または `failure` |
-| `errorCode` | 失敗時の安定したエラーコード |
-| `stage` | 必要な場合の処理段階 |
-| `attributes` | 許可された低カーディナリティの数値・状態だけ |
+| 項目            | 内容                                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `schemaVersion` | 構造化ログの版。現在は `1`                                                                                                           |
+| `event`         | `flarelobby.operation` 固定                                                                                                          |
+| `timestamp`     | 出力時刻（ISO 8601）                                                                                                                 |
+| `level`         | 成功時 `info`、失敗時 `error`                                                                                                        |
+| `correlationId` | Gateway の入口で発行する要求追跡 ID                                                                                                  |
+| `requestId`     | 冪等性要求と対応する論理要求 ID                                                                                                      |
+| `operation`     | `room.create`、`room.join`、`room.connect`、`room.reconnect`、`matchmaking.ticket.create`、`matchmaking.match`、`rating.result` など |
+| `durationMs`    | 操作の所要時間                                                                                                                       |
+| `result`        | `success` または `failure`                                                                                                           |
+| `errorCode`     | 失敗時の安定したエラーコード                                                                                                         |
+| `stage`         | 必要な場合の処理段階                                                                                                                 |
+| `attributes`    | 許可された低カーディナリティの数値・状態だけ                                                                                         |
 
 `attributes` へ入れられるのは、ルーム種別、役割、再接続かどうか、状態、待機時間、レート差、検索幅、成立/キャンセル、試行回数などです。認証主体、プレイヤー ID、Room ID、トークン、パスワード、Authorization ヘッダー、HTTP 本文、ゲームメッセージ本文、内部例外のスタックは記録しません。
 
@@ -43,14 +43,14 @@ Gateway はクライアントの相関 ID を信頼せず、入口で新しい I
 
 `doubles[0]` が測定値、`blobs[0]` は相関 ID と安全な属性を含む JSON です。次のメトリクスを記録します。
 
-| メトリクス | 値 |
-| --- | --- |
-| `match_wait_time_ms` | 成立した 2 チケットのうち長い待機時間 |
-| `match_rating_difference` | 成立時の絶対レート差 |
-| `match_search_width` | 成立時に適用された最大検索幅 |
-| `match_succeeded` | 成立時に `1` |
-| `match_cancelled` | キャンセル時に `1` |
-| `match_outcome` | `status=matched`、`cancelled` などの終端結果ごとに `1` |
+| メトリクス                | 値                                                     |
+| ------------------------- | ------------------------------------------------------ |
+| `match_wait_time_ms`      | 成立した 2 チケットのうち長い待機時間                  |
+| `match_rating_difference` | 成立時の絶対レート差                                   |
+| `match_search_width`      | 成立時に適用された最大検索幅                           |
+| `match_succeeded`         | 成立時に `1`                                           |
+| `match_cancelled`         | キャンセル時に `1`                                     |
+| `match_outcome`           | `status=matched`、`cancelled` などの終端結果ごとに `1` |
 
 成立率とキャンセル率は、同じ期間・プールで `match_outcome` を終端状態別に集計して算出します。たとえば成立率は `status=matched` の件数を終端結果の総件数で割ります。検索幅は候補の待機時間から正規化済み検索ポリシーを使って再計算するため、設定変更後も定義が明確です。
 
@@ -63,8 +63,8 @@ const flarelobby = defineFlareLobby({
   // ...customRooms, matchmakingPools, authenticate, inputLimits...
   observability: {
     logSampleRate: 0.1,
-    analyticsSampleRate: 0.25
-  }
+    analyticsSampleRate: 0.25,
+  },
 });
 ```
 

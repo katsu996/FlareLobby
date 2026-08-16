@@ -1,12 +1,9 @@
-import {
-  FlareLobbyError,
-  elo
-} from "@flarelobby/core";
+import { FlareLobbyError, elo } from "@flarelobby/core";
 import type {
   EloOptions,
   MatchmakingPool,
   Rating,
-  RatingResult
+  RatingResult,
 } from "@flarelobby/core";
 
 /** D1 へ保存するレーティングの設定です。省略時は ELO の既定値を使います。 */
@@ -39,7 +36,10 @@ export interface RatingMatchRecord {
   readonly resultId: string;
   readonly pool: MatchmakingPool;
   readonly result: RatingResult;
-  readonly participants: readonly [RatingMatchParticipant, RatingMatchParticipant];
+  readonly participants: readonly [
+    RatingMatchParticipant,
+    RatingMatchParticipant,
+  ];
   readonly createdAt: string;
   readonly appliedAt: string;
 }
@@ -144,7 +144,7 @@ const RATING_SCHEMA_STATEMENTS = Object.freeze([
      ON flarelobby_rating_matches (
        game_id, season_id, pool_id, player_a_id, player_b_id,
        applied_at DESC, match_id DESC
-     )`
+     )`,
 ] as const);
 
 interface SeasonRow extends Record<string, unknown> {
@@ -208,7 +208,7 @@ interface HistoryCursor {
 export async function ensureRatingSchema(database: D1Database): Promise<void> {
   try {
     await database.batch(
-      RATING_SCHEMA_STATEMENTS.map((statement) => database.prepare(statement))
+      RATING_SCHEMA_STATEMENTS.map((statement) => database.prepare(statement)),
     );
   } catch {
     throw new FlareLobbyError("CONNECTION_FAILED");
@@ -220,7 +220,7 @@ export async function getRating(
   database: D1Database,
   pool: MatchmakingPool,
   playerId: string,
-  configuration: RatingConfiguration = {}
+  configuration: RatingConfiguration = {},
 ): Promise<Rating> {
   const normalizedPool = normalizePool(pool);
   const normalizedPlayerId = normalizeIdentifier(playerId, "playerId");
@@ -235,7 +235,7 @@ export async function getRating(
           `INSERT OR IGNORE INTO flarelobby_rating_seasons (
              game_id, season_id, pool_id, initial_rating, k_factor,
              created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           normalizedPool.gameId,
@@ -244,14 +244,14 @@ export async function getRating(
           normalizedConfiguration.initialRating,
           normalizedConfiguration.kFactor,
           now,
-          now
+          now,
         ),
       database
         .prepare(
           `INSERT OR IGNORE INTO flarelobby_ratings (
              player_id, game_id, season_id, pool_id, mode, region,
              rating_value, version, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
         )
         .bind(
           normalizedPlayerId,
@@ -262,14 +262,14 @@ export async function getRating(
           normalizedPool.region,
           normalizedConfiguration.initialRating,
           now,
-          now
-        )
+          now,
+        ),
     ]);
 
     const row = await readRatingRow(
       database,
       normalizedPool,
-      normalizedPlayerId
+      normalizedPlayerId,
     );
 
     if (row === null) {
@@ -297,7 +297,7 @@ export async function registerMatchResult(
   pool: MatchmakingPool,
   input: MatchResultRegistrationInput,
   configuration: RatingConfiguration = {},
-  maxRetries = DEFAULT_RATING_CONFLICT_RETRY_COUNT
+  maxRetries = DEFAULT_RATING_CONFLICT_RETRY_COUNT,
 ): Promise<MatchResultRegistration> {
   const normalizedPool = normalizePool(pool);
   const normalizedInput = normalizeMatchResultInput(input);
@@ -314,14 +314,14 @@ export async function registerMatchResult(
     normalizedPool,
     normalizedInput.playerAId,
     normalizedInput.playerBId,
-    normalizedConfiguration
+    normalizedConfiguration,
   );
 
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
     const existing = await findExistingMatch(
       database,
       normalizedInput.matchId,
-      normalizedInput.resultId
+      normalizedInput.resultId,
     );
 
     if (existing !== null) {
@@ -329,7 +329,7 @@ export async function registerMatchResult(
         existing,
         normalizedPool,
         normalizedInput,
-        database
+        database,
       );
     }
 
@@ -337,7 +337,7 @@ export async function registerMatchResult(
       database,
       normalizedPool,
       normalizedInput.playerAId,
-      normalizedInput.playerBId
+      normalizedInput.playerBId,
     );
 
     if (season === null || ratingA === null || ratingB === null) {
@@ -346,14 +346,13 @@ export async function registerMatchResult(
 
     const calculation = elo({
       initialRating: season.initialRating,
-      kFactor: season.kFactor
+      kFactor: season.kFactor,
     }).calculate({
       ratingA: ratingA.value,
       ratingB: ratingB.value,
-      result: normalizedInput.result
+      result: normalizedInput.result,
     });
     const now = Date.now();
-    const appliedAt = new Date(now).toISOString();
 
     try {
       const results = await database.batch([
@@ -375,7 +374,7 @@ export async function registerMatchResult(
                SELECT 1 FROM flarelobby_ratings
                WHERE player_id = ? AND game_id = ? AND season_id = ?
                  AND pool_id = ? AND mode = ? AND region = ? AND version = ?
-             )`
+             )`,
           )
           .bind(
             normalizedInput.matchId,
@@ -409,7 +408,7 @@ export async function registerMatchResult(
             normalizedPool.id,
             normalizedPool.mode,
             normalizedPool.region,
-            ratingB.version
+            ratingB.version,
           ),
         database
           .prepare(
@@ -420,7 +419,7 @@ export async function registerMatchResult(
                AND EXISTS (
                  SELECT 1 FROM flarelobby_rating_matches
                  WHERE match_id = ?
-               )`
+               )`,
           )
           .bind(
             calculation.updatedRatingA,
@@ -432,7 +431,7 @@ export async function registerMatchResult(
             normalizedPool.mode,
             normalizedPool.region,
             ratingA.version,
-            normalizedInput.matchId
+            normalizedInput.matchId,
           ),
         database
           .prepare(
@@ -443,7 +442,7 @@ export async function registerMatchResult(
                AND EXISTS (
                  SELECT 1 FROM flarelobby_rating_matches
                  WHERE match_id = ?
-               )`
+               )`,
           )
           .bind(
             calculation.updatedRatingB,
@@ -455,7 +454,7 @@ export async function registerMatchResult(
             normalizedPool.mode,
             normalizedPool.region,
             ratingB.version,
-            normalizedInput.matchId
+            normalizedInput.matchId,
           ),
         database
           .prepare(
@@ -466,7 +465,7 @@ export async function registerMatchResult(
              SELECT ?, 'A', ?, ?, ?, ?, ?, ?, ?
              WHERE EXISTS (
                SELECT 1 FROM flarelobby_rating_matches WHERE match_id = ?
-             )`
+             )`,
           )
           .bind(
             normalizedInput.matchId,
@@ -477,7 +476,7 @@ export async function registerMatchResult(
             calculation.updatedRatingA,
             ratingA.version,
             ratingA.version + 1,
-            normalizedInput.matchId
+            normalizedInput.matchId,
           ),
         database
           .prepare(
@@ -488,7 +487,7 @@ export async function registerMatchResult(
              SELECT ?, 'B', ?, ?, ?, ?, ?, ?, ?
              WHERE EXISTS (
                SELECT 1 FROM flarelobby_rating_matches WHERE match_id = ?
-             )`
+             )`,
           )
           .bind(
             normalizedInput.matchId,
@@ -499,8 +498,8 @@ export async function registerMatchResult(
             calculation.updatedRatingB,
             ratingB.version,
             ratingB.version + 1,
-            normalizedInput.matchId
-          )
+            normalizedInput.matchId,
+          ),
       ]);
 
       if (
@@ -515,7 +514,7 @@ export async function registerMatchResult(
         }
 
         throw new FlareLobbyError("CONFLICT", {
-          message: "レーティングの版競合を解決できませんでした。"
+          message: "レーティングの版競合を解決できませんでした。",
         });
       }
 
@@ -529,7 +528,7 @@ export async function registerMatchResult(
       const raced = await findExistingMatch(
         database,
         normalizedInput.matchId,
-        normalizedInput.resultId
+        normalizedInput.resultId,
       );
 
       if (raced !== null) {
@@ -537,7 +536,7 @@ export async function registerMatchResult(
           raced,
           normalizedPool,
           normalizedInput,
-          database
+          database,
         );
       }
 
@@ -546,7 +545,7 @@ export async function registerMatchResult(
   }
 
   throw new FlareLobbyError("CONFLICT", {
-    message: "レーティングの版競合を解決できませんでした。"
+    message: "レーティングの版競合を解決できませんでした。",
   });
 }
 
@@ -559,7 +558,7 @@ export const applyMatchResult = registerMatchResult;
 /** 試合履歴をページング取得します。履歴は D1 の確定時刻で安定ソートします。 */
 export async function listMatchHistory(
   database: D1Database,
-  query: MatchHistoryQuery
+  query: MatchHistoryQuery,
 ): Promise<MatchHistoryPage> {
   const pool = normalizePool(query?.pool);
   const playerId =
@@ -568,9 +567,7 @@ export async function listMatchHistory(
       : normalizeIdentifier(query.playerId, "playerId");
   const limit = normalizeHistoryLimit(query?.limit ?? query?.pageSize);
   const cursor =
-    query?.cursor === undefined
-      ? null
-      : parseHistoryCursor(query.cursor);
+    query?.cursor === undefined ? null : parseHistoryCursor(query.cursor);
   await ensureRatingSchema(database);
 
   try {
@@ -579,14 +576,14 @@ export async function listMatchHistory(
       "season_id = ?",
       "pool_id = ?",
       "mode = ?",
-      "region = ?"
+      "region = ?",
     ];
     const values: unknown[] = [
       pool.gameId,
       pool.seasonId,
       pool.id,
       pool.mode,
-      pool.region
+      pool.region,
     ];
 
     if (playerId !== undefined) {
@@ -624,7 +621,7 @@ export async function listMatchHistory(
          FROM flarelobby_rating_matches
          WHERE ${where.join(" AND ")}
          ORDER BY applied_at DESC, match_id DESC
-         LIMIT ?`
+         LIMIT ?`,
       )
       .bind(...values)
       .all<MatchRow>();
@@ -640,9 +637,9 @@ export async function listMatchHistory(
         hasNext && last !== undefined
           ? encodeHistoryCursor({
               appliedAt: last.appliedAt,
-              matchId: last.matchId
+              matchId: last.matchId,
             })
-          : null
+          : null,
     });
   } catch (error) {
     throw normalizeRatingError(error);
@@ -657,7 +654,7 @@ async function ensureRatingRows(
   pool: MatchmakingPool,
   playerAId: string,
   playerBId: string,
-  configuration: NormalizedRatingConfiguration
+  configuration: NormalizedRatingConfiguration,
 ): Promise<void> {
   const now = Date.now();
 
@@ -668,7 +665,7 @@ async function ensureRatingRows(
           `INSERT OR IGNORE INTO flarelobby_rating_seasons (
              game_id, season_id, pool_id, initial_rating, k_factor,
              created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           pool.gameId,
@@ -677,10 +674,10 @@ async function ensureRatingRows(
           configuration.initialRating,
           configuration.kFactor,
           now,
-          now
+          now,
         ),
       createRatingInsert(database, pool, playerAId, configuration, now),
-      createRatingInsert(database, pool, playerBId, configuration, now)
+      createRatingInsert(database, pool, playerBId, configuration, now),
     ]);
   } catch (error) {
     throw normalizeRatingError(error);
@@ -692,14 +689,14 @@ function createRatingInsert(
   pool: MatchmakingPool,
   playerId: string,
   configuration: NormalizedRatingConfiguration,
-  now: number
+  now: number,
 ): D1PreparedStatement {
   return database
     .prepare(
       `INSERT OR IGNORE INTO flarelobby_ratings (
          player_id, game_id, season_id, pool_id, mode, region,
          rating_value, version, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
     )
     .bind(
       playerId,
@@ -710,7 +707,7 @@ function createRatingInsert(
       pool.region,
       configuration.initialRating,
       now,
-      now
+      now,
     );
 }
 
@@ -718,7 +715,7 @@ async function readRatingState(
   database: D1Database,
   pool: MatchmakingPool,
   playerAId: string,
-  playerBId: string
+  playerBId: string,
 ): Promise<readonly [SeasonRow | null, RatingRow | null, RatingRow | null]> {
   const seasonStatement = database
     .prepare(
@@ -729,7 +726,7 @@ async function readRatingState(
          initial_rating AS initialRating,
          k_factor AS kFactor
        FROM flarelobby_rating_seasons
-       WHERE game_id = ? AND season_id = ? AND pool_id = ?`
+       WHERE game_id = ? AND season_id = ? AND pool_id = ?`,
     )
     .bind(pool.gameId, pool.seasonId, pool.id);
   const ratingStatement = database.prepare(
@@ -744,7 +741,7 @@ async function readRatingState(
        version
      FROM flarelobby_ratings
      WHERE player_id = ? AND game_id = ? AND season_id = ?
-       AND pool_id = ? AND mode = ? AND region = ?`
+       AND pool_id = ? AND mode = ? AND region = ?`,
   );
 
   try {
@@ -756,7 +753,7 @@ async function readRatingState(
         pool.seasonId,
         pool.id,
         pool.mode,
-        pool.region
+        pool.region,
       ),
       ratingStatement.bind(
         playerBId,
@@ -764,14 +761,14 @@ async function readRatingState(
         pool.seasonId,
         pool.id,
         pool.mode,
-        pool.region
-      )
+        pool.region,
+      ),
     ]);
 
     return [
       toSeasonRow(firstResultRow(results[0])),
       toRatingRow(firstResultRow(results[1])),
-      toRatingRow(firstResultRow(results[2]))
+      toRatingRow(firstResultRow(results[2])),
     ];
   } catch (error) {
     throw normalizeRatingError(error);
@@ -781,7 +778,7 @@ async function readRatingState(
 async function readRatingRow(
   database: D1Database,
   pool: MatchmakingPool,
-  playerId: string
+  playerId: string,
 ): Promise<RatingRow | null> {
   try {
     return await database
@@ -797,7 +794,7 @@ async function readRatingRow(
            version
          FROM flarelobby_ratings
          WHERE player_id = ? AND game_id = ? AND season_id = ?
-           AND pool_id = ? AND mode = ? AND region = ?`
+           AND pool_id = ? AND mode = ? AND region = ?`,
       )
       .bind(
         playerId,
@@ -805,7 +802,7 @@ async function readRatingRow(
         pool.seasonId,
         pool.id,
         pool.mode,
-        pool.region
+        pool.region,
       )
       .first<RatingRow>();
   } catch (error) {
@@ -816,7 +813,7 @@ async function readRatingRow(
 async function findExistingMatch(
   database: D1Database,
   matchId: string,
-  resultId: string
+  resultId: string,
 ): Promise<MatchRow | null> {
   try {
     const matchStatement = database
@@ -839,7 +836,7 @@ async function resolveExistingMatch(
   existing: MatchRow,
   pool: MatchmakingPool,
   input: MatchResultRegistrationInput,
-  database: D1Database
+  database: D1Database,
 ): Promise<MatchResultRegistration> {
   if (
     existing.matchId !== input.matchId ||
@@ -854,7 +851,7 @@ async function resolveExistingMatch(
     existing.result !== input.result
   ) {
     throw new FlareLobbyError("CONFLICT", {
-      message: "同じ試合または結果識別子へ異なる結果を適用できません。"
+      message: "同じ試合または結果識別子へ異なる結果を適用できません。",
     });
   }
 
@@ -868,7 +865,7 @@ async function resolveExistingMatch(
 
 async function readMatchRecord(
   database: D1Database,
-  matchId: string
+  matchId: string,
 ): Promise<RatingMatchRecord | null> {
   try {
     const match = await database
@@ -884,7 +881,7 @@ async function readMatchRecord(
       .prepare(
         `${PARTICIPANT_SELECT}
          WHERE match_id = ?
-         ORDER BY slot ASC`
+         ORDER BY slot ASC`,
       )
       .bind(matchId)
       .all<ParticipantRow>();
@@ -897,7 +894,7 @@ async function readMatchRecord(
 
 async function readMatchRecords(
   database: D1Database,
-  matches: readonly MatchRow[]
+  matches: readonly MatchRow[],
 ): Promise<readonly RatingMatchRecord[]> {
   if (matches.length === 0) {
     return [];
@@ -909,7 +906,7 @@ async function readMatchRecords(
       .prepare(
         `${PARTICIPANT_SELECT}
          WHERE match_id IN (${placeholders})
-         ORDER BY match_id ASC, slot ASC`
+         ORDER BY match_id ASC, slot ASC`,
       )
       .bind(...matches.map((match) => match.matchId))
       .all<ParticipantRow>();
@@ -922,7 +919,7 @@ async function readMatchRecords(
     }
 
     return matches.map((match) =>
-      toMatchRecord(match, byMatch.get(match.matchId) ?? [])
+      toMatchRecord(match, byMatch.get(match.matchId) ?? []),
     );
   } catch (error) {
     throw normalizeRatingError(error);
@@ -966,19 +963,23 @@ function toRating(row: RatingRow): Rating {
   return Object.freeze({
     playerId: row.playerId,
     poolId: row.poolId,
-    value: row.value
+    value: row.value,
   });
 }
 
 function toMatchRecord(
   row: MatchRow,
-  participantRows: readonly ParticipantRow[]
+  participantRows: readonly ParticipantRow[],
 ): RatingMatchRecord {
   const participants = participantRows
     .slice()
     .sort((left, right) => left.slot.localeCompare(right.slot));
 
-  if (participants.length !== 2 || participants[0]?.slot !== "A" || participants[1]?.slot !== "B") {
+  if (
+    participants.length !== 2 ||
+    participants[0]?.slot !== "A" ||
+    participants[1]?.slot !== "B"
+  ) {
     throw new FlareLobbyError("CONNECTION_FAILED");
   }
 
@@ -990,15 +991,15 @@ function toMatchRecord(
       gameId: row.gameId,
       seasonId: row.seasonId,
       mode: row.mode,
-      region: row.region
+      region: row.region,
     }),
     result: row.result,
     participants: Object.freeze([
       toParticipantRecord(participants[0]),
-      toParticipantRecord(participants[1])
+      toParticipantRecord(participants[1]),
     ]) as readonly [RatingMatchParticipant, RatingMatchParticipant],
     createdAt: new Date(row.createdAt).toISOString(),
-    appliedAt: new Date(row.appliedAt).toISOString()
+    appliedAt: new Date(row.appliedAt).toISOString(),
   });
 }
 
@@ -1011,7 +1012,7 @@ function toParticipantRecord(row: ParticipantRow): RatingMatchParticipant {
     delta: row.delta,
     ratingAfter: row.ratingAfter,
     versionBefore: row.versionBefore,
-    versionAfter: row.versionAfter
+    versionAfter: row.versionAfter,
   });
 }
 
@@ -1032,7 +1033,7 @@ function toSeasonRow(row: Record<string, unknown> | null): SeasonRow | null {
     seasonId: row["seasonId"],
     poolId: row["poolId"],
     initialRating: row["initialRating"],
-    kFactor: row["kFactor"]
+    kFactor: row["kFactor"],
   };
 }
 
@@ -1059,7 +1060,7 @@ function toRatingRow(row: Record<string, unknown> | null): RatingRow | null {
     mode: row["mode"],
     region: row["region"],
     value: row["value"],
-    version: row["version"]
+    version: row["version"],
   };
 }
 
@@ -1106,7 +1107,7 @@ function toMatchRow(row: Record<string, unknown> | null): MatchRow | null {
     ratingAAfter: row["ratingAAfter"],
     ratingBAfter: row["ratingBAfter"],
     createdAt: row["createdAt"],
-    appliedAt: row["appliedAt"]
+    appliedAt: row["appliedAt"],
   };
 }
 
@@ -1116,17 +1117,17 @@ interface NormalizedRatingConfiguration {
 }
 
 function normalizeRatingConfiguration(
-  configuration: RatingConfiguration
+  configuration: RatingConfiguration,
 ): NormalizedRatingConfiguration {
   const engine = elo(configuration);
   return Object.freeze({
     initialRating: engine.initialRating,
-    kFactor: engine.kFactor
+    kFactor: engine.kFactor,
   });
 }
 
 function normalizeMatchResultInput(
-  input: MatchResultRegistrationInput
+  input: MatchResultRegistrationInput,
 ): MatchResultRegistrationInput {
   if (!isRecord(input)) {
     throw new FlareLobbyError("INVALID_PAYLOAD");
@@ -1141,7 +1142,13 @@ function normalizeMatchResultInput(
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }
 
-  return Object.freeze({ resultId, matchId, playerAId, playerBId, result: input.result });
+  return Object.freeze({
+    resultId,
+    matchId,
+    playerAId,
+    playerBId,
+    result: input.result,
+  });
 }
 
 function normalizePool(pool: MatchmakingPool): MatchmakingPool {
@@ -1159,7 +1166,7 @@ function normalizePool(pool: MatchmakingPool): MatchmakingPool {
     gameId: pool.gameId,
     seasonId: pool.seasonId,
     mode: pool.mode,
-    region: pool.region
+    region: pool.region,
   });
 }
 
@@ -1172,7 +1179,11 @@ function normalizeIdentifier(value: unknown, _fieldName: string): string {
 }
 
 function normalizeRetryCount(value: unknown): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > 8) {
+  if (
+    !Number.isSafeInteger(value) ||
+    (value as number) < 0 ||
+    (value as number) > 8
+  ) {
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }
 
@@ -1181,7 +1192,11 @@ function normalizeRetryCount(value: unknown): number {
 
 function normalizeHistoryLimit(value: unknown): number {
   const limit = value ?? DEFAULT_MATCH_HISTORY_PAGE_SIZE;
-  if (!Number.isSafeInteger(limit) || (limit as number) < 1 || (limit as number) > MAX_MATCH_HISTORY_PAGE_SIZE) {
+  if (
+    !Number.isSafeInteger(limit) ||
+    (limit as number) < 1 ||
+    (limit as number) > MAX_MATCH_HISTORY_PAGE_SIZE
+  ) {
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }
 
@@ -1209,7 +1224,7 @@ function parseHistoryCursor(value: unknown): HistoryCursor {
 
     return Object.freeze({
       appliedAt: parsed["appliedAt"],
-      matchId: parsed["matchId"]
+      matchId: parsed["matchId"],
     });
   } catch {
     throw new FlareLobbyError("INVALID_PAYLOAD");
@@ -1217,7 +1232,7 @@ function parseHistoryCursor(value: unknown): HistoryCursor {
 }
 
 function firstResultRow(
-  result: D1Result<unknown> | undefined
+  result: D1Result<unknown> | undefined,
 ): Record<string, unknown> | null {
   const row = result?.results[0];
   return isRecord(row) ? row : null;

@@ -1,14 +1,10 @@
-import {
-  FLARE_LOBBY_ERROR_CODES,
-  FlareLobbyError
-} from "@flarelobby/core";
+import { FLARE_LOBBY_ERROR_CODES, FlareLobbyError } from "@flarelobby/core";
 import type { FlareLobbyErrorCode } from "@flarelobby/core";
 
 /** Gateway から Durable Object へ相関情報を渡す内部ヘッダーです。 */
 export const FLARE_LOBBY_CORRELATION_ID_HEADER =
   "x-flarelobby-correlation-id" as const;
-export const FLARE_LOBBY_REQUEST_ID_HEADER =
-  "x-flarelobby-request-id" as const;
+export const FLARE_LOBBY_REQUEST_ID_HEADER = "x-flarelobby-request-id" as const;
 export const FLARE_LOBBY_OPERATION_HEADER =
   "x-flarelobby-observability-operation" as const;
 const FLARE_LOBBY_LOG_SAMPLED_HEADER =
@@ -34,8 +30,7 @@ export interface FlareLobbyObservabilityContext {
 }
 
 /** 相関情報を作成するときの上書き値です。 */
-export interface FlareLobbyObservabilityContextOptions
-  extends FlareLobbyObservabilityConfiguration {
+export interface FlareLobbyObservabilityContextOptions extends FlareLobbyObservabilityConfiguration {
   readonly correlationId?: string;
   readonly requestId?: string;
   readonly sampled?: boolean;
@@ -55,10 +50,7 @@ export type FlareLobbyQualityMetricName =
   | "match_outcome";
 
 /** 構造化ログへ記録できる安全な属性値です。 */
-export type FlareLobbyObservabilityAttributeValue =
-  | string
-  | number
-  | boolean;
+export type FlareLobbyObservabilityAttributeValue = string | number | boolean;
 
 /**
  * 構造化ログの記録です。
@@ -128,7 +120,7 @@ const SAFE_ATTRIBUTE_KEYS = new Set([
   "cancelled",
   "matched",
   "attempt",
-  "sampleRate"
+  "sampleRate",
 ]);
 
 /**
@@ -137,51 +129,50 @@ const SAFE_ATTRIBUTE_KEYS = new Set([
  */
 export function createObservabilityContext(
   request?: Request,
-  options: FlareLobbyObservabilityContextOptions = {}
+  options: FlareLobbyObservabilityContextOptions = {},
 ): FlareLobbyObservabilityContext {
   const correlationId = normalizeContextId(
     options.correlationId ??
       request?.headers.get(FLARE_LOBBY_CORRELATION_ID_HEADER) ??
-      crypto.randomUUID()
+      crypto.randomUUID(),
   );
   const requestId = normalizeContextId(
     options.requestId ??
       request?.headers.get(FLARE_LOBBY_REQUEST_ID_HEADER) ??
       request?.headers.get("Idempotency-Key") ??
-      correlationId
+      correlationId,
   );
   const logSampleRate = normalizeSampleRate(options.logSampleRate ?? 1);
   const analyticsSampleRate = normalizeSampleRate(
-    options.analyticsSampleRate ?? 1
+    options.analyticsSampleRate ?? 1,
   );
 
   return Object.freeze({
     correlationId,
     requestId,
     sampled:
-      options.sampled ??
-      (logSampleRate >= 1 || Math.random() < logSampleRate),
+      options.sampled ?? (logSampleRate >= 1 || Math.random() < logSampleRate),
     analyticsSampled:
       options.analyticsSampled ??
-      (analyticsSampleRate >= 1 || Math.random() < analyticsSampleRate)
+      (analyticsSampleRate >= 1 || Math.random() < analyticsSampleRate),
   });
 }
 
 /** RPC または内部処理用に要求識別子だけを差し替えます。 */
 export function withObservabilityRequestId(
   context: FlareLobbyObservabilityContext,
-  requestId: string
+  requestId: string,
 ): FlareLobbyObservabilityContext {
   return Object.freeze({
     ...context,
-    requestId: normalizeContextId(requestId)
+    requestId: normalizeContextId(requestId),
   });
 }
 
 /** 相関情報を内部ヘッダーへ設定した Request を返します。 */
 export function attachObservabilityHeaders(
   request: Request,
-  context: FlareLobbyObservabilityContext
+  context: FlareLobbyObservabilityContext,
 ): Request {
   const headers = new Headers(request.headers);
   headers.set(FLARE_LOBBY_CORRELATION_ID_HEADER, context.correlationId);
@@ -189,23 +180,23 @@ export function attachObservabilityHeaders(
   headers.set(FLARE_LOBBY_LOG_SAMPLED_HEADER, context.sampled ? "1" : "0");
   headers.set(
     FLARE_LOBBY_ANALYTICS_SAMPLED_HEADER,
-    context.analyticsSampled ? "1" : "0"
+    context.analyticsSampled ? "1" : "0",
   );
   return new Request(request, { headers });
 }
 
 /** 内部ヘッダーから相関情報を復元します。未設定なら新規に作成します。 */
 export function readObservabilityContext(
-  request: Request
+  request: Request,
 ): FlareLobbyObservabilityContext {
   const sampled = readBooleanHeader(request, FLARE_LOBBY_LOG_SAMPLED_HEADER);
   const analyticsSampled = readBooleanHeader(
     request,
-    FLARE_LOBBY_ANALYTICS_SAMPLED_HEADER
+    FLARE_LOBBY_ANALYTICS_SAMPLED_HEADER,
   );
   return createObservabilityContext(request, {
     ...(sampled === undefined ? {} : { sampled }),
-    ...(analyticsSampled === undefined ? {} : { analyticsSampled })
+    ...(analyticsSampled === undefined ? {} : { analyticsSampled }),
   });
 }
 
@@ -213,19 +204,18 @@ export function readObservabilityContext(
 export function createObservabilitySink(
   analytics: AnalyticsEngineDataset | undefined,
   configuration: FlareLobbyObservabilityConfiguration = {},
-  logger: FlareLobbyStructuredLogger = console
+  logger: FlareLobbyStructuredLogger = console,
 ): FlareLobbyObservabilitySink {
   const logSampleRate = normalizeSampleRate(configuration.logSampleRate ?? 1);
   const analyticsSampleRate = normalizeSampleRate(
-    configuration.analyticsSampleRate ?? 1
+    configuration.analyticsSampleRate ?? 1,
   );
 
   return {
     log(input): void {
       if (
         input.result === "success" &&
-        (logSampleRate === 0 ||
-          (!input.context.sampled && logSampleRate < 1))
+        (logSampleRate === 0 || (!input.context.sampled && logSampleRate < 1))
       ) {
         return;
       }
@@ -245,7 +235,7 @@ export function createObservabilitySink(
           ? {}
           : { errorCode: normalizeErrorCode(input.errorCode) }),
         ...(input.stage === undefined ? {} : { stage: input.stage }),
-        ...safeAttributes(input.attributes)
+        ...safeAttributes(input.attributes),
       };
 
       safeInvoke(() => logger.log(JSON.stringify(record)));
@@ -270,7 +260,7 @@ export function createObservabilitySink(
             "flarelobby.v1",
             input.name,
             input.operation ?? "",
-            input.result ?? ""
+            input.result ?? "",
           ],
           doubles: [input.value],
           blobs: [
@@ -278,12 +268,12 @@ export function createObservabilitySink(
               schemaVersion: FLARE_LOBBY_OBSERVABILITY_SCHEMA_VERSION,
               correlationId: input.context.correlationId,
               requestId: input.context.requestId,
-              ...attributes
-            })
-          ]
+              ...attributes,
+            }),
+          ],
         });
       });
-    }
+    },
   };
 }
 
@@ -298,7 +288,7 @@ export async function observeOperation<T>(
     readonly attributes?: Readonly<
       Record<string, FlareLobbyObservabilityAttributeValue>
     >;
-  } = {}
+  } = {},
 ): Promise<T> {
   const startedAt = Date.now();
 
@@ -312,7 +302,7 @@ export async function observeOperation<T>(
       ...(options.stage === undefined ? {} : { stage: options.stage }),
       ...(options.attributes === undefined
         ? {}
-        : { attributes: options.attributes })
+        : { attributes: options.attributes }),
     });
     return result;
   } catch (error) {
@@ -325,7 +315,7 @@ export async function observeOperation<T>(
       ...(options.stage === undefined ? {} : { stage: options.stage }),
       ...(options.attributes === undefined
         ? {}
-        : { attributes: options.attributes })
+        : { attributes: options.attributes }),
     });
     throw error;
   }
@@ -336,7 +326,7 @@ export async function observeHttpOperation(
   sink: FlareLobbyObservabilitySink,
   context: FlareLobbyObservabilityContext,
   operation: string,
-  action: () => Promise<Response>
+  action: () => Promise<Response>,
 ): Promise<Response> {
   const startedAt = Date.now();
 
@@ -352,7 +342,7 @@ export async function observeHttpOperation(
       startedAt,
       result: successful ? "success" : "failure",
       ...(errorCode === undefined ? {} : { errorCode }),
-      attributes: { httpStatus: response.status }
+      attributes: { httpStatus: response.status },
     });
     return response;
   } catch (error) {
@@ -361,7 +351,7 @@ export async function observeHttpOperation(
       operation,
       startedAt,
       result: "failure",
-      errorCode: getObservabilityErrorCode(error)
+      errorCode: getObservabilityErrorCode(error),
     });
     throw error;
   }
@@ -370,7 +360,7 @@ export async function observeHttpOperation(
 /** 品質メトリクスを安全に Analytics Engine へ送ります。 */
 export function recordQualityMetric(
   sink: FlareLobbyObservabilitySink,
-  metric: FlareLobbyQualityMetric
+  metric: FlareLobbyQualityMetric,
 ): void {
   safeInvoke(() => sink.metric(metric));
 }
@@ -439,7 +429,7 @@ export function getObservabilityErrorCode(error: unknown): string {
 
 function safeLog(
   sink: FlareLobbyObservabilitySink,
-  input: Parameters<FlareLobbyObservabilitySink["log"]>[0]
+  input: Parameters<FlareLobbyObservabilitySink["log"]>[0],
 ): void {
   safeInvoke(() => sink.log(input));
 }
@@ -447,7 +437,7 @@ function safeLog(
 function safeAttributes(
   attributes:
     | Readonly<Record<string, FlareLobbyObservabilityAttributeValue>>
-    | undefined
+    | undefined,
 ):
   | {
       readonly attributes: Readonly<
@@ -459,10 +449,7 @@ function safeAttributes(
     return {};
   }
 
-  const result: Record<
-    string,
-    FlareLobbyObservabilityAttributeValue
-  > = {};
+  const result: Record<string, FlareLobbyObservabilityAttributeValue> = {};
 
   for (const [key, value] of Object.entries(attributes)) {
     if (
@@ -492,13 +479,18 @@ function normalizeContextId(value: string): string {
 
 function normalizeSampleRate(value: number): number {
   if (!Number.isFinite(value) || value < 0 || value > 1) {
-    throw new RangeError("観測サンプリング率は 0 以上 1 以下で指定してください。");
+    throw new RangeError(
+      "観測サンプリング率は 0 以上 1 以下で指定してください。",
+    );
   }
 
   return value;
 }
 
-function readBooleanHeader(request: Request, name: string): boolean | undefined {
+function readBooleanHeader(
+  request: Request,
+  name: string,
+): boolean | undefined {
   const value = request.headers.get(name);
   if (value === null) {
     return undefined;

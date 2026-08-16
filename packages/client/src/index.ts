@@ -1,6 +1,4 @@
-export {
-  createFlareLobbyClient
-} from "./client.js";
+export { createFlareLobbyClient } from "./client.js";
 export type {
   CustomRoomClientApi,
   CustomRoomCreationOptions,
@@ -27,7 +25,7 @@ export type {
   RoomSnapshotListener,
   RoomSubscriptionApi,
   RoomStateOperationOptions,
-  SpectatorRoom
+  SpectatorRoom,
 } from "./custom-room.js";
 export type {
   ClientCommandOptions,
@@ -39,7 +37,7 @@ export type {
   FlareLobbyClientOptions,
   FlareLobbyWebSocketConnection,
   WebSocketConstructor,
-  WebSocketFactory
+  WebSocketFactory,
 } from "./client.js";
 export type {
   MatchmakingClientApi,
@@ -54,5 +52,5 @@ export type {
   MatchmakingTicketConnectionStatusListener,
   MatchmakingTicketRequestOptions,
   MatchmakingTicketSnapshot,
-  MatchmakingWaitForMatchOptions
+  MatchmakingWaitForMatchOptions,
 } from "./matchmaking.js";
