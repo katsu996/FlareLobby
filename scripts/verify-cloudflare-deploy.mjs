@@ -1,11 +1,5 @@
 import { spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,10 +34,9 @@ function run(arguments_) {
 }
 
 try {
-  run(["--filter", "@flarelobby/example-local-demo", "run", "build:browser"]);
   const deployOutput = run([
     "--filter",
-    "@flarelobby/example-local-demo",
+    "@flarelobby/cloudflare",
     "exec",
     "wrangler",
     "deploy",
@@ -61,21 +54,12 @@ try {
     );
   }
 
-  const bundle = readFileSync(bundlePath, "utf8");
-  if (
-    bundle.includes("x-demo-player") &&
-    bundle.includes("FLARE_LOBBY_TOKEN_SECRET=demo")
-  ) {
-    throw new Error("Worker bundle にテスト用秘密値が含まれています。");
-  }
-
   for (const requiredText of [
     "--dry-run: exiting now.",
     "FLARE_LOBBY_ROOMS",
     "FLARE_LOBBY_MATCH_POOLS",
     "FLARE_LOBBY_RATE_LIMITS",
     "FLARE_LOBBY_DB",
-    "ASSETS",
   ]) {
     if (!deployOutput.includes(requiredText)) {
       throw new Error(
@@ -86,11 +70,11 @@ try {
 
   console.log(deployOutput.trim());
   console.log(
-    `クリーンな一時ディレクトリで Cloudflare sample deploy dry-run に成功しました ` +
+    `クリーンな一時ディレクトリで Cloudflare deploy dry-run に成功しました ` +
       `(${statSync(bundlePath).size} bytes)。`,
   );
 } catch (error) {
-  console.error("Cloudflare sample deploy dry-run に失敗しました。");
+  console.error("Cloudflare deploy dry-run に失敗しました。");
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 } finally {

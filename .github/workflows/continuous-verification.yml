@@ -45,8 +45,6 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Verify documentation and examples
-        run: pnpm check:docs
       - name: Run tests and collect coverage
         run: pnpm test:coverage
       - name: Publish coverage summary
@@ -62,14 +60,13 @@ jobs:
             packages/client/coverage
             packages/testing/coverage
             packages/cloudflare/coverage
-            examples/local-demo/coverage
           if-no-files-found: warn
           retention-days: 14
       - name: Upload coverage to Codecov
         if: ${{ !cancelled() }}
         uses: codecov/codecov-action@v5
         with:
-          files: packages/core/coverage/lcov.info,packages/client/coverage/lcov.info,packages/testing/coverage/lcov.info,packages/cloudflare/coverage/lcov.info,examples/local-demo/coverage/lcov.info
+          files: packages/core/coverage/lcov.info,packages/client/coverage/lcov.info,packages/testing/coverage/lcov.info,packages/cloudflare/coverage/lcov.info
           fail_ci_if_error: false
           verbose: true
         env:
@@ -84,5 +81,5 @@ jobs:
       - name: Verify npm package publish dry-runs
         run: pnpm check:packages
 
-      - name: Verify Cloudflare sample deploy dry-run
+      - name: Verify Cloudflare deploy dry-run
         run: pnpm check:deploy

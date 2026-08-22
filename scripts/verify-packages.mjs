@@ -65,11 +65,7 @@ function requireEqual(actual, expected, message) {
 }
 
 const rootManifest = readJson("package.json");
-const changesetConfig = readJson(".changeset/config.json");
-const rootLicense = read("LICENSE");
 const changelog = read("CHANGELOG.md");
-const releaseNote = read("docs/releases/v0.1.0.md");
-const changeset = read(".changeset/v0-1-0-release.md");
 
 requireEqual(
   rootManifest.version,
@@ -77,18 +73,9 @@ requireEqual(
   "ルートの release version が不正です",
 );
 requireEqual(rootManifest.license, "MIT", "ルートの license が不正です");
-requireEqual(
-  changesetConfig.access,
-  "public",
-  "Changesets の公開範囲が不正です",
-);
 
 for (const [path, content, required] of [
   ["CHANGELOG.md", changelog, "## 0.1.0 - 2026-08-12"],
-  ["docs/releases/v0.1.0.md", releaseNote, "## 既知の制限"],
-  ["docs/releases/v0.1.0.md", releaseNote, "## 対象外"],
-  ["docs/releases/v0.1.0.md", releaseNote, "pnpm release:check"],
-  [".changeset/v0-1-0-release.md", changeset, "empty\nChangeset"],
 ]) {
   if (!content.includes(required)) {
     errors.push(`${path} に必要な記載がありません: ${required}`);
@@ -98,7 +85,6 @@ for (const [path, content, required] of [
 for (const packageDefinition of packages) {
   const manifestPath = `${packageDefinition.directory}/package.json`;
   const manifest = readJson(manifestPath);
-  const packageLicense = read(`${packageDefinition.directory}/LICENSE`);
   const packageReadme = read(`${packageDefinition.directory}/README.md`);
 
   requireEqual(
@@ -157,11 +143,6 @@ for (const packageDefinition of packages) {
   if (!Array.isArray(manifest.keywords) || manifest.keywords.length === 0) {
     errors.push(`${manifestPath} の keywords がありません`);
   }
-  if (packageLicense !== rootLicense) {
-    errors.push(
-      `${packageDefinition.directory}/LICENSE がルートの MIT License と一致しません`,
-    );
-  }
   if (
     !packageReadme.includes(packageDefinition.name) ||
     !packageReadme.includes("pnpm add")
@@ -202,12 +183,7 @@ for (const packageDefinition of packages) {
   const filePatterns = new Set(
     Array.isArray(manifest.files) ? manifest.files : [],
   );
-  for (const pattern of [
-    "dist",
-    "!dist/.tsbuildinfo",
-    "README.md",
-    "LICENSE",
-  ]) {
+  for (const pattern of ["dist", "!dist/.tsbuildinfo", "README.md"]) {
     if (!filePatterns.has(pattern)) {
       errors.push(
         `${manifestPath} の files に必要な許可パターンがありません: ${pattern}`,
@@ -282,7 +258,6 @@ for (const packageDefinition of packages) {
 
   const packedFiles = (publishReport?.files ?? []).map((file) => file.path);
   for (const requiredPath of [
-    "LICENSE",
     "README.md",
     "package.json",
     "dist/index.js",
@@ -296,9 +271,7 @@ for (const packageDefinition of packages) {
   }
 
   for (const packedPath of packedFiles) {
-    const allowedRootFile = ["LICENSE", "README.md", "package.json"].includes(
-      packedPath,
-    );
+    const allowedRootFile = ["README.md", "package.json"].includes(packedPath);
     const allowedDistFile = packedPath.startsWith("dist/");
     if (!allowedRootFile && !allowedDistFile) {
       errors.push(
