@@ -1,0 +1,23 @@
+{
+  "name": "@flarelobby/example-local-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:browser": "node scripts/build-browser.mjs",
+    "dev": "pnpm run build:browser && wrangler dev --config wrangler.jsonc",
+    "deploy": "pnpm run build:browser && wrangler deploy --config wrangler.jsonc",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p browser.tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit",
+    "test:unit": "vitest run --config vitest.config.ts test/rps-game.test.ts",
+    "test:integration": "vitest run --config vitest.config.ts test/worker.integration.test.ts"
+  },
+  "dependencies": {
+    "@flarelobby/client": "workspace:*",
+    "@flarelobby/cloudflare": "workspace:*",
+    "@flarelobby/core": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1",
+    "vitest": "4.1.10"
+  }
+}

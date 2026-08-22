@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "paths": {
+      "@flarelobby/core": ["../../packages/core/src/index.ts"],
+      "@flarelobby/cloudflare": ["../../packages/cloudflare/src/index.ts"]
+    }
+  },
+  "include": [
+    "src/index.ts",
+    "src/rps.ts",
+    "src/rps-game.ts",
+    "../../packages/cloudflare/worker-configuration.d.ts"
+  ]
+}
