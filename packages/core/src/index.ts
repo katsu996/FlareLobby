@@ -239,6 +239,10 @@ export interface MatchmakingPool {
   readonly seasonId: SeasonId;
   readonly mode: MatchMode;
   readonly region: Region;
+  /** 1 チケットに含められる最大人数です。省略時は 1 で、v0.1.0 と同じ 1 対 1 前提です。 */
+  readonly maxPartySize?: number;
+  /** 1 チームの人数です。この人数のチケット同士だけが成立します。省略時は 1 です。 */
+  readonly teamSize?: number;
 }
 
 /** プールとプレイヤーに対応する現在のレーティングです。 */
@@ -280,6 +284,11 @@ export interface MatchmakingTicketBase<
   TApp extends AnyFlareLobbyApp = FlareLobbyApp,
 > extends AppBound<TApp> {
   readonly id: MatchmakingTicketId;
+  /**
+   * パーティー構成員のプレイヤー ID 一覧です。ソート済みで重複を許しません。
+   * 1 人チケットでは省略し、`player` を唯一の構成員として扱います。
+   */
+  readonly players?: readonly PlayerId[];
   readonly pool: MatchmakingPool;
   readonly player: Player;
   readonly rating: Rating;

@@ -304,4 +304,78 @@ describe("@flarelobby/testing の決定論的テスト補助", () => {
     expect(expired.tickets[0]?.status).toBe("expired");
     expect(expired.statistics.expiredTicketCount).toBe(1);
   });
+
+  it("partySize でパーティー単位のチケットを作り、平均レートで成立させる", () => {
+    const partyPool: MatchmakingPool = {
+      ...pool,
+      teamSize: 2,
+      maxPartySize: 2,
+    };
+    const config: MatchmakingSimulationConfig = {
+      seed: "party-queue",
+      players: [
+        player("a", 1_000),
+        player("b", 1_040),
+        player("c", 1_060),
+        player("d", 1_100),
+      ],
+      partySize: 2,
+      startAt: NOW,
+      durationMs: 2_000,
+      tickMs: 1_000,
+      pool: partyPool,
+      searchPolicy: {
+        stages: [{ afterMs: 0, maxRatingDifference: 100 }],
+        maxRatingDifference: 100,
+      },
+    };
+
+    const result = simulateMatchmaking(config);
+
+    // プレイヤーは ID 順に 2 人ずつグループ化され、パーティーごとに
+    // 1 枚のチケットへまとまる。
+    expect(result.tickets.map((ticket) => ticket.playerIds)).toEqual([
+      ["a", "b"],
+      ["c", "d"],
+    ]);
+    // パーティー平均 (1,020 と 1,080) の差 60 で成立する。
+    expect(result.statistics).toMatchObject({
+      generatedPlayerCount: 4,
+      joinedTicketCount: 2,
+      matchedTicketCount: 2,
+      matchCount: 1,
+    });
+    expect(result.matches[0]?.quality).toMatchObject({
+      ratingDifference: 60,
+    });
+    expect(result.matches[0]?.playerIds).toEqual(["a", "b", "c", "d"]);
+    expect(
+      result.events.find((event) => event.type === "matched")?.playerIds,
+    ).toEqual(["a", "b", "c", "d"]);
+
+    // partySize もリプレイ設定に含まれ、同じ結果を再現できる。
+    expect(result.config.partySize).toBe(2);
+    expect(replaySimulation(result.replay)).toEqual(result);
+  });
+
+  it("teamSize 既定の Pool ではパーティーチケットが成立しない", () => {
+    const result = simulateMatchmaking({
+      seed: "party-default-team-size",
+      players: [
+        player("a", 1_000),
+        player("b", 1_040),
+        player("c", 1_060),
+        player("d", 1_100),
+      ],
+      partySize: 2,
+      startAt: NOW,
+      durationMs: 2_000,
+      tickMs: 1_000,
+      pool: { ...pool, maxPartySize: 2 },
+    });
+
+    expect(result.statistics.joinedTicketCount).toBe(2);
+    expect(result.statistics.matchCount).toBe(0);
+    expect(result.statistics.unmatchedRate).toBe(1);
+  });
 });
