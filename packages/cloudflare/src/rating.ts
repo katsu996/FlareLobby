@@ -204,15 +204,26 @@ interface HistoryCursor {
   readonly matchId: string;
 }
 
-/** レーティング用の D1 テーブルを冪等に作成します。 */
+const schemaInitialization = new WeakMap<D1Database, Promise<unknown>>();
+
+/** レーティング用の D1 テーブルを Worker 実行ごとに一度だけ作成します。 */
 export async function ensureRatingSchema(database: D1Database): Promise<void> {
-  try {
-    await database.batch(
-      RATING_SCHEMA_STATEMENTS.map((statement) => database.prepare(statement)),
-    );
-  } catch {
-    throw new FlareLobbyError("CONNECTION_FAILED");
+  const cached = schemaInitialization.get(database);
+  if (cached !== undefined) {
+    await cached;
+    return;
   }
+
+  const initialization = database
+    .batch(
+      RATING_SCHEMA_STATEMENTS.map((statement) => database.prepare(statement)),
+    )
+    .catch(() => {
+      schemaInitialization.delete(database);
+      throw new FlareLobbyError("CONNECTION_FAILED");
+    });
+  schemaInitialization.set(database, initialization);
+  await initialization;
 }
 
 /** 初回参照時に設定済み初期値を保存し、現在のレーティングを返します。 */
@@ -317,13 +328,13 @@ export async function registerMatchResult(
     normalizedConfiguration,
   );
 
-  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
-    const existing = await findExistingMatch(
-      database,
-      normalizedInput.matchId,
-      normalizedInput.resultId,
-    );
+  let existing = await findExistingMatch(
+    database,
+    normalizedInput.matchId,
+    normalizedInput.resultId,
+  );
 
+  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
     if (existing !== null) {
       return resolveExistingMatch(
         existing,
@@ -530,6 +541,7 @@ export async function registerMatchResult(
         normalizedInput.matchId,
         normalizedInput.resultId,
       );
+      existing = raced;
 
       if (raced !== null) {
         return resolveExistingMatch(

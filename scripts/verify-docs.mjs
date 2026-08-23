@@ -181,12 +181,16 @@ const markdownFiles = [
 
 for (const markdownFile of markdownFiles) {
   const content = read(markdownFile);
-  for (const match of content.matchAll(/\]\((\.[^)#]+)(?:#[^)]+)?\)/gu)) {
+  for (const match of content.matchAll(/\]\(([^)#]+)(?:#[^)]+)?\)/gu)) {
     const target = match[1];
     if (
-      target !== undefined &&
-      !existsSync(resolve(root, dirname(markdownFile), target))
+      target === undefined ||
+      target.startsWith("/") ||
+      /^[a-z][a-z\d+.-]*:/i.test(target)
     ) {
+      continue;
+    }
+    if (!existsSync(resolve(root, dirname(markdownFile), target))) {
       errors.push(`${markdownFile} のリンク先がありません: ${target}`);
     }
   }

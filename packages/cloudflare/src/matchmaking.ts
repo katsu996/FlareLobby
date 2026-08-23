@@ -146,11 +146,14 @@ export async function handleMatchmakingRequest<
       return createErrorResponse(new FlareLobbyError("CONFLICT"));
     }
 
-    const pool = await initializeMatchPool(
-      env,
-      poolConfiguration,
-      authenticatedRequest.observability,
-    );
+    const pool: MatchmakingPool =
+      route.action === "create" || route.action === "result"
+        ? await initializeMatchPool(
+            env,
+            poolConfiguration,
+            authenticatedRequest.observability,
+          )
+        : poolConfiguration;
     const poolStub = env.FLARE_LOBBY_MATCH_POOLS.getByName(
       createMatchmakingPoolKey(pool),
     ) as unknown as MatchPoolGatewayStub;
@@ -501,7 +504,10 @@ async function registerGatewayMatchResult<TApp extends AnyFlareLobbyApp>(
   }
 
   const registration = await observeOperation(
-    createObservabilitySink(env.FLARE_LOBBY_ANALYTICS),
+    createObservabilitySink(
+      env.FLARE_LOBBY_ANALYTICS,
+      configuration.observability,
+    ),
     observability,
     "rating.result",
     () =>

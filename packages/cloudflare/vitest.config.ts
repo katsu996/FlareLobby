@@ -6,10 +6,10 @@ import {
 } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
 
-const testTokenSecret = "flarelobby-test-token-secret";
+const testTokenSecret = "testTokenSecret";
 
 // Wrangler の required secrets 検証と Miniflare の両方へ、テスト専用値を渡す。
-process.env["FLARE_LOBBY_TOKEN_SECRET"] ??= testTokenSecret;
+process.env["FLARE_LOBBY_TOKEN_SECRET"] = testTokenSecret;
 
 export default defineConfig({
   plugins: [

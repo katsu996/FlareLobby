@@ -50,6 +50,7 @@ import {
 import {
   authenticateGatewayRequest,
   createErrorResponse,
+  createRateLimitError,
   readWebSocketJoinToken,
   verifyWebSocketRoomToken,
 } from "./security.js";
@@ -144,6 +145,7 @@ export const FLARE_LOBBY_CONFIGURATION_ERROR_CODES = [
   "D1_BINDING_MISSING",
   "ROOM_DURABLE_OBJECT_BINDING_MISSING",
   "MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING",
+  "TOKEN_SECRET_MISSING",
   "INVALID_CUSTOM_ROOM_CONFIGURATION",
   "INVALID_MATCHMAKING_POOL",
   "INVALID_INPUT_LIMITS",
@@ -164,6 +166,8 @@ const defaultConfigurationErrorMessages: Readonly<
     "FlareLobby の Room Durable Object Binding（FLARE_LOBBY_ROOMS）が設定されていません。",
   MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING:
     "FlareLobby の Match Pool Durable Object Binding（FLARE_LOBBY_MATCH_POOLS）が設定されていません。",
+  TOKEN_SECRET_MISSING:
+    "FlareLobby の Secret（FLARE_LOBBY_TOKEN_SECRET）が設定されていません。",
   INVALID_CUSTOM_ROOM_CONFIGURATION: "カスタムルーム設定が正しくありません。",
   INVALID_MATCHMAKING_POOL: "マッチングプール設定が正しくありません。",
   INVALID_INPUT_LIMITS: "入力制限の設定が正しくありません。",
@@ -389,13 +393,21 @@ export function createGatewayWorker<
   };
 }
 
+/** カスタムルームの join/leave 経路に一致する正規表現です。 */
+const CUSTOM_ROOM_OPERATION_PATH_PATTERNS: Readonly<
+  Record<"join" | "leave", RegExp>
+> = {
+  join: /^\/v1\/custom-rooms\/[^/]+\/join$/u,
+  leave: /^\/v1\/custom-rooms\/[^/]+\/leave$/u,
+};
+
 function isCustomRoomOperationPath(
   pathname: string,
   operation: "join" | "leave",
 ): boolean {
   return (
     pathname === `/v1/custom-rooms/${operation}` ||
-    new RegExp(`^/v1/custom-rooms/[^/]+/${operation}$`, "u").test(pathname)
+    CUSTOM_ROOM_OPERATION_PATH_PATTERNS[operation].test(pathname)
   );
 }
 
@@ -500,9 +512,10 @@ export async function consumeRateLimit(
       ? { ok: true, value: undefined }
       : {
           ok: false,
-          error: new FlareLobbyError("CONFLICT", {
-            message: "要求が許可された頻度を超えています。",
-          }),
+          error: createRateLimitError(
+            result.retryAfterSeconds,
+            "要求が許可された頻度を超えています。",
+          ),
         };
   } catch {
     return {
@@ -793,6 +806,10 @@ function assertRequiredBindings(env: FlareLobbyBindings): void {
     throw new FlareLobbyConfigurationError(
       "MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING",
     );
+  }
+
+  if (env.FLARE_LOBBY_TOKEN_SECRET === undefined) {
+    throw new FlareLobbyConfigurationError("TOKEN_SECRET_MISSING");
   }
 }
 

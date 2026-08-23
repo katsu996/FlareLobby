@@ -433,11 +433,11 @@ describe("カスタムルーム作成 Gateway", () => {
       200, 200, 200,
     ]);
     expect(
-      new Set(duplicateResults.map((result) => result.participantId)),
-    ).toHaveLength(1);
+      new Set(duplicateResults.map((result) => result.participantId)).size,
+    ).toBe(1);
     expect(
-      new Set(duplicateResults.map((result) => result.joinToken)),
-    ).toHaveLength(1);
+      new Set(duplicateResults.map((result) => result.joinToken)).size,
+    ).toBe(1);
 
     await runInDurableObject(
       env.FLARE_LOBBY_ROOMS.getByName(created.roomId),

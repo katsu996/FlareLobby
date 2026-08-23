@@ -6,6 +6,7 @@ import type {
   JsonObject,
   JsonValue,
   MatchmakingPool,
+  MatchmakingSearchPolicy,
   MatchmakingTicket as CoreMatchmakingTicket,
   MatchmakingTicketStatus,
   Rating,
@@ -229,15 +230,23 @@ export function createMatchmakingApi<
 >(transport: MatchmakingTransport<TApp>): MatchmakingClientApi<TApp> {
   const tickets = new Set<MatchmakingTicketImpl<TApp>>();
 
+  const registerTicket = (ticket: MatchmakingTicketImpl<TApp>): void => {
+    tickets.add(ticket);
+    // 端末状態へ到達したチケットは Set から取り除き、参照を保持し続けません。
+    ticket.onTerminal = (): void => {
+      tickets.delete(ticket);
+    };
+  };
+
   return {
     joinMatchmaking: async (pool, options = {}) => {
       const ticket = await joinMatchmaking<TApp>(transport, pool, options);
-      tickets.add(ticket);
+      registerTicket(ticket);
       return ticket;
     },
     findMatch: async (pool, options = {}) => {
       const ticket = await joinMatchmaking<TApp>(transport, pool, options);
-      tickets.add(ticket);
+      registerTicket(ticket);
       return ticket.waitForMatch(
         options.signal === undefined
           ? {}
@@ -390,6 +399,8 @@ class MatchmakingTicketImpl<
   private cancelPromise: Promise<MatchmakingTicketSnapshot<TApp>> | undefined;
   private stopped = false;
   private terminalProgressStatus: MatchmakingTicketStatus | undefined;
+  /** 端末状態へ到達したことを API 層へ通知する内部フックです。 */
+  onTerminal?: () => void;
 
   public constructor(
     transport: MatchmakingTransport<TApp>,
@@ -784,6 +795,8 @@ class MatchmakingTicketImpl<
     } else {
       this.rejectWaitersForTerminal();
     }
+
+    this.onTerminal?.();
   }
 
   private async resolveWaiters(): Promise<void> {
@@ -921,6 +934,11 @@ class MatchmakingTicketImpl<
       return;
     }
 
+    this.scheduleReconnect();
+  }
+
+  /** 切断後の再接続を再試行回数の上限内で遅延実行します。 */
+  private scheduleReconnect(): void {
     if (this.reconnectTimer !== undefined) {
       return;
     }
@@ -956,10 +974,7 @@ class MatchmakingTicketImpl<
       }
 
       if (this.reconnectAttempt < this.reconnectOptions.maxAttempts) {
-        this.handleConnectionClosed(
-          this.connection as FlareLobbyWebSocketConnection<TApp>,
-          new FlareLobbyError("CONNECTION_FAILED"),
-        );
+        this.scheduleReconnect();
       } else {
         this.setConnectionStatus("disconnected");
       }
@@ -1227,9 +1242,21 @@ function getCurrentSearchWidth<TApp extends AnyFlareLobbyApp>(
     return 0;
   }
   return getMatchmakingSearchWidth(
-    undefined,
+    getPoolSearchPolicy(ticket.pool),
     Math.max(0, Date.now() - queuedAtMs),
   );
+}
+
+/**
+ * Pool が候補探索設定を含めて配信されるときはその設定を使います。
+ * 含まれない場合は既定の探索幅を使い、サーバーは最初の進捗イベントで
+ * `searchWidth` を通知するため、直後に補正されます。
+ */
+function getPoolSearchPolicy(
+  pool: MatchmakingPool,
+): MatchmakingSearchPolicy | undefined {
+  const policy = (pool as { readonly searchPolicy?: unknown }).searchPolicy;
+  return isRecord(policy) ? (policy as MatchmakingSearchPolicy) : undefined;
 }
 
 function normalizeReconnectOptions(

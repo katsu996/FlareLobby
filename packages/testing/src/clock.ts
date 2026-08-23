@@ -84,6 +84,12 @@ export function toEpochMilliseconds(value: number | Timestamp): number {
     );
   }
 
+  if (!value.endsWith("Z")) {
+    throw new RangeError(
+      "時刻の文字列は UTC を表す ISO 8601 形式（末尾が Z）で指定してください。",
+    );
+  }
+
   const parsed = Date.parse(value);
 
   if (!Number.isFinite(parsed) || !isValidDateMilliseconds(parsed)) {

@@ -75,6 +75,11 @@ interface NormalizedCustomRoomListQuery {
   readonly minAvailableSlots: number | undefined;
   readonly limit: number;
   readonly cursor: string | null;
+  readonly cursorPosition: {
+    readonly createdAt: number;
+    readonly roomId: string;
+  } | null;
+  readonly fingerprint: string;
 }
 
 interface CursorPayload {
@@ -106,15 +111,9 @@ export async function listCustomRooms<
       ...(query.minAvailableSlots === undefined
         ? {}
         : { minAvailableSlots: query.minAvailableSlots }),
-      ...(query.cursor === null
+      ...(query.cursorPosition === null
         ? {}
-        : {
-            cursor: await decodeCursor(
-              query.cursor,
-              env.FLARE_LOBBY_TOKEN_SECRET,
-              createQueryFingerprint(query),
-            ),
-          }),
+        : { cursor: query.cursorPosition }),
       limit: query.limit + 1,
     });
     const hasNextPage = rows.length > query.limit;
@@ -133,7 +132,7 @@ export async function listCustomRooms<
                   createdAt: last.createdAt,
                   roomId: last.roomId,
                 },
-                createQueryFingerprint(query),
+                query.fingerprint,
               )
             : null,
       },
@@ -305,21 +304,19 @@ async function normalizeCustomRoomListQuery(
     });
   }
 
-  if (query.cursor !== undefined) {
-    await decodeCursor(
-      query.cursor,
-      tokenSecret,
-      createQueryFingerprint({
-        mode,
-        region,
-        states,
-        minAvailableSlots:
-          availableSlots === undefined ? minAvailableSlots : availableSlots,
-        requireAvailable,
-        limit: limitValue,
-      }),
-    );
-  }
+  const fingerprint = createQueryFingerprint({
+    mode,
+    region,
+    states,
+    minAvailableSlots:
+      availableSlots === undefined ? minAvailableSlots : availableSlots,
+    requireAvailable,
+    limit: limitValue,
+  });
+  const cursorPosition =
+    query.cursor === undefined
+      ? null
+      : await decodeCursor(query.cursor, tokenSecret, fingerprint);
 
   return {
     mode,
@@ -330,6 +327,8 @@ async function normalizeCustomRoomListQuery(
       availableSlots === undefined ? minAvailableSlots : availableSlots,
     limit: limitValue,
     cursor: query.cursor ?? null,
+    cursorPosition,
+    fingerprint,
   };
 }
 
@@ -387,9 +386,7 @@ function normalizeStates(
     });
   }
 
-  return Object.freeze(
-    [...new Set(values)].sort((left, right) => left.localeCompare(right)),
-  );
+  return Object.freeze([...new Set(values)].sort());
 }
 
 function sameValues(

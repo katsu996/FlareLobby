@@ -62,10 +62,7 @@ try {
   }
 
   const bundle = readFileSync(bundlePath, "utf8");
-  if (
-    bundle.includes("x-demo-player") &&
-    bundle.includes("FLARE_LOBBY_TOKEN_SECRET=demo")
-  ) {
+  if (bundle.includes("FLARE_LOBBY_TOKEN_SECRET=demo")) {
     throw new Error("Worker bundle にテスト用秘密値が含まれています。");
   }
 

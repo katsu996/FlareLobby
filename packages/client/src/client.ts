@@ -45,6 +45,9 @@ const WEBSOCKET_CLOSED = 3;
 const DEFAULT_WEBSOCKET_PROTOCOL = "flarelobby.v1";
 const AUTHENTICATION_PROTOCOL_PREFIX = "flarelobby.auth.";
 
+/** リスナー未登録時に保持するイベント上限です。超過分は古いものから破棄します。 */
+const MAX_QUEUED_EVENTS = 100;
+
 /** 標準 fetch を差し替えるための関数契約です。 */
 export type FetchImplementation = (
   input: RequestInfo | URL,
@@ -778,6 +781,9 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
     if (message.kind === "event") {
       if (this.eventListeners.size === 0) {
         this.queuedEvents.push(message);
+        if (this.queuedEvents.length > MAX_QUEUED_EVENTS) {
+          this.queuedEvents.shift();
+        }
         return;
       }
 
@@ -955,8 +961,19 @@ function resolveWebSocketUrl(
   return url;
 }
 
+const COMPATIBLE_PROTOCOLS: Readonly<Record<string, "http:" | "https:">> = {
+  "http:": "http:",
+  "ws:": "http:",
+  "https:": "https:",
+  "wss:": "https:",
+};
+
 function isSameEndpoint(first: URL, second: URL): boolean {
+  // http と ws、https と wss は同じ通信経路として比較します。
+  const firstProtocol = COMPATIBLE_PROTOCOLS[first.protocol];
   return (
+    firstProtocol !== undefined &&
+    firstProtocol === COMPATIBLE_PROTOCOLS[second.protocol] &&
     first.hostname === second.hostname &&
     effectivePort(first) === effectivePort(second)
   );

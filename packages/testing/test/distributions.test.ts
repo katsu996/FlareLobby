@@ -8,8 +8,18 @@ import {
   sampleNumericDistribution,
   sampleTimestampDistribution,
 } from "../src/distributions.js";
+import type { RandomSource } from "../src/random.js";
 
-const random = { next: () => 0.5 };
+function stubRandomSource(next: () => number): RandomSource {
+  return {
+    algorithm: "stub",
+    next,
+    nextInt: (maxExclusive) => Math.floor(next() * maxExclusive),
+    chance: (probability) => next() < probability,
+  };
+}
+
+const random = stubRandomSource(() => 0.5);
 
 describe("シミュレーション分布", () => {
   it("既定のプレイヤー生成設定を正規化して決定論的なプレイヤーを作る", () => {
@@ -77,7 +87,7 @@ describe("シミュレーション分布", () => {
           from: "2026-01-01T00:00:00.000Z",
           to: "2026-01-01T00:00:00.002Z",
         },
-        { next: () => 0.999 },
+        stubRandomSource(() => 0.999),
       ),
     ).toBe(Date.parse("2026-01-01T00:00:00.002Z"));
     expect(() =>
@@ -145,12 +155,12 @@ describe("シミュレーション分布の追加境界", () => {
   it("正規分布のBox-Muller経路を最小値と最大値へクランプする", () => {
     const high = sampleNumericDistribution(
       { kind: "normal", mean: 0, standardDeviation: 10, min: -1, max: 1 },
-      {
-        next: (() => {
+      stubRandomSource(
+        (() => {
           const values = [Number.MIN_VALUE, 0];
           return () => values.shift() ?? 0;
         })(),
-      },
+      ),
     );
     expect(high).toBe(1);
   });

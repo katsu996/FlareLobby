@@ -186,6 +186,70 @@ describe("JSON 通信プロトコル v1", () => {
     expect(error.message).not.toContain("SyntaxError");
   });
 
+  it("隠し toJSON やアクセサプロパティを含む Payload を拒否する", () => {
+    const buildCommand = (payload: unknown) => ({
+      protocolVersion: PROTOCOL_VERSION,
+      kind: "command",
+      requestId: "request-1",
+      command: "room.set_ready",
+      payload,
+    });
+
+    // 通常のデータプロパティだけの入れ子は従来どおり検証を通過する。
+    expect(
+      validateProtocolMessage(
+        buildCommand({
+          ready: true,
+          meta: { players: [1, "a", null], flags: { ranked: false } },
+        }),
+      ).ok,
+    ).toBe(true);
+
+    // 列挙されない own toJSON は JSON.stringify の挙動を変えるため拒否する。
+    const hiddenToJson: Record<string, unknown> = { ready: true };
+    Object.defineProperty(hiddenToJson, "toJSON", {
+      value: () => ({}),
+      enumerable: false,
+      writable: true,
+      configurable: true,
+    });
+
+    expectProtocolError(
+      validateProtocolMessage(buildCommand(hiddenToJson)),
+      "INVALID_PAYLOAD",
+    );
+
+    // 列挙可能なゲッターもシリアライズ時に評価されるため拒否する。
+    const getterPayload: Record<string, unknown> = {};
+    Object.defineProperty(getterPayload, "ready", {
+      get() {
+        return true;
+      },
+      enumerable: true,
+      configurable: true,
+    });
+
+    expectProtocolError(
+      validateProtocolMessage(buildCommand(getterPayload)),
+      "INVALID_PAYLOAD",
+    );
+
+    // 列挙されないセッターのみのアクセサも拒否する。
+    const setterOnlyPayload: Record<string, unknown> = { ready: true };
+    Object.defineProperty(setterOnlyPayload, "hidden", {
+      set(value: unknown) {
+        void value;
+      },
+      enumerable: false,
+      configurable: true,
+    });
+
+    expectProtocolError(
+      validateProtocolMessage(buildCommand(setterOnlyPayload)),
+      "INVALID_PAYLOAD",
+    );
+  });
+
   it("未知のイベントを登録済みイベント一覧と照合して拒否する", () => {
     const encodedEvent = JSON.stringify({
       protocolVersion: PROTOCOL_VERSION,
