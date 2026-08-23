@@ -69,19 +69,46 @@ const INVITATION_INDEX_SCHEMA = `
   )
 `;
 
-/** 公開ルーム検索用の D1 派生テーブルを作成します。実行は冪等です。 */
-export async function ensureCustomRoomIndex(
+// Worker インスタンスごとに作成済みの初期化を記憶し、同一 D1 Binding への
+// 繰り返し呼び出しで DDL を再実行しないようにします。失敗時はキャッシュを
+// 破棄して次回呼び出しで再試行できるようにします。
+const initializedCustomRoomIndexes = new WeakMap<D1Database, Promise<void>>();
+const initializedCustomRoomInvitationIndexes = new WeakMap<
+  D1Database,
+  Promise<void>
+>();
+
+function ensureOnce(
+  cache: WeakMap<D1Database, Promise<void>>,
   database: D1Database,
+  initialize: () => Promise<void>,
 ): Promise<void> {
-  try {
-    await database.batch([
-      database.prepare(CUSTOM_ROOM_INDEX_TABLE_SCHEMA),
-      database.prepare(CUSTOM_ROOM_INDEX_FILTER_INDEX_SCHEMA),
-      database.prepare(CUSTOM_ROOM_INDEX_CAPACITY_INDEX_SCHEMA),
-    ]);
-  } catch {
-    throw new FlareLobbyError("CONNECTION_FAILED");
+  let ready = cache.get(database);
+
+  if (ready === undefined) {
+    ready = initialize();
+    ready.catch(() => {
+      cache.delete(database);
+    });
+    cache.set(database, ready);
   }
+
+  return ready;
+}
+
+/** 公開ルーム検索用の D1 派生テーブルを作成します。実行は冪等で、Worker ごとに 1 回だけ DDL を実行します。 */
+export function ensureCustomRoomIndex(database: D1Database): Promise<void> {
+  return ensureOnce(initializedCustomRoomIndexes, database, async () => {
+    try {
+      await database.batch([
+        database.prepare(CUSTOM_ROOM_INDEX_TABLE_SCHEMA),
+        database.prepare(CUSTOM_ROOM_INDEX_FILTER_INDEX_SCHEMA),
+        database.prepare(CUSTOM_ROOM_INDEX_CAPACITY_INDEX_SCHEMA),
+      ]);
+    } catch {
+      throw new FlareLobbyError("CONNECTION_FAILED");
+    }
+  });
 }
 
 /** 公開ルームの秘密情報を含まない派生レコードを D1 へ反映します。 */
@@ -294,15 +321,21 @@ export async function queryCustomRoomIndex(
   }
 }
 
-/** 招待コード解決用の小さな D1 索引を作成します。実行は冪等です。 */
-export async function ensureCustomRoomInvitationIndex(
+/** 招待コード解決用の小さな D1 索引を作成します。実行は冪等で、Worker ごとに 1 回だけ DDL を実行します。 */
+export function ensureCustomRoomInvitationIndex(
   database: D1Database,
 ): Promise<void> {
-  try {
-    await database.prepare(INVITATION_INDEX_SCHEMA).run();
-  } catch {
-    throw new FlareLobbyError("CONNECTION_FAILED");
-  }
+  return ensureOnce(
+    initializedCustomRoomInvitationIndexes,
+    database,
+    async () => {
+      try {
+        await database.prepare(INVITATION_INDEX_SCHEMA).run();
+      } catch {
+        throw new FlareLobbyError("CONNECTION_FAILED");
+      }
+    },
+  );
 }
 
 /** 招待方式の Room をコードから解決できるように登録します。 */

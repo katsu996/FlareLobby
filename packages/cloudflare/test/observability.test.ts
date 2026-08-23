@@ -125,33 +125,72 @@ describe("観測基盤", () => {
     expect(points[0]?.indexes).toContain("match_wait_time_ms");
   });
 
-  it("観測先の書込み失敗で主要処理を失敗させず、サンプリング時も失敗を記録する", async () => {
+  it("観測先の書込み失敗で主要処理を失敗させない", async () => {
     const logger: FlareLobbyStructuredLogger = { log: () => undefined };
+    let writeAttempts = 0;
     const analytics = {
       writeDataPoint: () => {
+        writeAttempts += 1;
         throw new Error("analytics unavailable");
       },
     } as unknown as AnalyticsEngineDataset;
     const sink = createObservabilitySink(
       analytics,
-      { logSampleRate: 0, analyticsSampleRate: 0 },
+      { analyticsSampleRate: 1 },
       logger,
     );
     const context = createObservabilityContext(undefined, {
       correlationId: "correlation-3",
       requestId: "request-3",
-      sampled: false,
-      analyticsSampled: false,
+      analyticsSampled: true,
     });
 
     await expect(
       observeOperation(sink, context, "matchmaking.match", async () => "ok"),
     ).resolves.toBe("ok");
-    sink.metric({
-      context,
-      name: "match_succeeded",
-      value: 1,
-      operation: "matchmaking.match",
+
+    expect(() =>
+      sink.metric({
+        context,
+        name: "match_succeeded",
+        value: 1,
+        operation: "matchmaking.match",
+      }),
+    ).not.toThrow();
+    expect(writeAttempts).toBe(1);
+  });
+
+  it("ログのサンプリング無効時も失敗操作は構造化記録される", async () => {
+    const lines: string[] = [];
+    const logger: FlareLobbyStructuredLogger = {
+      log: (...values: readonly unknown[]) => {
+        lines.push(String(values[0]));
+      },
+    };
+    const sink = createObservabilitySink(
+      undefined,
+      { logSampleRate: 0 },
+      logger,
+    );
+    const context = createObservabilityContext(undefined, {
+      correlationId: "correlation-4",
+      requestId: "request-4",
+      sampled: false,
+      analyticsSampled: false,
     });
+
+    await expect(
+      observeOperation(sink, context, "matchmaking.match", async () => {
+        throw new Error("operation failed");
+      }),
+    ).rejects.toThrow("operation failed");
+
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0] ?? "") as {
+      result: string;
+      level: string;
+    };
+    expect(record.result).toBe("failure");
+    expect(record.level).toBe("error");
   });
 });

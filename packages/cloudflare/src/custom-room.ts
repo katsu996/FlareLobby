@@ -54,6 +54,9 @@ const MAX_PASSWORD_LENGTH = 128;
 const INVITATION_CODE_LENGTH = 6;
 const INVITATION_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
+const JOIN_ROOM_ROUTE_PATTERN = /^\/v1\/custom-rooms\/([^/]+)\/join$/u;
+const LEAVE_ROOM_ROUTE_PATTERN = /^\/v1\/custom-rooms\/([^/]+)\/leave$/u;
+
 /** カスタムルーム作成要求で選択できる参加方式です。 */
 export type CustomRoomJoinMethod = RoomJoinMethod;
 
@@ -775,9 +778,9 @@ function getRoomRouteIdentifier(
   request: Request,
   operation: "join" | "leave",
 ): string | null {
-  const match = new RegExp(`^/v1/custom-rooms/([^/]+)/${operation}$`, "u").exec(
-    new URL(request.url).pathname,
-  );
+  const routePattern =
+    operation === "join" ? JOIN_ROOM_ROUTE_PATTERN : LEAVE_ROOM_ROUTE_PATTERN;
+  const match = routePattern.exec(new URL(request.url).pathname);
 
   if (match?.[1] === undefined) {
     return null;
@@ -989,12 +992,15 @@ async function normalizeCustomRoomCreationInput<TApp extends AnyFlareLobbyApp>(
       ? null
       : normalizeRoomPassword(value["password"]);
 
-  if (
-    (joinMethod === "password" && password === null) ||
-    (joinMethod !== "password" && password !== null)
-  ) {
+  if (joinMethod === "password" && password === null) {
     throw new FlareLobbyError("INVALID_PAYLOAD", {
       message: "パスワード方式ではパスワードが必要です。",
+    });
+  }
+
+  if (joinMethod !== "password" && password !== null) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: "パスワード方式以外ではパスワードを指定できません。",
     });
   }
 

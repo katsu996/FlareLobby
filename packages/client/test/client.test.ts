@@ -137,6 +137,21 @@ describe("@flarelobby/client", () => {
     ).toBeNull();
   });
 
+  it("エンドポイントと通信経路が異なる URL は HTTP でも WebSocket でも拒否する", async () => {
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "secret-token",
+    });
+
+    // 既定ポートの一致だけで通っていた http / ws の URL を弾くことを確認します。
+    await expect(
+      client.request(new URL("http://example.test:443/v1/rooms")),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+    await expect(
+      client.connect("ws://example.test:443/v1/rooms/ws"),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+  });
+
   it("HTTP エラーを FlareLobbyError へ正規化し、内部本文を漏らさない", async () => {
     const fetchImplementation: FetchImplementation = vi.fn(async () =>
       Response.json(

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createFlareLobbyClient,
@@ -214,9 +214,20 @@ function event(ticket: CoreMatchmakingTicket, sequence: number): string {
 }
 
 describe("@flarelobby/client matchmaking", () => {
-  it("作成直後の状態を公開し、進捗購読を受け取る", async () => {
+  beforeEach(() => {
     FakeWebSocket.instances = [];
+    FakeWebSocket.autoOpen = true;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("作成直後の状態を公開し、進捗購読を受け取る", async () => {
     const { fetch, state } = createFetch();
+    // queuedAt (00:00:00) から 5 分経過した時刻に固定し、検索幅を最終段階の 400 にします。
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-11T00:05:00.000Z"));
     const client = createFlareLobbyClient({
       endpoint: "https://example.test",
       getAccessToken: () => "access-token",
@@ -246,7 +257,6 @@ describe("@flarelobby/client matchmaking", () => {
   });
 
   it("getRating を Pool 単位の接続口として公開する", async () => {
-    FakeWebSocket.instances = [];
     const { fetch } = createFetch();
     const client = createFlareLobbyClient({
       endpoint: "https://example.test",
@@ -264,7 +274,6 @@ describe("@flarelobby/client matchmaking", () => {
   });
 
   it("成立イベント後、接続済みの対戦 Room を waitForMatch から返す", async () => {
-    FakeWebSocket.instances = [];
     const { fetch, state } = createFetch();
     const client = createFlareLobbyClient({
       endpoint: "https://example.test",
@@ -286,7 +295,6 @@ describe("@flarelobby/client matchmaking", () => {
   });
 
   it("findMatch だけでチケット作成から対戦 Room 接続まで完了する", async () => {
-    FakeWebSocket.instances = [];
     const { fetch, state } = createFetch();
     const client = createFlareLobbyClient({
       endpoint: "https://example.test",
@@ -307,7 +315,6 @@ describe("@flarelobby/client matchmaking", () => {
   });
 
   it("waitForMatch の AbortSignal でサーバー側キャンセルを要求する", async () => {
-    FakeWebSocket.instances = [];
     const { fetch } = createFetch();
     const client = createFlareLobbyClient({
       endpoint: "https://example.test",
@@ -338,7 +345,6 @@ describe("@flarelobby/client matchmaking", () => {
   });
 
   it("手動 cancel はサーバー応答後に一度だけ終端通知し、再呼出しも冪等に扱う", async () => {
-    FakeWebSocket.instances = [];
     const { fetch } = createFetch();
     const client = createFlareLobbyClient({
       endpoint: "https://example.test",
@@ -364,7 +370,6 @@ describe("@flarelobby/client matchmaking", () => {
   });
 
   it("成立終端を重複イベントで二重通知せず、一時切断後に再接続する", async () => {
-    FakeWebSocket.instances = [];
     const { fetch, state } = createFetch();
     const client = createFlareLobbyClient({
       endpoint: "https://example.test",

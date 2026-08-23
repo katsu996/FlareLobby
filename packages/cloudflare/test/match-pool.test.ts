@@ -13,7 +13,7 @@ import type {
   MatchmakingTicketCreationOptions,
 } from "../src/index.js";
 
-const TOKEN_SECRET = "flarelobby-test-token-secret";
+const TOKEN_SECRET = env.FLARE_LOBBY_TOKEN_SECRET;
 
 function createPool(suffix = crypto.randomUUID()): MatchmakingPool {
   return {

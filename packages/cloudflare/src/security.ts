@@ -155,6 +155,41 @@ export interface FlareLobbyRateLimitDecision {
   readonly retryAfterSeconds: number;
 }
 
+/**
+ * 利用制限の拒否を表す `CONFLICT` エラーへ付与する、再試行までの秒数です。
+ * プロトコル上の公開情報ではないため、`toJSON()` の出力には含まれません。
+ */
+interface RateLimitDeniedError extends FlareLobbyError {
+  readonly retryAfterSeconds: number;
+}
+
+function isRateLimitDeniedError(
+  error: FlareLobbyError,
+): error is RateLimitDeniedError {
+  return (
+    error.code === "CONFLICT" &&
+    typeof (error as RateLimitDeniedError).retryAfterSeconds === "number"
+  );
+}
+
+/**
+ * 分散した利用制限の拒否を表す `CONFLICT` エラーを作ります。
+ *
+ * `retryAfterSeconds` は HTTP 応答の `Retry-After` へ変換するためだけに
+ * エラーへ記録します。
+ */
+export function createRateLimitError(
+  retryAfterSeconds: number,
+  message?: string,
+): FlareLobbyError {
+  return Object.assign(
+    message === undefined
+      ? new FlareLobbyError("CONFLICT")
+      : new FlareLobbyError("CONFLICT", { message }),
+    { retryAfterSeconds },
+  ) as FlareLobbyError;
+}
+
 const TOKEN_VERSION = 1 as const;
 const GATEWAY_PRINCIPAL_TTL_MS = 60_000;
 const TOKEN_SIGNATURE_CONTEXT = "flarelobby-token-v1";
@@ -574,14 +609,25 @@ export async function verifyGatewayPrincipalEnvelope(
 
 /** `FlareLobbyError` を HTTP の安全な失敗応答へ変換します。 */
 export function createErrorResponse(error: FlareLobbyError): Response {
+  const rateLimited = isRateLimitDeniedError(error);
   const status =
     error.code === "UNAUTHENTICATED"
       ? 401
       : error.code === "FORBIDDEN"
         ? 403
-        : 400;
+        : rateLimited
+          ? 429
+          : 400;
 
-  return Response.json(error.toJSON(), { status });
+  const init: ResponseInit = { status };
+
+  if (rateLimited) {
+    init.headers = {
+      "Retry-After": String(Math.max(1, Math.ceil(error.retryAfterSeconds))),
+    };
+  }
+
+  return Response.json(error.toJSON(), init);
 }
 
 async function issueRoomToken(

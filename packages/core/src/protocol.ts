@@ -546,8 +546,20 @@ function isJsonContainer(value: object, ancestors: WeakSet<object>): boolean {
       return false;
     }
 
-    for (const [, nestedValue] of Object.entries(value)) {
-      if (!isJsonValue(nestedValue, ancestors)) {
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+
+    for (const [key, descriptor] of Object.entries(descriptors)) {
+      if (
+        key === "toJSON" ||
+        descriptor.get !== undefined ||
+        descriptor.set !== undefined
+      ) {
+        return false;
+      }
+    }
+
+    for (const descriptor of Object.values(descriptors)) {
+      if (!isJsonValue(descriptor.value, ancestors)) {
         return false;
       }
     }

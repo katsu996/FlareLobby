@@ -18,10 +18,6 @@ const reportPaths = [
     label: "@flarelobby/cloudflare",
     path: "packages/cloudflare/coverage/coverage-summary.json",
   },
-  {
-    label: "@flarelobby/example-local-demo",
-    path: "examples/local-demo/coverage/coverage-summary.json",
-  },
 ];
 const metrics = ["lines", "statements", "branches", "functions"];
 

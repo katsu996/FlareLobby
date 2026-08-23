@@ -176,22 +176,31 @@ export function getMatchmakingSearchWidth(
     | undefined,
   waitingTimeMs: number,
 ): number {
-  const normalized = normalizeMatchmakingSearchPolicy(policy);
+  return getNormalizedMatchmakingSearchWidth(
+    normalizeMatchmakingSearchPolicy(policy),
+    waitingTimeMs,
+  );
+}
 
+/** 正規化済み設定と検証済みの待機時間から、現在の検索幅を返します。 */
+function getNormalizedMatchmakingSearchWidth(
+  policy: NormalizedMatchmakingSearchPolicy,
+  waitingTimeMs: number,
+): number {
   if (!isNonNegativeSafeInteger(waitingTimeMs)) {
     throw new RangeError("待機時間は 0 以上の安全な整数で指定してください。");
   }
 
-  let width = normalized.stages[0]!.maxRatingDifference;
+  let width = policy.stages[0]!.maxRatingDifference;
 
-  for (const stage of normalized.stages) {
+  for (const stage of policy.stages) {
     if (stage.afterMs > waitingTimeMs) {
       break;
     }
     width = stage.maxRatingDifference;
   }
 
-  return Math.min(width, normalized.maxRatingDifference);
+  return Math.min(width, policy.maxRatingDifference);
 }
 
 /** 次の検索幅へ切り替える時刻を返します。最終段階の後は `null` です。 */
@@ -226,11 +235,22 @@ export function evaluateMatchCandidate(
   secondTicket: MatchmakingSearchTicket,
   options: MatchmakingCandidateEvaluationOptions,
 ): MatchmakingCandidateEvaluation | null {
-  const nowMs = normalizeNow(options.now);
-  const policy = normalizeMatchmakingSearchPolicy(options.policy);
-  const first = normalizeSearchTicket(firstTicket);
-  const second = normalizeSearchTicket(secondTicket);
+  // 引数は左から順に評価されるため、公開 API と同じ検証順序を保ちます。
+  return evaluateNormalizedMatchCandidate(
+    normalizeNow(options.now),
+    normalizeMatchmakingSearchPolicy(options.policy),
+    normalizeSearchTicket(firstTicket),
+    normalizeSearchTicket(secondTicket),
+  );
+}
 
+/** 正規化済みの入力を受け取り、2 件のチケットが検索幅内で成立可能かを評価します。 */
+function evaluateNormalizedMatchCandidate(
+  nowMs: number,
+  policy: NormalizedMatchmakingSearchPolicy,
+  first: MatchmakingSearchTicket,
+  second: MatchmakingSearchTicket,
+): MatchmakingCandidateEvaluation | null {
   if (
     first.id === second.id ||
     first.player.id === second.player.id ||
@@ -246,11 +266,11 @@ export function evaluateMatchCandidate(
       : ([second, first] as const);
   const firstWaitingTimeMs = getWaitingTimeMs(ordered[0]!.queuedAt, nowMs);
   const secondWaitingTimeMs = getWaitingTimeMs(ordered[1]!.queuedAt, nowMs);
-  const firstSearchWidth = getMatchmakingSearchWidth(
+  const firstSearchWidth = getNormalizedMatchmakingSearchWidth(
     policy,
     firstWaitingTimeMs,
   );
-  const secondSearchWidth = getMatchmakingSearchWidth(
+  const secondSearchWidth = getNormalizedMatchmakingSearchWidth(
     policy,
     secondWaitingTimeMs,
   );
@@ -334,10 +354,12 @@ export function selectMatchCandidates(
         }
 
         evaluatedCount += 1;
-        const evaluation = evaluateMatchCandidate(first, second, {
-          now: nowMs,
+        const evaluation = evaluateNormalizedMatchCandidate(
+          nowMs,
           policy,
-        });
+          first,
+          second,
+        );
 
         if (
           evaluation !== null &&

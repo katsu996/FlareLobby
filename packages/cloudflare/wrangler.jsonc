@@ -1,8 +1,11 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "flarelobby-local",
-  "main": "src/index.ts",
+  "main": "src/dev-worker.ts",
   "compatibility_date": "2026-08-08",
+  "observability": {
+    "enabled": true,
+  },
   "secrets": {
     "required": ["FLARE_LOBBY_TOKEN_SECRET"],
   },
@@ -45,6 +48,9 @@
       "secrets": {
         "required": ["FLARE_LOBBY_TOKEN_SECRET"],
       },
+      "observability": {
+        "enabled": true,
+      },
       "durable_objects": {
         "bindings": [
           {
@@ -73,6 +79,9 @@
       "name": "flarelobby-production",
       "secrets": {
         "required": ["FLARE_LOBBY_TOKEN_SECRET"],
+      },
+      "observability": {
+        "enabled": true,
       },
       "durable_objects": {
         "bindings": [

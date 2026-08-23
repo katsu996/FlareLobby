@@ -14,13 +14,16 @@ import {
   verifyJoinToken,
   verifyResumeToken,
 } from "../src/index.js";
+import { FlareLobbyError } from "@flarelobby/core";
+import { createErrorResponse, createRateLimitError } from "../src/security.js";
 import type {
   ClientCommandEnvelope,
   Principal,
   ProtocolResult,
 } from "@flarelobby/core";
 
-const TOKEN_SECRET = "flarelobby-test-token-secret";
+// 署名には Wrangler Secret と同じ Binding 値を使い、実環境と一致させる。
+const TOKEN_SECRET = env.FLARE_LOBBY_TOKEN_SECRET;
 
 function expectProtocolValue<TValue>(result: ProtocolResult<TValue>): TValue {
   if (!result.ok) {
@@ -379,5 +382,25 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
       await consumeRoomCreationRateLimit(env, firstPrincipal, limits),
       "CONFLICT",
     );
+  });
+
+  it("利用制限の CONFLICT を HTTP 429 と Retry-After へ変換する", () => {
+    const response = createErrorResponse(
+      createRateLimitError(30, "要求が許可された頻度を超えています。"),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("30");
+  });
+
+  it("利用制限以外の CONFLICT は従来どおり HTTP 400 を返す", async () => {
+    const response = createErrorResponse(new FlareLobbyError("CONFLICT"));
+
+    expect(response.status).toBe(400);
+    expect(response.headers.get("Retry-After")).toBeNull();
+    await expect(response.json()).resolves.toEqual({
+      code: "CONFLICT",
+      message: "現在の状態と競合しました。",
+    });
   });
 });

@@ -240,7 +240,7 @@ describe("@flarelobby/client custom room API", () => {
     expect(page.nextCursor).toBe("next-page");
     expect(page.rooms[0]?.id).toBe("room-1");
 
-    const createCall = fetchImplementation.mock.calls[0];
+    const createCall = vi.mocked(fetchImplementation).mock.calls[0];
     expect(createCall?.[0].toString()).toBe(
       "https://example.test/v1/custom-rooms",
     );
@@ -248,21 +248,23 @@ describe("@flarelobby/client custom room API", () => {
       name: "練習ルーム",
       maxPlayers: 4,
     });
-    expect(fetchImplementation.mock.calls[1]?.[0].toString()).toBe(
+    expect(vi.mocked(fetchImplementation).mock.calls[1]?.[0].toString()).toBe(
       "https://example.test/v1/custom-rooms/join",
     );
     expect(
-      JSON.parse(String(fetchImplementation.mock.calls[1]?.[1]?.body)),
+      JSON.parse(
+        String(vi.mocked(fetchImplementation).mock.calls[1]?.[1]?.body),
+      ),
     ).toEqual({
       invitationCode: "ABC123",
       role: "spectator",
     });
-    expect(fetchImplementation.mock.calls[2]?.[0].toString()).toContain(
-      "status=waiting",
-    );
-    expect(fetchImplementation.mock.calls[2]?.[0].toString()).toContain(
-      "available=true",
-    );
+    expect(
+      vi.mocked(fetchImplementation).mock.calls[2]?.[0].toString(),
+    ).toContain("status=waiting");
+    expect(
+      vi.mocked(fetchImplementation).mock.calls[2]?.[0].toString(),
+    ).toContain("available=true");
   });
 
   it("スナップショットを凍結し、全操作がサーバー応答後に完了する", async () => {
@@ -287,8 +289,9 @@ describe("@flarelobby/client custom room API", () => {
     expect(Object.isFrozen(room.snapshot)).toBe(true);
     expect(Object.isFrozen(room.snapshot.room)).toBe(true);
     expect(() => {
-      (room.snapshot.room as { metadata: { name: string } }).metadata.name =
-        "変更";
+      (
+        room.snapshot.room as unknown as { metadata: { name: string } }
+      ).metadata.name = "変更";
     }).toThrow();
 
     socket.receive({
