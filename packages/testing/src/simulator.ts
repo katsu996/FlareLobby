@@ -81,6 +81,12 @@ export interface MatchmakingSimulationConfig {
   readonly playerGeneration?: PlayerGenerationOptions;
   /** 固定シナリオを使う場合は `playerGeneration` と同時に指定しません。 */
   readonly players?: readonly SimulationPlayer[];
+  /**
+   * 指定時はプレイヤーを ID 順に固定人数のパーティーへグループ化し、
+   * パーティーごとに 1 枚のチケットを作ります。省略時は 1 人チケットです。
+   * 人数が足りない端数のグループは、その人数のままチケット化されます。
+   */
+  readonly partySize?: number;
   /** 省略時は Unix epoch 0 から開始します。 */
   readonly startAt?: number | Timestamp;
   /** 省略時は 60 秒です。0 も指定できます。 */
@@ -111,6 +117,7 @@ export interface MatchmakingSimulationReplayConfig {
   readonly cancellation: NormalizedSimulationCancellationPolicy | null;
   readonly playerGeneration: NormalizedPlayerGenerationOptions | null;
   readonly players: readonly SimulationPlayer[] | null;
+  readonly partySize: number;
 }
 
 /** シミュレーション結果を再現するための最小情報です。 */
@@ -141,6 +148,8 @@ export interface SimulationEvent {
 export interface SimulationTicketResult {
   readonly id: string;
   readonly playerId: string;
+  /** チケットに含まれる全構成員のプレイヤー ID です。リーダーを先頭にします。 */
+  readonly playerIds: readonly string[];
   readonly rating: number;
   readonly queuedAt: Timestamp;
   readonly status: SimulationTicketStatus;
@@ -160,7 +169,8 @@ export interface SimulationMatchResult {
   readonly candidate: MatchCandidate;
   readonly quality: MatchmakingCandidateQuality;
   readonly ticketIds: readonly [string, string];
-  readonly playerIds: readonly [string, string];
+  /** 成立した両チケットの全構成員のプレイヤー ID です。 */
+  readonly playerIds: readonly string[];
   readonly matchedAt: Timestamp;
 }
 
@@ -237,6 +247,8 @@ export interface SimulationPolicyComparison {
 interface WorkingTicket {
   readonly id: string;
   readonly player: SimulationPlayer;
+  /** パーティー構成員です。リーダーを先頭にします。1 人チケットでは `player` のみです。 */
+  readonly members: readonly SimulationPlayer[];
   readonly joinedAtMs: number;
   readonly cancellationAtMs: number | null;
   readonly expiresAtMs: number | null;
@@ -296,6 +308,7 @@ export function simulateMatchmaking(
       ? null
       : normalizeDuration(input.ticketTtlMs, "ticketTtlMs");
   const cancellation = normalizeCancellationPolicy(input.cancellation);
+  const partySize = normalizePartySize(input.partySize);
 
   if (input.players !== undefined && input.playerGeneration !== undefined) {
     throw new TypeError(
@@ -321,6 +334,7 @@ export function simulateMatchmaking(
     random,
     cancellation,
     ticketTtlMs,
+    partySize,
   );
   const recordsById = new Map(records.map((record) => [record.id, record]));
   const eventTimes = createEventTimes(
@@ -346,7 +360,7 @@ export function simulateMatchmaking(
           atMs: timeMs,
           type: "joined",
           ticketIds: [record.id],
-          playerIds: [record.player.id],
+          playerIds: record.members.map((member) => member.id),
           candidateId: null,
         });
       }
@@ -369,7 +383,7 @@ export function simulateMatchmaking(
           atMs: timeMs,
           type: "cancelled",
           ticketIds: [record.id],
-          playerIds: [record.player.id],
+          playerIds: record.members.map((member) => member.id),
           candidateId: null,
         });
         continue;
@@ -384,7 +398,7 @@ export function simulateMatchmaking(
           atMs: timeMs,
           type: "expired",
           ticketIds: [record.id],
-          playerIds: [record.player.id],
+          playerIds: record.members.map((member) => member.id),
           candidateId: null,
         });
       }
@@ -434,7 +448,9 @@ export function simulateMatchmaking(
         atMs: timeMs,
         type: "matched",
         ticketIds: evaluation.candidate.ticketIds,
-        playerIds: [first.player.id, second.player.id],
+        playerIds: [...first.members, ...second.members].map(
+          (member) => member.id,
+        ),
         candidateId: evaluation.candidate.id,
       });
     }
@@ -454,6 +470,7 @@ export function simulateMatchmaking(
     durationMs,
     tickMs,
     ticketTtlMs,
+    partySize,
     cancellation,
     generatedPlayers: input.players === undefined,
     playerGeneration:
@@ -503,6 +520,7 @@ export function replaySimulation(
     startAt: replayConfig.startAt,
     durationMs: replayConfig.durationMs,
     tickMs: replayConfig.tickMs,
+    partySize: replayConfig.partySize,
     ...(replayConfig.ticketTtlMs === null
       ? {}
       : { ticketTtlMs: replayConfig.ticketTtlMs }),
@@ -568,9 +586,20 @@ function createWorkingTickets(
   random: RandomSource,
   cancellation: NormalizedSimulationCancellationPolicy | null,
   ticketTtlMs: number | null,
+  partySize: number,
 ): WorkingTicket[] {
-  const records = players.map((player) => {
-    const joinedAtMs = toEpochMilliseconds(player.joinedAt);
+  const sortedPlayers = [...players].sort((left, right) =>
+    left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
+  );
+  const records: WorkingTicket[] = [];
+
+  for (let index = 0; index < sortedPlayers.length; index += partySize) {
+    const members = sortedPlayers.slice(index, index + partySize);
+    const leader = members[0]!;
+    // パーティーは全構成員が揃った時点でキューへ投入する。
+    const joinedAtMs = Math.max(
+      ...members.map((member) => toEpochMilliseconds(member.joinedAt)),
+    );
     const cancellationAtMs =
       cancellation !== null && random.chance(cancellation.probability)
         ? addMilliseconds(
@@ -588,9 +617,10 @@ function createWorkingTickets(
     const expiresAtMs =
       ticketTtlMs === null ? null : addMilliseconds(joinedAtMs, ticketTtlMs);
 
-    return {
-      id: `ticket:${encodeURIComponent(player.id)}`,
-      player,
+    records.push({
+      id: `ticket:${encodeURIComponent(leader.id)}`,
+      player: leader,
+      members,
       joinedAtMs,
       cancellationAtMs,
       expiresAtMs,
@@ -603,8 +633,8 @@ function createWorkingTickets(
       opponentTicketId: null,
       opponentPlayerId: null,
       ratingDifference: null,
-    };
-  });
+    });
+  }
 
   records.sort((left, right) =>
     left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
@@ -674,6 +704,10 @@ function toSearchTicket(
       poolId: pool.id,
       value: record.player.rating,
     },
+    players: record.members.map((member) => ({
+      id: member.id,
+      ratingValue: member.rating,
+    })),
     queuedAt: record.player.joinedAt,
     region: record.player.region,
     inputMethod: record.player.inputMethod,
@@ -695,6 +729,7 @@ function toTicketResult(record: WorkingTicket): SimulationTicketResult {
   return Object.freeze({
     id: record.id,
     playerId: record.player.id,
+    playerIds: record.members.map((member) => member.id),
     rating: record.player.rating,
     queuedAt: record.player.joinedAt,
     status: record.status,
@@ -724,7 +759,7 @@ function toMatchResult(
     candidate: match.evaluation.candidate,
     quality: match.evaluation.quality,
     ticketIds: match.evaluation.candidate.ticketIds,
-    playerIds: [first.player.id, second.player.id] as [string, string],
+    playerIds: [...first.members, ...second.members].map((member) => member.id),
     matchedAt: new Date(match.matchedAtMs).toISOString(),
   });
 }
@@ -744,7 +779,10 @@ function createStatistics(
   );
 
   return Object.freeze({
-    generatedPlayerCount: records.length,
+    generatedPlayerCount: records.reduce(
+      (count, record) => count + record.members.length,
+      0,
+    ),
     joinedTicketCount: joined.length,
     matchedTicketCount: matched.length,
     matchCount: matches.length,
@@ -755,9 +793,9 @@ function createStatistics(
       .length,
     waitingTicketCount: records.filter((record) => record.status === "waiting")
       .length,
-    notJoinedPlayerCount: records.filter(
-      (record) => record.status === "not_joined",
-    ).length,
+    notJoinedPlayerCount: records
+      .filter((record) => record.status === "not_joined")
+      .reduce((count, record) => count + record.members.length, 0),
     unmatchedTicketCount: unmatched,
     unmatchedRate: roundRate(
       joined.length === 0 ? 0 : unmatched / joined.length,
@@ -814,6 +852,7 @@ function createReplayConfig(input: {
   readonly durationMs: number;
   readonly tickMs: number;
   readonly ticketTtlMs: number | null;
+  readonly partySize: number;
   readonly cancellation: NormalizedSimulationCancellationPolicy | null;
   readonly generatedPlayers: boolean;
   readonly playerGeneration: NormalizedPlayerGenerationOptions | null;
@@ -829,6 +868,7 @@ function createReplayConfig(input: {
     cancellation: input.cancellation,
     playerGeneration: input.generatedPlayers ? input.playerGeneration : null,
     players: input.generatedPlayers ? null : input.players,
+    partySize: input.partySize,
   });
 }
 
@@ -844,13 +884,43 @@ function normalizePool(input: MatchmakingPool): MatchmakingPool {
     throw new TypeError("シミュレーション Pool の形式が不正です。");
   }
 
+  if (
+    (input["teamSize"] !== undefined &&
+      !isPositiveSafeInteger(input["teamSize"])) ||
+    (input["maxPartySize"] !== undefined &&
+      !isPositiveSafeInteger(input["maxPartySize"]))
+  ) {
+    throw new RangeError("シミュレーション Pool のパーティー設定が不正です。");
+  }
+
   return Object.freeze({
     id: input.id,
     gameId: input.gameId,
     seasonId: input.seasonId,
     mode: input.mode,
     region: input.region,
+    ...(input["teamSize"] === undefined ? {} : { teamSize: input["teamSize"] }),
+    ...(input["maxPartySize"] === undefined
+      ? {}
+      : { maxPartySize: input["maxPartySize"] }),
   });
+}
+
+/** パーティー人数を検証します。省略時は 1 人チケットです。 */
+function normalizePartySize(input: number | undefined): number {
+  if (input === undefined) {
+    return 1;
+  }
+
+  if (!isPositiveSafeInteger(input)) {
+    throw new RangeError("partySize は 1 以上の安全な整数で指定してください。");
+  }
+
+  return input;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 function normalizeCancellationPolicy(

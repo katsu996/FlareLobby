@@ -4,6 +4,7 @@ import type {
   MatchmakingPool,
   MatchmakingTicketId,
   Player,
+  PlayerId,
   Rating,
   Timestamp,
 } from "./index.js";
@@ -66,21 +67,38 @@ export const DEFAULT_MATCHMAKING_MAX_CANDIDATES_PER_SEARCH = 8_192;
 /** 1 回の探索で確保する候補数の既定上限です。 */
 export const DEFAULT_MATCHMAKING_MAX_MATCHES_PER_SEARCH = 32;
 
-/** 候補評価に使う、待機中チケットの最小情報です。 */
+/**
+ * 候補評価に使う、待機中チケットの最小情報です。
+ *
+ * チケットは参加者集合を 1 単位として扱います。1 人チケットでは `players` を
+ * 省略でき、その場合は `player` と `rating` からなる構成員 1 人として扱います。
+ */
 export interface MatchmakingSearchTicket {
   readonly id: MatchmakingTicketId;
   readonly pool: MatchmakingPool;
   readonly player: Player;
   readonly rating: Rating;
+  /**
+   * パーティー構成員(リーダーを含む)の一覧です。省略時は
+   * `player` と `rating` からなる 1 人構成として扱います。
+   */
+  readonly players?: readonly MatchmakingSearchTicketPlayer[];
   readonly queuedAt: Timestamp;
   readonly region: string;
   readonly inputMethod: string;
   readonly searchAttributes?: JsonObject;
 }
 
+/** N 人チケット候補評価に使う構成員の最小情報です。 */
+export interface MatchmakingSearchTicketPlayer {
+  readonly id: PlayerId;
+  /** キュー投入時にスナップショットした構成員のレートです。 */
+  readonly ratingValue: number;
+}
+
 /** 成立可能な候補の品質説明です。数値が小さいほどレート品質が高くなります。 */
 export interface MatchmakingCandidateQuality {
-  /** 2 チケットの絶対レート差です。 */
+  /** 2 チケットの参照レート(構成員レートの算術平均)の絶対差です。 */
   readonly ratingDifference: number;
   /** 候補のチケット順に対応する待機時間（ミリ秒）です。 */
   readonly waitingTimeMs: readonly [number, number];
@@ -92,6 +110,11 @@ export interface MatchmakingCandidateQuality {
   readonly searchWidth: readonly [number, number];
   /** リージョンが一致するかです。異なる場合は成立不可です。 */
   readonly regionMatch: boolean;
+  /**
+   * 平均が近くても偏った編成を避けるための、チケット内最大構成員偏差です。
+   * 2 チケットのうち大きい方の値を丸め前の実数で持ちます。
+   */
+  readonly maxMemberDeviation: number;
   /** 入力方式が一致するかです。一致しない場合も成立できますが品質説明へ含めます。 */
   readonly inputMethodMatch: boolean;
   /** レート差を主指標にした比較用の品質値です。 */
@@ -251,11 +274,27 @@ function evaluateNormalizedMatchCandidate(
   first: MatchmakingSearchTicket,
   second: MatchmakingSearchTicket,
 ): MatchmakingCandidateEvaluation | null {
+  const firstPlayers = getSearchTicketPlayers(first);
+  const secondPlayers = getSearchTicketPlayers(second);
+
   if (
     first.id === second.id ||
-    first.player.id === second.player.id ||
+    sharesPlayer(firstPlayers, secondPlayers) ||
     !samePool(first.pool, second.pool) ||
     first.region !== second.region
+  ) {
+    return null;
+  }
+
+  // ADR-0005: 構成人員が異なるチケット同士の組、および Pool の teamSize と
+  // 一致しないチケットは、この評価段階で成立不可とする。
+  const firstTeamSize = first.pool.teamSize ?? 1;
+  const secondTeamSize = second.pool.teamSize ?? 1;
+
+  if (
+    firstPlayers.length !== secondPlayers.length ||
+    firstPlayers.length !== firstTeamSize ||
+    firstTeamSize !== secondTeamSize
   ) {
     return null;
   }
@@ -274,9 +313,9 @@ function evaluateNormalizedMatchCandidate(
     policy,
     secondWaitingTimeMs,
   );
-  const ratingDifference = Math.abs(
-    ordered[0]!.rating.value - ordered[1]!.rating.value,
-  );
+  const firstAverageRating = averageMemberRating(firstPlayers);
+  const secondAverageRating = averageMemberRating(secondPlayers);
+  const ratingDifference = Math.abs(firstAverageRating - secondAverageRating);
 
   if (
     !Number.isFinite(ratingDifference) ||
@@ -299,6 +338,10 @@ function evaluateNormalizedMatchCandidate(
     newestWaitingTimeMs: Math.min(firstWaitingTimeMs, secondWaitingTimeMs),
     searchWidth: [firstSearchWidth, secondSearchWidth] as const,
     regionMatch: ordered[0]!.region === ordered[1]!.region,
+    maxMemberDeviation: Math.max(
+      maxMemberRatingDeviation(firstPlayers, firstAverageRating),
+      maxMemberRatingDeviation(secondPlayers, secondAverageRating),
+    ),
     inputMethodMatch: ordered[0]!.inputMethod === ordered[1]!.inputMethod,
     score: ratingDifference,
   });
@@ -419,6 +462,15 @@ export function compareMatchCandidateQuality(
 
   if (inputMethodComparison !== 0) {
     return inputMethodComparison;
+  }
+
+  const memberDeviationComparison = compareNumbers(
+    leftQuality.maxMemberDeviation,
+    rightQuality.maxMemberDeviation,
+  );
+
+  if (memberDeviationComparison !== 0) {
+    return memberDeviationComparison;
   }
 
   const waitingComparison = compareNumbers(
@@ -593,6 +645,53 @@ function normalizeSearchTicket(
     throw new TypeError("候補探索チケットの形式が不正です。");
   }
 
+  const poolTeamSize = ticket["pool"]["teamSize"];
+
+  const poolMaxPartySize = ticket["pool"]["maxPartySize"];
+
+  if (
+    (poolTeamSize !== undefined && !isPositiveSafeInteger(poolTeamSize)) ||
+    (poolMaxPartySize !== undefined && !isPositiveSafeInteger(poolMaxPartySize))
+  ) {
+    throw new RangeError("候補探索チケットの Pool 設定が不正です。");
+  }
+
+  const players = ticket["players"];
+
+  if (players !== undefined) {
+    if (!Array.isArray(players) || players.length === 0) {
+      throw new TypeError(
+        "候補探索チケットの構成員は 1 人以上の配列で指定してください。",
+      );
+    }
+
+    const memberIds = new Set<string>();
+
+    for (const player of players) {
+      if (
+        !isRecord(player) ||
+        !isNonEmptyString(player["id"]) ||
+        !isFiniteNonNegativeNumber(player["ratingValue"])
+      ) {
+        throw new TypeError("候補探索チケットの構成員の形式が不正です。");
+      }
+
+      if (memberIds.has(player["id"])) {
+        throw new TypeError(
+          "候補探索チケットの構成員 ID は重複しないように指定してください。",
+        );
+      }
+
+      memberIds.add(player["id"]);
+    }
+
+    if (!memberIds.has(ticket["player"]["id"])) {
+      throw new TypeError(
+        "候補探索チケットの構成員にはリーダーを含めてください。",
+      );
+    }
+  }
+
   if (
     ticket["rating"]["playerId"] !== ticket["player"]["id"] ||
     ticket["rating"]["poolId"] !== ticket["pool"]["id"]
@@ -601,6 +700,58 @@ function normalizeSearchTicket(
   }
 
   return ticket;
+}
+
+/** チケットの構成員一覧を返します。1 人チケットは `player` と `rating` から合成します。 */
+function getSearchTicketPlayers(
+  ticket: MatchmakingSearchTicket,
+): readonly MatchmakingSearchTicketPlayer[] {
+  if (ticket.players !== undefined) {
+    return ticket.players;
+  }
+
+  return [{ id: ticket.player.id, ratingValue: ticket.rating.value }];
+}
+
+/** 2 つのチケットが同じ構成員を共有するかを返します。 */
+function sharesPlayer(
+  first: readonly MatchmakingSearchTicketPlayer[],
+  second: readonly MatchmakingSearchTicketPlayer[],
+): boolean {
+  const secondIds = new Set(second.map((player) => player.id));
+
+  return first.some((player) => secondIds.has(player.id));
+}
+
+/** 構成員レートの算術平均を返します。丸め前の実数値です。 */
+function averageMemberRating(
+  players: readonly MatchmakingSearchTicketPlayer[],
+): number {
+  let sum = 0;
+
+  for (const player of players) {
+    sum += player.ratingValue;
+  }
+
+  return sum / players.length;
+}
+
+/** 平均からの構成員偏差の最大値を返します。丸め前の実数値です。 */
+function maxMemberRatingDeviation(
+  players: readonly MatchmakingSearchTicketPlayer[],
+  averageRating: number,
+): number {
+  let maxDeviation = 0;
+
+  for (const player of players) {
+    const deviation = Math.abs(player.ratingValue - averageRating);
+
+    if (deviation > maxDeviation) {
+      maxDeviation = deviation;
+    }
+  }
+
+  return maxDeviation;
 }
 
 function createMatchCandidateId(

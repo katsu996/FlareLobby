@@ -17,27 +17,27 @@
 
 ### ドメイン型
 
-| 型                                                                                                                   | 内容                                                                       |
-| -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `JsonPrimitive` / `JsonObject` / `JsonValue`                                                                         | JSON のプリミティブ、オブジェクト、再帰的な値                              |
-| `ReadonlyDeep<T>`                                                                                                    | 設定・Snapshot・Payload を深く読み取り専用にする型                         |
-| `Timestamp`                                                                                                          | ISO 8601 UTC 文字列                                                        |
-| `Revision`                                                                                                           | Room 状態変更ごとに増加する数値                                            |
-| `Player` / `Principal`                                                                                               | プレイヤー ID / サーバー認証主体（`id`、`playerId`）                       |
-| `Team` / `PlayerParticipant` / `Spectator` / `Participant`                                                           | チーム、プレイヤー参加者、観戦者、判別可能な参加者 Union                   |
-| `Host`                                                                                                               | `participantId` と `playerId` を持つホスト                                 |
-| `FlareLobbyApp`                                                                                                      | `room.settings`、`room.metadata`、`room.messages` をゲーム型へ束縛する契約 |
-| `AnyFlareLobbyApp` / `AppRoomSettings` / `AppRoomMetadata` / `AppGameMessages`                                       | アプリ型の既定形と各型引数の抽出                                           |
-| `CustomRoom` / `MatchRoom` / `Room`                                                                                  | `kind: "custom"` または `kind: "match"` の Room 情報                       |
-| `RoomStatus` / `WaitingRoomState` / `PreparingRoomState` / `InProgressRoomState` / `FinishedRoomState` / `RoomState` | Room の状態と状態別必須時刻                                                |
-| `RoomSnapshotBase` / `CustomRoomSnapshot` / `MatchRoomSnapshot` / `RoomSnapshot`                                     | `revision`、状態、参加者、チーム、Room 固有情報を持つ Snapshot             |
-| `MatchmakingPool`                                                                                                    | `id`、`gameId`、`seasonId`、`mode`、`region` の Pool 識別情報              |
-| `Rating`                                                                                                             | `playerId`、`poolId`、`value` の現在値                                     |
-| `MatchCandidate` / `MatchResult`                                                                                     | 2 チケットの候補と成立した対戦 Room                                        |
-| `MatchmakingTicketStatus`                                                                                            | `creating`、`waiting`、`reserved`、`matched`、`cancelled`、`expired`       |
-| `MatchmakingTicketBase` と状態別 Ticket 型                                                                           | 共通 ID/Pool/Player/Rating/時刻と状態固有フィールド                        |
-| `GameMessageName<TApp>` / `GameMessagePayload<TApp, TName>` / `GameMessage<TApp>`                                    | ゲーム固有メッセージ名と Payload の型対応                                  |
-| `InferFlareLobbyApp<TPublicType>`                                                                                    | 公開型へ束縛されたアプリ型を取り出す型                                     |
+| 型                                                                                                                   | 内容                                                                                                                                        |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JsonPrimitive` / `JsonObject` / `JsonValue`                                                                         | JSON のプリミティブ、オブジェクト、再帰的な値                                                                                               |
+| `ReadonlyDeep<T>`                                                                                                    | 設定・Snapshot・Payload を深く読み取り専用にする型                                                                                          |
+| `Timestamp`                                                                                                          | ISO 8601 UTC 文字列                                                                                                                         |
+| `Revision`                                                                                                           | Room 状態変更ごとに増加する数値                                                                                                             |
+| `Player` / `Principal`                                                                                               | プレイヤー ID / サーバー認証主体（`id`、`playerId`）                                                                                        |
+| `Team` / `PlayerParticipant` / `Spectator` / `Participant`                                                           | チーム、プレイヤー参加者、観戦者、判別可能な参加者 Union                                                                                    |
+| `Host`                                                                                                               | `participantId` と `playerId` を持つホスト                                                                                                  |
+| `FlareLobbyApp`                                                                                                      | `room.settings`、`room.metadata`、`room.messages` をゲーム型へ束縛する契約                                                                  |
+| `AnyFlareLobbyApp` / `AppRoomSettings` / `AppRoomMetadata` / `AppGameMessages`                                       | アプリ型の既定形と各型引数の抽出                                                                                                            |
+| `CustomRoom` / `MatchRoom` / `Room`                                                                                  | `kind: "custom"` または `kind: "match"` の Room 情報                                                                                        |
+| `RoomStatus` / `WaitingRoomState` / `PreparingRoomState` / `InProgressRoomState` / `FinishedRoomState` / `RoomState` | Room の状態と状態別必須時刻                                                                                                                 |
+| `RoomSnapshotBase` / `CustomRoomSnapshot` / `MatchRoomSnapshot` / `RoomSnapshot`                                     | `revision`、状態、参加者、チーム、Room 固有情報を持つ Snapshot                                                                              |
+| `MatchmakingPool`                                                                                                    | `id`、`gameId`、`seasonId`、`mode`、`region` の Pool 識別情報。任意の `maxPartySize`（既定 1）と `teamSize`（既定 1）でパーティー人数を制限 |
+| `Rating`                                                                                                             | `playerId`、`poolId`、`value` の現在値                                                                                                      |
+| `MatchCandidate` / `MatchResult`                                                                                     | 2 チケットの候補と成立した対戦 Room                                                                                                         |
+| `MatchmakingTicketStatus`                                                                                            | `creating`、`waiting`、`reserved`、`matched`、`cancelled`、`expired`                                                                        |
+| `MatchmakingTicketBase` と状態別 Ticket 型                                                                           | 共通 ID/Pool/Player/Rating/時刻と状態固有フィールド。任意の `players`（ソート済み・重複なしの構成員 PlayerId 一覧、省略時は 1 人チケット）  |
+| `GameMessageName<TApp>` / `GameMessagePayload<TApp, TName>` / `GameMessage<TApp>`                                    | ゲーム固有メッセージ名と Payload の型対応                                                                                                   |
+| `InferFlareLobbyApp<TPublicType>`                                                                                    | 公開型へ束縛されたアプリ型を取り出す型                                                                                                      |
 
 ID の別名は `PlayerId`、`PrincipalId`、`RoomId`、`InvitationCode`、`ParticipantId`、
 `TeamId`、`MatchmakingPoolId`、`MatchmakingTicketId`、`MatchCandidateId`、`MatchId`、
@@ -61,6 +61,18 @@ ID の別名は `PlayerId`、`PrincipalId`、`RoomId`、`InvitationCode`、`Part
 `20_000 → 150`、`60_000 → 400`）、`DEFAULT_MATCHMAKING_MAX_TICKETS_PER_SEARCH`
 （256）、`DEFAULT_MATCHMAKING_MAX_CANDIDATES_PER_SEARCH`（8192）、
 `DEFAULT_MATCHMAKING_MAX_MATCHES_PER_SEARCH`（32）です。
+
+チケットは参加者集合を 1 単位として扱います（ADR-0005）。`MatchmakingSearchTicket`
+の `players`（`MatchmakingSearchTicketPlayer` の配列。省略時は `player` と
+`rating` からなる 1 人構成）を指定すると N 人チケットになり、レート参照値は
+キュー投入時にスナップショットした構成員レートの算術平均です。検索幅の段階拡大は
+この平均値へ適用され、成立には両チケットの構成人員が一致し、かつ Pool の
+`teamSize` と一致することが求められます。同一構成員を含むチケット同士や
+リージョン・Pool が異なるチケット同士は成立しません。品質比較は
+平均レート差 → 入力方式の一致 → チケット内最大構成員偏差
+（`maxMemberDeviation`）→ 待機時間 → 候補 ID の順です。1 人チケットでは
+`players` を省略でき、既定の Pool 設定（`teamSize: 1`）のもとで v0.1.0 と同じ
+挙動を保ちます。
 
 ### ELO
 
@@ -343,24 +355,27 @@ Room の既定値は `DEFAULT_DISCONNECT_GRACE_PERIOD_MS`、`DEFAULT_EVENT_HISTO
 
 ## `@flarelobby/testing`
 
-| API                                                                            | 引数                                                                   | 戻り値                                                         |
-| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `VirtualClock` / `createVirtualClock(initialTime?)`                            | epoch ms または Timestamp                                              | `now`、`nowTimestamp`、`advanceBy`、`advanceTo` を持つ仮想時計 |
-| `toEpochMilliseconds(value)` / `addMilliseconds(left, right)`                  | 時刻/ミリ秒                                                            | epoch ms または Timestamp                                      |
-| `SeededRandom` / `createSeededRandom(seed)`                                    | string または安全な整数                                                | `next`、`nextInt`、`chance`。アルゴリズム `mulberry32-v1`      |
-| `normalizePlayerGenerationOptions`                                             | 生成数、ID prefix、rating/joinedAt 分布、region、inputMethod           | 正規化設定                                                     |
-| `generateSimulationPlayers`                                                    | 生成設定、RandomSource                                                 | SimulationPlayer 配列                                          |
-| `normalizeSimulationPlayers`                                                   | 固定 Player 配列                                                       | 検証・順序安定化済み配列                                       |
-| `normalizeNumericDistribution` / `sampleNumericDistribution`                   | fixed/uniform/normal 分布、乱数                                        | 正規化分布/数値                                                |
-| `normalizeTimestampDistribution` / `sampleTimestampDistribution`               | fixed/uniform 時刻分布、乱数                                           | 正規化分布/epoch ms                                            |
-| `simulateMatchmaking`                                                          | seed、players または playerGeneration、期間、tick、TTL、Policy、cancel | `MatchmakingSimulationResult`                                  |
-| `replaySimulation(replay)`                                                     | 結果の `replay`                                                        | 同じ結果を再実行                                               |
-| `compareSearchPolicies(config, first, second)`                                 | 同じ seed の設定と 2 Policy                                            | `SimulationPolicyComparison`。差分は second - first            |
-| `serializeSimulationResult` / `summarizeSimulation` / `formatSimulationOutput` | Simulation Result                                                      | JSON、短い日本語要約、または両方                               |
+| API                                                                            | 引数                                                                              | 戻り値                                                         |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `VirtualClock` / `createVirtualClock(initialTime?)`                            | epoch ms または Timestamp                                                         | `now`、`nowTimestamp`、`advanceBy`、`advanceTo` を持つ仮想時計 |
+| `toEpochMilliseconds(value)` / `addMilliseconds(left, right)`                  | 時刻/ミリ秒                                                                       | epoch ms または Timestamp                                      |
+| `SeededRandom` / `createSeededRandom(seed)`                                    | string または安全な整数                                                           | `next`、`nextInt`、`chance`。アルゴリズム `mulberry32-v1`      |
+| `normalizePlayerGenerationOptions`                                             | 生成数、ID prefix、rating/joinedAt 分布、region、inputMethod                      | 正規化設定                                                     |
+| `generateSimulationPlayers`                                                    | 生成設定、RandomSource                                                            | SimulationPlayer 配列                                          |
+| `normalizeSimulationPlayers`                                                   | 固定 Player 配列                                                                  | 検証・順序安定化済み配列                                       |
+| `normalizeNumericDistribution` / `sampleNumericDistribution`                   | fixed/uniform/normal 分布、乱数                                                   | 正規化分布/数値                                                |
+| `normalizeTimestampDistribution` / `sampleTimestampDistribution`               | fixed/uniform 時刻分布、乱数                                                      | 正規化分布/epoch ms                                            |
+| `simulateMatchmaking`                                                          | seed、players または playerGeneration、partySize、期間、tick、TTL、Policy、cancel | `MatchmakingSimulationResult`                                  |
+| `replaySimulation(replay)`                                                     | 結果の `replay`                                                                   | 同じ結果を再実行                                               |
+| `compareSearchPolicies(config, first, second)`                                 | 同じ seed の設定と 2 Policy                                                       | `SimulationPolicyComparison`。差分は second - first            |
+| `serializeSimulationResult` / `summarizeSimulation` / `formatSimulationOutput` | Simulation Result                                                                 | JSON、短い日本語要約、または両方                               |
 
 シミュレーションの状態は `not_joined`、`waiting`、`matched`、`cancelled`、`expired`、
 イベントは `joined`、`cancelled`、`expired`、`matched` です。結果には replay、全
 チケット、全イベント、成立候補、待機時間・レート差の分布統計が含まれます。
+`partySize` を指定するとプレイヤーが ID 順に固定人数のパーティーへグループ化され、
+パーティーごとに 1 枚のチケットが作られます。チケット結果の `playerIds` には全構成員が
+含まれ、Pool の `teamSize` を併せて指定することでパーティーキューを検証できます。
 
 ## エラーコード
 
@@ -396,7 +411,7 @@ Room の既定値は `DEFAULT_DISCONNECT_GRACE_PERIOD_MS`、`DEFAULT_EVENT_HISTO
 
 ### core
 
-`JsonPrimitive`, `JsonObject`, `JsonValue`, `ReadonlyDeep`, `Timestamp`, `Revision`, `PlayerId`, `PrincipalId`, `RoomId`, `InvitationCode`, `ParticipantId`, `TeamId`, `MatchmakingPoolId`, `MatchmakingTicketId`, `MatchCandidateId`, `MatchId`, `GameId`, `SeasonId`, `MatchMode`, `Region`, `Player`, `Principal`, `Team`, `PlayerParticipant`, `Spectator`, `Participant`, `Host`, `RoomSettings`, `RoomMetadata`, `GameMessageMap`, `FlareLobbyApp`, `AnyFlareLobbyApp`, `AppRoomSettings`, `AppRoomMetadata`, `AppGameMessages`, `CustomRoom`, `MatchRoom`, `Room`, `RoomStatus`, `WaitingRoomState`, `PreparingRoomState`, `InProgressRoomState`, `FinishedRoomState`, `RoomState`, `RoomSnapshotBase`, `CustomRoomSnapshot`, `MatchRoomSnapshot`, `RoomSnapshot`, `MatchmakingPool`, `Rating`, `MatchCandidate`, `MatchResult`, `MatchmakingTicketStatus`, `MatchmakingTicketBase`, `CreatingMatchmakingTicket`, `WaitingMatchmakingTicket`, `ReservedMatchmakingTicket`, `MatchedMatchmakingTicket`, `CancelledMatchmakingTicket`, `ExpiredMatchmakingTicket`, `MatchmakingTicket`, `GameMessageName`, `GameMessagePayload`, `GameMessage`, `InferFlareLobbyApp`, `RatingResult`, `RatingCalculationInput`, `RatingCalculation`, `RatingEngine`, `EloOptions`, `DEFAULT_ELO_INITIAL_RATING`, `DEFAULT_ELO_K_FACTOR`, `EloCalculation`, `EloEngine`, `elo`, `MatchmakingSearchWidthStage`, `MatchmakingSearchPolicy`, `NormalizedMatchmakingSearchPolicy`, `DEFAULT_MATCHMAKING_SEARCH_WIDTH_STAGES`, `DEFAULT_MATCHMAKING_MAX_TICKETS_PER_SEARCH`, `DEFAULT_MATCHMAKING_MAX_CANDIDATES_PER_SEARCH`, `DEFAULT_MATCHMAKING_MAX_MATCHES_PER_SEARCH`, `MatchmakingSearchTicket`, `MatchmakingCandidateQuality`, `MatchmakingCandidateEvaluation`, `MatchmakingCandidateSearchOptions`, `MatchmakingCandidateEvaluationOptions`, `normalizeMatchmakingSearchPolicy`, `getMatchmakingSearchWidth`, `getNextMatchmakingSearchAt`, `evaluateMatchCandidate`, `selectMatchCandidates`, `findBestMatchCandidate`, `compareMatchCandidateQuality`, `evaluateMatchmakingCandidate`, `findBestMatchmakingCandidate`, `PROTOCOL_VERSION`, `ProtocolVersion`, `RequestId`, `ProtocolCommandName`, `ProtocolEventType`, `ProtocolMessageKind`, `ProtocolEnvelope`, `ClientCommandEnvelope`, `ServerSuccessEnvelope`, `FLARE_LOBBY_ERROR_CODES`, `FlareLobbyErrorCode`, `FlareLobbyErrorPayload`, `FlareLobbyErrorOptions`, `FlareLobbyError`, `ServerFailureEnvelope`, `ServerEventEnvelope`, `ServerMessage`, `ProtocolMessage`, `ProtocolSuccess`, `ProtocolFailure`, `ProtocolResult`, `ProtocolValidationOptions`, `EventRevisionStatus`, `isDuplicateRequest`, `classifyEventRevision`, `validateProtocolMessage`, `decodeProtocolMessage`, `decodeClientCommand`, `decodeServerMessage`, `encodeProtocolMessage`, `isFlareLobbyErrorCode`
+`JsonPrimitive`, `JsonObject`, `JsonValue`, `ReadonlyDeep`, `Timestamp`, `Revision`, `PlayerId`, `PrincipalId`, `RoomId`, `InvitationCode`, `ParticipantId`, `TeamId`, `MatchmakingPoolId`, `MatchmakingTicketId`, `MatchCandidateId`, `MatchId`, `GameId`, `SeasonId`, `MatchMode`, `Region`, `Player`, `Principal`, `Team`, `PlayerParticipant`, `Spectator`, `Participant`, `Host`, `RoomSettings`, `RoomMetadata`, `GameMessageMap`, `FlareLobbyApp`, `AnyFlareLobbyApp`, `AppRoomSettings`, `AppRoomMetadata`, `AppGameMessages`, `CustomRoom`, `MatchRoom`, `Room`, `RoomStatus`, `WaitingRoomState`, `PreparingRoomState`, `InProgressRoomState`, `FinishedRoomState`, `RoomState`, `RoomSnapshotBase`, `CustomRoomSnapshot`, `MatchRoomSnapshot`, `RoomSnapshot`, `MatchmakingPool`, `Rating`, `MatchCandidate`, `MatchResult`, `MatchmakingTicketStatus`, `MatchmakingTicketBase`, `CreatingMatchmakingTicket`, `WaitingMatchmakingTicket`, `ReservedMatchmakingTicket`, `MatchedMatchmakingTicket`, `CancelledMatchmakingTicket`, `ExpiredMatchmakingTicket`, `MatchmakingTicket`, `GameMessageName`, `GameMessagePayload`, `GameMessage`, `InferFlareLobbyApp`, `RatingResult`, `RatingCalculationInput`, `RatingCalculation`, `RatingEngine`, `EloOptions`, `DEFAULT_ELO_INITIAL_RATING`, `DEFAULT_ELO_K_FACTOR`, `EloCalculation`, `EloEngine`, `elo`, `MatchmakingSearchWidthStage`, `MatchmakingSearchPolicy`, `NormalizedMatchmakingSearchPolicy`, `DEFAULT_MATCHMAKING_SEARCH_WIDTH_STAGES`, `DEFAULT_MATCHMAKING_MAX_TICKETS_PER_SEARCH`, `DEFAULT_MATCHMAKING_MAX_CANDIDATES_PER_SEARCH`, `DEFAULT_MATCHMAKING_MAX_MATCHES_PER_SEARCH`, `MatchmakingSearchTicket`, `MatchmakingSearchTicketPlayer`, `MatchmakingCandidateQuality`, `MatchmakingCandidateEvaluation`, `MatchmakingCandidateSearchOptions`, `MatchmakingCandidateEvaluationOptions`, `normalizeMatchmakingSearchPolicy`, `getMatchmakingSearchWidth`, `getNextMatchmakingSearchAt`, `evaluateMatchCandidate`, `selectMatchCandidates`, `findBestMatchCandidate`, `compareMatchCandidateQuality`, `evaluateMatchmakingCandidate`, `findBestMatchmakingCandidate`, `PROTOCOL_VERSION`, `ProtocolVersion`, `RequestId`, `ProtocolCommandName`, `ProtocolEventType`, `ProtocolMessageKind`, `ProtocolEnvelope`, `ClientCommandEnvelope`, `ServerSuccessEnvelope`, `FLARE_LOBBY_ERROR_CODES`, `FlareLobbyErrorCode`, `FlareLobbyErrorPayload`, `FlareLobbyErrorOptions`, `FlareLobbyError`, `ServerFailureEnvelope`, `ServerEventEnvelope`, `ServerMessage`, `ProtocolMessage`, `ProtocolSuccess`, `ProtocolFailure`, `ProtocolResult`, `ProtocolValidationOptions`, `EventRevisionStatus`, `isDuplicateRequest`, `classifyEventRevision`, `validateProtocolMessage`, `decodeProtocolMessage`, `decodeClientCommand`, `decodeServerMessage`, `encodeProtocolMessage`, `isFlareLobbyErrorCode`
 
 ### client
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_MATCHMAKING_SEARCH_WIDTH_STAGES,
+  compareMatchCandidateQuality,
   evaluateMatchCandidate,
   findBestMatchCandidate,
   getMatchmakingSearchWidth,
@@ -41,6 +42,33 @@ function ticket(
       poolId: pool.id,
       value: rating,
     },
+    queuedAt: new Date(queuedAtMs).toISOString(),
+    region: overrides.region ?? pool.region,
+    inputMethod: overrides.inputMethod ?? "keyboard_mouse",
+  };
+}
+
+function partyTicket(
+  id: string,
+  ratings: readonly number[],
+  queuedAtMs = NOW,
+  overrides: Partial<
+    Pick<MatchmakingSearchTicket, "region" | "inputMethod" | "pool">
+  > = {},
+): MatchmakingSearchTicket {
+  return {
+    id,
+    pool: overrides.pool ?? pool,
+    player: { id: `player-${id}` },
+    rating: {
+      playerId: `player-${id}`,
+      poolId: (overrides.pool ?? pool).id,
+      value: ratings[0]!,
+    },
+    players: ratings.map((ratingValue, index) => ({
+      id: index === 0 ? `player-${id}` : `player-${id}-${index}`,
+      ratingValue,
+    })),
     queuedAt: new Date(queuedAtMs).toISOString(),
     region: overrides.region ?? pool.region,
     inputMethod: overrides.inputMethod ?? "keyboard_mouse",
@@ -208,5 +236,115 @@ describe("1 対 1 マッチング候補探索", () => {
         { now: NOW, policy },
       ),
     ).not.toBeNull();
+  });
+});
+
+describe("パーティーチケットの候補探索", () => {
+  const duoPool: MatchmakingPool = { ...pool, teamSize: 2, maxPartySize: 2 };
+
+  it("パーティー平均レートで成立可否を判定する", () => {
+    const first = partyTicket("a", [1500, 1600], NOW, { pool: duoPool });
+    const second = partyTicket("b", [1540, 1560], NOW, { pool: duoPool });
+    const evaluation = evaluateMatchCandidate(first, second, { now: NOW });
+
+    expect(evaluation).not.toBeNull();
+    expect(evaluation?.quality.ratingDifference).toBe(0);
+    // 構成員レートが大きく離れても、平均差が検索幅内なら成立する。
+    const spreadFirst = partyTicket("c", [1470, 1580], NOW, {
+      pool: duoPool,
+    });
+
+    expect(
+      evaluateMatchCandidate(spreadFirst, second, { now: NOW }),
+    ).not.toBeNull();
+    // 平均差が検索幅を超える組は成立しない。
+    const highAverage = partyTicket("d", [1620, 1640], NOW, { pool: duoPool });
+
+    expect(evaluateMatchCandidate(first, highAverage, { now: NOW })).toBeNull();
+  });
+
+  it("構成人員が異なるチケット同士と teamSize 外のチケットを拒否する", () => {
+    const duo = partyTicket("a", [1500, 1550]);
+    const otherDuo = partyTicket("b", [1500, 1550]);
+    const trioPool: MatchmakingPool = { ...pool, teamSize: 3 };
+    const trio = partyTicket("c", [1500, 1525, 1550], NOW, {
+      pool: trioPool,
+    });
+
+    // 既定 Pool の teamSize は 1 なので、2 人チケット同士も成立しない。
+    expect(evaluateMatchCandidate(duo, otherDuo, { now: NOW })).toBeNull();
+    expect(evaluateMatchCandidate(duo, trio, { now: NOW })).toBeNull();
+    expect(
+      evaluateMatchCandidate(trio, partyTicket("d", [1500, 1525, 1550]), {
+        now: NOW,
+      }),
+    ).toBeNull();
+  });
+
+  it("同一構成員を含むパーティー同士を拒否する", () => {
+    const first = partyTicket("a", [1500, 1600], NOW, { pool: duoPool });
+    const overlapping: MatchmakingSearchTicket = {
+      ...partyTicket("b", [1500, 1550], NOW, { pool: duoPool }),
+      players: [
+        { id: "player-b", ratingValue: 1500 },
+        { id: "player-a-1", ratingValue: 1550 },
+      ],
+    };
+
+    expect(evaluateMatchCandidate(first, overlapping, { now: NOW })).toBeNull();
+    // 構成員が重複しなければ、リーダー ID が違うだけで成立判定に影響しない。
+    const disjoint = partyTicket("b", [1500, 1550], NOW, { pool: duoPool });
+
+    expect(
+      evaluateMatchCandidate(first, disjoint, { now: NOW }),
+    ).not.toBeNull();
+  });
+
+  it("品質比較で最大構成員偏差が小さい候補を優先する", () => {
+    const evenFirst = partyTicket("a", [1500, 1500], NOW - 10_000, {
+      pool: duoPool,
+    });
+    const evenSecond = partyTicket("b", [1510, 1510], NOW - 10_000, {
+      pool: duoPool,
+    });
+    const skewedFirst = partyTicket("c", [1490, 1510], NOW - 10_000, {
+      pool: duoPool,
+    });
+    const skewedSecond = partyTicket("d", [1505, 1515], NOW - 10_000, {
+      pool: duoPool,
+    });
+    const evenPair = evaluateMatchCandidate(evenFirst, evenSecond, {
+      now: NOW,
+    });
+    const skewedPair = evaluateMatchCandidate(skewedFirst, skewedSecond, {
+      now: NOW,
+    });
+
+    expect(evenPair).not.toBeNull();
+    expect(skewedPair).not.toBeNull();
+    // 平均レート差は両候補とも 10 だが、偏差が小さい候補を先に返す。
+    expect(evenPair!.quality.ratingDifference).toBe(10);
+    expect(skewedPair!.quality.ratingDifference).toBe(10);
+    expect(evenPair!.quality.maxMemberDeviation).toBe(0);
+    expect(skewedPair!.quality.maxMemberDeviation).toBeCloseTo(10);
+    expect(compareMatchCandidateQuality(evenPair!, skewedPair!)).toBeLessThan(
+      0,
+    );
+    expect(
+      compareMatchCandidateQuality(skewedPair!, evenPair!),
+    ).toBeGreaterThan(0);
+  });
+
+  it("players を省略したチケットは従来どおり 1 人チケットとして扱う", () => {
+    const solo = ticket("a", 1500);
+    const explicitSolo: MatchmakingSearchTicket = {
+      ...ticket("a", 1500),
+      players: [{ id: "player-a", ratingValue: 1500 }],
+    };
+    const opponent = ticket("b", 1550);
+
+    expect(
+      evaluateMatchCandidate(explicitSolo, opponent, { now: NOW }),
+    ).toEqual(evaluateMatchCandidate(solo, opponent, { now: NOW }));
   });
 });
