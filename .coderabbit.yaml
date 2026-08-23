@@ -1,8 +1,24 @@
 # CodeRabbit configuration
 # https://docs.coderabbit.ai/reference/configuration-template
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: ja-JP
+
 reviews:
-  auto_review:
+  auto_apply_labels: true
+  poem: true
+  finishing_touches:
+    unit_tests:
+      enabled: false
+  tools:
+    presidio:
+      enabled: false
+
+code_generation:
+  docstrings:
+    language: ja-JP
+
+issue_enrichment:
+  auto_enrich:
     enabled: true
-    # デフォルトブランチ(main)以外のbaseブランチ宛てPRも自動レビュー対象にする
-    base_branches:
-      - ".*"
+  labeling:
+    auto_apply_labels: true
