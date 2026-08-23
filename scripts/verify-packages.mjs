@@ -202,12 +202,7 @@ for (const packageDefinition of packages) {
   const filePatterns = new Set(
     Array.isArray(manifest.files) ? manifest.files : [],
   );
-  for (const pattern of [
-    "dist",
-    "!dist/.tsbuildinfo",
-    "README.md",
-    "LICENSE",
-  ]) {
+  for (const pattern of ["dist", "!.tsbuildinfo", "README.md", "LICENSE"]) {
     if (!filePatterns.has(pattern)) {
       errors.push(
         `${manifestPath} の files に必要な許可パターンがありません: ${pattern}`,

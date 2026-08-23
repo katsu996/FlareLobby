@@ -33,7 +33,7 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
-    "!dist/.tsbuildinfo",
+    "!.tsbuildinfo",
     "README.md",
     "LICENSE"
   ],
