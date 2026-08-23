@@ -708,7 +708,7 @@ function toSearchTicket(
       id: member.id,
       ratingValue: member.rating,
     })),
-    queuedAt: record.player.joinedAt,
+    queuedAt: new Date(record.joinedAtMs).toISOString(),
     region: record.player.region,
     inputMethod: record.player.inputMethod,
   };
@@ -731,7 +731,7 @@ function toTicketResult(record: WorkingTicket): SimulationTicketResult {
     playerId: record.player.id,
     playerIds: record.members.map((member) => member.id),
     rating: record.player.rating,
-    queuedAt: record.player.joinedAt,
+    queuedAt: new Date(record.joinedAtMs).toISOString(),
     status: record.status,
     cancelledAt: toOptionalTimestamp(record.cancelledAtMs),
     expiredAt: toOptionalTimestamp(record.expiredAtMs),

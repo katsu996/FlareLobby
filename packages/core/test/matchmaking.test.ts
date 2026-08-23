@@ -335,6 +335,19 @@ describe("パーティーチケットの候補探索", () => {
     ).toBeGreaterThan(0);
   });
 
+  it("構成員数が pool.maxPartySize を超えるチケットを検証で拒否する", () => {
+    const limitedPool: MatchmakingPool = { ...pool, maxPartySize: 2 };
+    const oversized = partyTicket("a", [1500, 1525, 1550], NOW, {
+      pool: limitedPool,
+    });
+
+    expect(() =>
+      evaluateMatchCandidate(oversized, partyTicket("b", [1500]), {
+        now: NOW,
+      }),
+    ).toThrow(RangeError);
+  });
+
   it("players を省略したチケットは従来どおり 1 人チケットとして扱う", () => {
     const solo = ticket("a", 1500);
     const explicitSolo: MatchmakingSearchTicket = {

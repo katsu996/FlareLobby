@@ -306,7 +306,11 @@ describe("@flarelobby/testing の決定論的テスト補助", () => {
   });
 
   it("partySize でパーティー単位のチケットを作り、平均レートで成立させる", () => {
-    const partyPool: MatchmakingPool = { ...pool, teamSize: 2 };
+    const partyPool: MatchmakingPool = {
+      ...pool,
+      teamSize: 2,
+      maxPartySize: 2,
+    };
     const config: MatchmakingSimulationConfig = {
       seed: "party-queue",
       players: [
@@ -367,6 +371,7 @@ describe("@flarelobby/testing の決定論的テスト補助", () => {
       startAt: NOW,
       durationMs: 2_000,
       tickMs: 1_000,
+      pool: { ...pool, maxPartySize: 2 },
     });
 
     expect(result.statistics.joinedTicketCount).toBe(2);

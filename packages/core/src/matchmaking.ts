@@ -690,6 +690,12 @@ function normalizeSearchTicket(
         "候補探索チケットの構成員にはリーダーを含めてください。",
       );
     }
+
+    if (poolMaxPartySize !== undefined && players.length > poolMaxPartySize) {
+      throw new RangeError(
+        "候補探索チケットの構成員は pool.maxPartySize 以下にしてください。",
+      );
+    }
   }
 
   if (
