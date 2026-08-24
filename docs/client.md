@@ -128,6 +128,45 @@ await waiting; // 中止時は CANCELLED
 ショットを同期してから返します。チケットイベントの一時切断時は最後に受信した
 イベント番号から履歴を再取得して再接続するため、既存チケットの状態を引き継げます。
 
+## パーティー
+
+`createParty()` でパーティーを作成すると、作成者をリーダーとした接続済みの
+`Party` ハンドルを返します。招待の受諾は `joinParty()`、既存パーティーへの再接続は
+`getParty()` を使います。
+
+```ts
+const party = await client.createParty({ maxPartySize: 5 });
+const invite = await party.invite("player-2");
+// 招待された側:
+const joined = await client.joinParty({
+  partyId: party.id,
+  token: invite.token,
+});
+
+const unsubscribe = party.on("update", (event) => {
+  renderParty(event.snapshot);
+});
+```
+
+操作メソッドはサーバーの成功応答を待ってから解決します。`leave()` は退出を要求し、
+メンバーが 2 未満になった時点でサーバー側が自動解散します。リーダーだけが
+`transferLeadership()` と `dissolve()` を実行できます。`dissolved` イベントを受信するか、
+`leave()`・`dissolve()` が成功すると、ハンドルはイベント購読を終了し、以降の状態変更を
+破棄します。
+
+リーダーは `joinRankedQueue()` でパーティー単位のランクキューへ参加します。キュー投入中は
+Party 側で構成変更が凍結され(`snapshot.queuedTicket`)、`cancelQueue()` でチケットを停止
+します。キューの進捗と成立は `joinMatchmaking()` と同じ `MatchmakingTicket` ハンドルで
+扱えます。単独での参加も `joinMatchmaking(pool, { partyId })` として利用できます。
+
+### 再接続と状態復元
+
+パーティーのイベント接続はリーダーに限らずメンバー全員が開けます。各イベントは完全な
+Snapshot を運ぶため、履歴に欠落や逆順があっても最新 Snapshot へ一括で前進します。接続が
+一時的に切断されると、指数バックオフと揺らぎを使って最大試行回数まで再接続し、その際に
+最後に適用したイベント番号を `after` Query へ指定して、欠落分の履歴と Snapshot で状態を
+復元します。再試行回数や待機時間は `reconnect` オプションで調整できます。
+
 ## WebSocket
 
 ```ts

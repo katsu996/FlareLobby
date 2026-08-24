@@ -54,3 +54,22 @@ export type {
   MatchmakingTicketSnapshot,
   MatchmakingWaitForMatchOptions,
 } from "./matchmaking.js";
+export type {
+  Party,
+  PartyClientApi,
+  PartyConnectionStatus,
+  PartyConnectionStatusListener,
+  PartyCreationOptions,
+  PartyEventType,
+  PartyEvent,
+  PartyInvite,
+  PartyInviteRequestOptions,
+  PartyJoinOptions,
+  PartyMemberRole,
+  PartyMemberSnapshot,
+  PartyOperationOptions,
+  PartyQueueJoinOptions,
+  PartyRequestOptions,
+  PartySnapshot,
+  PartyUpdateListener,
+} from "./party.js";

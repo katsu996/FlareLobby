@@ -50,6 +50,11 @@ export interface MatchmakingJoinOptions {
   readonly searchAttributes?: JsonObject;
   readonly expiresAt?: number | Timestamp;
   readonly ttlMs?: number;
+  /**
+   * パーティー単位のチケットを作成する場合のパーティー ID です。
+   * 指定時はリーダーだけが作成でき、構成員は凍結されます。
+   */
+  readonly partyId?: string;
   readonly signal?: AbortSignal;
   readonly reconnect?: RoomReconnectOptions;
 }
@@ -217,7 +222,7 @@ interface TicketWaiter<TApp extends AnyFlareLobbyApp> {
   aborted: boolean;
 }
 
-interface NormalizedReconnectOptions {
+export interface NormalizedReconnectOptions {
   readonly maxAttempts: number;
   readonly baseDelayMs: number;
   readonly maxDelayMs: number;
@@ -286,6 +291,7 @@ async function joinMatchmaking<TApp extends AnyFlareLobbyApp>(
     searchAttributes: options.searchAttributes,
     expiresAt: options.expiresAt,
     ttlMs: options.ttlMs,
+    partyId: options.partyId,
   });
 
   let response: unknown;
@@ -414,7 +420,7 @@ class MatchmakingTicketImpl<
     this.poolId = poolId;
     this.inlineConnection = connection;
     this.roomReconnectOptions = reconnectOptions;
-    this.reconnectOptions = normalizeReconnectOptions(reconnectOptions);
+    this.reconnectOptions = normalizeRoomReconnectOptions(reconnectOptions);
     this.queuedAtMs = getQueuedAtMs(snapshot);
     this.searchWidthState = getCurrentSearchWidth(snapshot, this.queuedAtMs);
   }
@@ -1259,7 +1265,11 @@ function getPoolSearchPolicy(
   return isRecord(policy) ? (policy as MatchmakingSearchPolicy) : undefined;
 }
 
-function normalizeReconnectOptions(
+/**
+ * Room・マッチメイキング・パーティーで共通の再接続設定の正規化です。
+ * 不正な値は既定値への置き換えではなく `INVALID_PAYLOAD` で拒否します。
+ */
+export function normalizeRoomReconnectOptions(
   options: RoomReconnectOptions | undefined,
 ): NormalizedReconnectOptions {
   const maxAttempts = normalizeReconnectInteger(
