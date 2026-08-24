@@ -373,6 +373,25 @@ export function validateWebSocketCommand(
     : validateInput(command.value, validator, command.value.requestId);
 }
 
+/**
+ * Gateway が Durable Object へ転送する署名済み主体トークンを読み取ります。
+ * 内部転送用ヘッダーと Authorization Bearer の両方を受け付けます。
+ */
+export function readGatewayToken(request: Request): string | null {
+  const direct = request.headers.get("x-flarelobby-gateway-token");
+  if (typeof direct === "string" && direct.length > 0) {
+    return direct;
+  }
+
+  const authorization = request.headers.get("authorization");
+  if (authorization?.startsWith("Bearer ")) {
+    const token = authorization.slice("Bearer ".length);
+    return token.length > 0 ? token : null;
+  }
+
+  return null;
+}
+
 /** WebSocket subprotocol から参加用トークンを読み取ります。トークン自体は公開しません。 */
 export function readWebSocketJoinToken(
   request: Request,

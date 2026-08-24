@@ -13,7 +13,11 @@ import type {
   FlareLobbyConfiguration,
   MatchmakingPoolConfiguration,
 } from "./config.js";
-import { getRating as getStoredRating, registerMatchResult } from "./rating.js";
+import {
+  getRating as getStoredRating,
+  registerMatchResult,
+  registerTeamMatchResult,
+} from "./rating.js";
 import type { MatchResultRegistrationInput } from "./rating.js";
 import {
   authorizeGatewayOperation,
@@ -77,10 +81,8 @@ interface MatchPoolGatewayStub {
     readonly region?: string;
     readonly inputMethod?: string;
     readonly inputMode?: string;
-    readonly searchAttributes?: JsonObject;
-    readonly expiresAt?: number | string;
-    readonly ttlMs?: number;
     readonly pool?: MatchmakingPool;
+    readonly party?: { readonly partyId: string };
     readonly observability?: FlareLobbyObservabilityContext;
   }): Promise<MatchmakingTicketRecord>;
   getTicket(ticketId: string): Promise<MatchmakingTicketRecord | null>;
@@ -391,6 +393,21 @@ async function createTicket<TApp extends AnyFlareLobbyApp>(
         poolConfiguration.rating,
       )
     ).value;
+  const requestedPartyId = readOptionalString(body.value["partyId"]);
+  if (requestedPartyId !== undefined) {
+    const partyStub = env.FLARE_LOBBY_PARTIES.getByName(requestedPartyId);
+    const snapshot = await partyStub.getSnapshot({
+      gatewayPrincipal: authenticatedRequest.gatewayPrincipal,
+    });
+    const leader = snapshot?.members.find((member) => member.role === "leader");
+    if (
+      snapshot === null ||
+      leader === undefined ||
+      leader.playerId !== authenticatedRequest.principal.playerId
+    ) {
+      return createErrorResponse(new FlareLobbyError("FORBIDDEN"));
+    }
+  }
   const options = {
     gatewayPrincipal: authenticatedRequest.gatewayPrincipal,
     requestId,
@@ -401,6 +418,9 @@ async function createTicket<TApp extends AnyFlareLobbyApp>(
     ...(searchAttributes === undefined ? {} : { searchAttributes }),
     ...(expiresAt === undefined ? {} : { expiresAt }),
     ...(ttlMs === undefined ? {} : { ttlMs }),
+    ...(requestedPartyId === undefined
+      ? {}
+      : { party: { partyId: requestedPartyId } }),
     pool,
     observability: withObservabilityRequestId(
       authenticatedRequest.observability ?? readObservabilityContext(request),
@@ -457,6 +477,8 @@ async function registerGatewayMatchResult<TApp extends AnyFlareLobbyApp>(
   poolStub: MatchPoolGatewayStub,
   matchId: string,
 ): Promise<Response> {
+  // 認可 Hook は処理の前面で判定します。Hook が許可した処理だけが
+  // Match Pool の成立状態を参照できます (ADR-0004)。
   const authorization = await authorizeGatewayOperation(
     authenticatedRequest,
     configuration.authorization,
@@ -489,19 +511,29 @@ async function registerGatewayMatchResult<TApp extends AnyFlareLobbyApp>(
     throw new FlareLobbyError("CONFLICT");
   }
 
-  const [playerATicketId, playerBTicketId] = intent.result.candidate.ticketIds;
-  const playerATicket = await poolStub.getTicket(playerATicketId);
-  const playerBTicket = await poolStub.getTicket(playerBTicketId);
-  if (
-    playerATicket === null ||
-    playerBTicket === null ||
-    playerATicket.status !== "matched" ||
-    playerBTicket.status !== "matched" ||
-    playerATicket.result.matchId !== matchId ||
-    playerBTicket.result.matchId !== matchId
-  ) {
+  // 参加者の正本は成立済みチケットであり、クライアント申告値は使わない (ADR-0004)。
+  // N 人チケットでは candidate.ticketIds の順序が slot A/B を決めます (ADR-0005)。
+  const tickets: MatchmakingTicketRecord[] = [];
+  for (const ticketId of intent.result.candidate.ticketIds) {
+    const ticket = await poolStub.getTicket(ticketId);
+    if (
+      ticket === null ||
+      ticket.status !== "matched" ||
+      ticket.result.matchId !== matchId
+    ) {
+      throw new FlareLobbyError("CONFLICT");
+    }
+    tickets.push(ticket);
+  }
+
+  const [ticketA, ticketB] = tickets;
+  if (ticketA === undefined || ticketB === undefined) {
     throw new FlareLobbyError("CONFLICT");
   }
+
+  // 参加者 ID は認証主体の申告ではなく、成立済みチケットから復元します。
+  const playerAIds = getTicketPlayerIds(ticketA);
+  const playerBIds = getTicketPlayerIds(ticketB);
 
   const registration = await observeOperation(
     createObservabilitySink(
@@ -510,23 +542,95 @@ async function registerGatewayMatchResult<TApp extends AnyFlareLobbyApp>(
     ),
     observability,
     "rating.result",
-    () =>
-      registerMatchResult(
+    async () => {
+      if (playerAIds.length === 1 && playerBIds.length === 1) {
+        return registerMatchResult(
+          env.FLARE_LOBBY_DB,
+          pool,
+          {
+            ...input,
+            playerAId: playerAIds[0]!,
+            playerBId: playerBIds[0]!,
+          },
+          poolConfiguration.rating,
+        );
+      }
+
+      const teamIds = await resolveMatchTeamIds(env, intent.result!, [
+        ...playerAIds,
+        ...playerBIds,
+      ]);
+      return registerTeamMatchResult(
         env.FLARE_LOBBY_DB,
         pool,
         {
           ...input,
-          playerAId: playerATicket.player.id,
-          playerBId: playerBTicket.player.id,
+          teamAId: teamIds.teamAId,
+          teamBId: teamIds.teamBId,
+          playerAIds,
+          playerBIds,
         },
         poolConfiguration.rating,
-      ),
+      );
+    },
   );
 
   return Response.json({
     match: registration.match,
     applied: registration.applied,
   });
+}
+
+/** チケットの構成員全員を返します。1 人チケットは所有者のみです。 */
+function getTicketPlayerIds(
+  ticket: MatchmakingTicketRecord,
+): readonly string[] {
+  return ticket.players?.map((member) => member.id) ?? [ticket.player.id];
+}
+
+/** 成立済み Room の参加者割当から、slot A/B のチーム ID を復元します。 */
+async function resolveMatchTeamIds(
+  env: FlareLobbyBindings,
+  result: MatchmakingMatchIntent["result"] & object,
+  participantIds: readonly string[],
+): Promise<{ readonly teamAId: string; readonly teamBId: string }> {
+  const roomStub = env.FLARE_LOBBY_ROOMS.getByName(
+    result.room.id,
+  ) as unknown as MatchRoomGatewayStub;
+  const snapshot = await roomStub.getSnapshot();
+  if (snapshot === null) {
+    throw new FlareLobbyError("CONFLICT");
+  }
+
+  const teamByPlayer = new Map<string, string>();
+  for (const participant of snapshot.participants) {
+    if (participant.kind === "player" && participant.teamId !== null) {
+      teamByPlayer.set(participant.player.id, participant.teamId);
+    }
+  }
+
+  let teamAId: string | null = null;
+  let teamBId: string | null = null;
+  const half = participantIds.length / 2;
+  for (const [index, playerId] of participantIds.entries()) {
+    const teamId = teamByPlayer.get(playerId);
+    if (teamId === undefined) {
+      throw new FlareLobbyError("CONFLICT");
+    }
+    if (index < half) {
+      teamAId ??= teamId;
+      if (teamAId !== teamId) throw new FlareLobbyError("CONFLICT");
+    } else {
+      teamBId ??= teamId;
+      if (teamBId !== teamId) throw new FlareLobbyError("CONFLICT");
+    }
+  }
+
+  if (teamAId === null || teamBId === null || teamAId === teamBId) {
+    throw new FlareLobbyError("CONFLICT");
+  }
+
+  return { teamAId, teamBId };
 }
 
 async function createMatchRoomConnection(

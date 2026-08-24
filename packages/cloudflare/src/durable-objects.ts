@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 export { RoomDurableObject } from "./room.js";
 export { MatchPoolDurableObject } from "./match-pool.js";
+export { PartyDurableObject, PartyMembershipDurableObject } from "./party.js";
 import {
   FLARE_LOBBY_RATE_LIMIT_SCOPES,
   verifyGatewayPrincipalEnvelope,

@@ -5005,13 +5005,39 @@ function parseMatchmakingPool(value: JsonObject): MatchmakingPool {
     throw new FlareLobbyError("CONNECTION_FAILED");
   }
 
+  return withOptionalPartyFields(
+    {
+      id: value["id"] as string,
+      gameId: value["gameId"] as string,
+      seasonId: value["seasonId"] as string,
+      mode: value["mode"] as string,
+      region: value["region"] as string,
+    },
+    value,
+  );
+}
+
+/**
+ * Pool のパーティー拡張項目 (ADR-0005) を、保存値が持つ場合だけ復元します。
+ */
+function withOptionalPartyFields(
+  pool: MatchmakingPool,
+  value: Readonly<Record<string, unknown>>,
+): MatchmakingPool {
+  const maxPartySize = readPositiveSafeInteger(value["maxPartySize"]);
+  const teamSize = readPositiveSafeInteger(value["teamSize"]);
   return {
-    id: value["id"] as string,
-    gameId: value["gameId"] as string,
-    seasonId: value["seasonId"] as string,
-    mode: value["mode"] as string,
-    region: value["region"] as string,
+    ...pool,
+    ...(maxPartySize === undefined ? {} : { maxPartySize }),
+    ...(teamSize === undefined ? {} : { teamSize }),
   };
+}
+
+function readPositiveSafeInteger(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+    return undefined;
+  }
+  return value;
 }
 
 function normalizeMatchmakingPool(value: unknown): MatchmakingPool {
@@ -5025,13 +5051,16 @@ function normalizeMatchmakingPool(value: unknown): MatchmakingPool {
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }
 
-  return {
-    id: value["id"] as string,
-    gameId: value["gameId"] as string,
-    seasonId: value["seasonId"] as string,
-    mode: value["mode"] as string,
-    region: value["region"] as string,
-  };
+  return withOptionalPartyFields(
+    {
+      id: value["id"] as string,
+      gameId: value["gameId"] as string,
+      seasonId: value["seasonId"] as string,
+      mode: value["mode"] as string,
+      region: value["region"] as string,
+    },
+    value,
+  );
 }
 
 function parseJsonValue(value: string): JsonValue {

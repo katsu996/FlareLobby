@@ -32,6 +32,7 @@ import type {
 import {
   createErrorResponse,
   verifyGatewayPrincipalEnvelope,
+  readGatewayToken,
 } from "./security.js";
 import type { GatewayPrincipalEnvelope } from "./security.js";
 import type { RoomInitializationOptions } from "./room.js";
@@ -42,6 +43,18 @@ import {
   recordQualityMetric,
 } from "./observability.js";
 import type { FlareLobbyObservabilityContext } from "./observability.js";
+import { getRating } from "./rating.js";
+import type { PartyQueueStartResult } from "./party.js";
+
+/** Match Pool が Party Durable Object へ要求するキュー凍結のスタブ契約です。 */
+interface PartyQueueStub {
+  beginQueueTicket(options: {
+    gatewayPrincipal: GatewayPrincipalEnvelope;
+    ticketId: string;
+    poolKey: string;
+  }): Promise<PartyQueueStartResult>;
+  endQueueTicket(options: { ticketId: string }): Promise<void>;
+}
 
 /** チケットの既定の待機期限です。設定がない場合は 1 分後に期限切れにします。 */
 export const DEFAULT_MATCHMAKING_TICKET_TTL_MS = 60_000;
@@ -191,6 +204,7 @@ export interface MatchmakingMatchProcessingOptions {
   readonly observability?: FlareLobbyObservabilityContext;
 }
 
+/** すべてのマッチングチケット記録に共通する項目です。 */
 interface MatchmakingTicketRecordBase {
   readonly id: string;
   readonly pool: MatchmakingPool;
@@ -207,6 +221,16 @@ interface MatchmakingTicketRecordBase {
   readonly expiresAt: Timestamp;
   /** Alarm と比較する Unix epoch milliseconds です。 */
   readonly expiresAtMs: number;
+  /**
+   * パーティーチケットの構成員と、キュー投入時にスナップショットしたレートです。
+   * ソート済みで重複しません。1 人チケットでは省略します。
+   */
+  readonly players?: readonly MatchmakingTicketMember[];
+  /** パーティーチケットの参照先と、キュー投入時点の Party `revision` です。 */
+  readonly party?: {
+    readonly partyId: string;
+    readonly revision: number;
+  };
 }
 
 /** SQLite から復元した、検索属性と期限を含む JSON 直列化可能なチケットです。 */
@@ -257,6 +281,20 @@ export interface MatchmakingTicketCreationOptions {
   /** クライアント申告値は認証主体と一致する場合だけ受け付けます。 */
   readonly playerId?: string;
   readonly observability?: FlareLobbyObservabilityContext;
+  /**
+   * 指定時はリーダーとしてパーティー単位のチケットを作成します。
+   * 構成員と `revision` の正本は Party Durable Object であり、
+   * クライアント申告値は使いません。
+   */
+  readonly party?: {
+    readonly partyId: string;
+  };
+}
+
+/** パーティーチケットの構成員と、キュー投入時にスナップショットしたレートです。 */
+export interface MatchmakingTicketMember {
+  readonly id: string;
+  readonly ratingValue: number;
 }
 
 /** チケットのキャンセルを要求する入力です。 */
@@ -268,7 +306,6 @@ export interface MatchmakingTicketCancellationOptions {
   readonly observability?: FlareLobbyObservabilityContext;
 }
 
-/** 候補確保の入力です。候補探索そのものは本 Issue の対象外です。 */
 export interface MatchmakingTicketReservationOptions {
   readonly candidate: MatchCandidate;
   readonly observability?: FlareLobbyObservabilityContext;
@@ -328,10 +365,6 @@ export interface MatchmakingSearchResult {
   readonly nextSearchAt: Timestamp | null;
 }
 
-interface SchemaMigrationRow extends Record<string, SqlStorageValue> {
-  version: number;
-}
-
 interface PoolRow extends Record<string, SqlStorageValue> {
   poolId: string;
   poolKey: string;
@@ -342,6 +375,8 @@ interface PoolRow extends Record<string, SqlStorageValue> {
   searchPolicyJson: string;
   matchRoomJson: string;
   revision: number;
+  maxPartySize: number;
+  teamSize: number;
 }
 
 interface TicketRow extends Record<string, SqlStorageValue> {
@@ -362,6 +397,13 @@ interface TicketRow extends Record<string, SqlStorageValue> {
   matchedAt: string | null;
   cancelledAt: string | null;
   expiredAt: string | null;
+  membersJson: string | null;
+  partyId: string | null;
+  partyRevision: number | null;
+}
+
+interface SchemaMigrationRow extends Record<string, SqlStorageValue> {
+  version: number;
 }
 
 interface ProcessedCommandRow extends Record<string, SqlStorageValue> {
@@ -558,9 +600,11 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
         region,
         search_policy_json,
         match_room_json,
+        max_party_size,
+        team_size,
         revision,
         created_at
-      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
           normalized.pool.id,
           normalized.poolKey,
           normalized.pool.gameId,
@@ -569,6 +613,8 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
           normalized.pool.region,
           normalized.searchPolicyJson,
           normalized.matchRoomJson,
+          normalized.pool.maxPartySize ?? 1,
+          normalized.pool.teamSize ?? 1,
           Date.now(),
         );
 
@@ -858,6 +904,10 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
     });
 
     try {
+      const ticketId = `ticket_${crypto.randomUUID()}`;
+      const createdAt = new Date(normalized.createdAtMs).toISOString();
+      const searchAttributesJson = normalized.searchAttributesJson;
+
       const active = this.readActiveTicketByPlayer(principal.playerId);
 
       if (active !== undefined) {
@@ -866,13 +916,54 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
         });
       }
 
-      const ticketId = `ticket_${crypto.randomUUID()}`;
-      const createdAt = new Date(normalized.createdAtMs).toISOString();
-      const searchAttributesJson = normalized.searchAttributesJson;
+      // パーティーチケットは、まず Party DO 側で構成を凍結してから保存します。
+      // 以降の失敗では、凍結を必ず解除して補償します。
+      let ownerId = principal.playerId;
+      let membersJson: string | null = null;
+      let ratingValue = normalized.ratingValue;
+      let partyId: string | null = null;
+      let partyRevision: number | null = null;
+      let partyFrozen = false;
+      let memberIds: readonly string[] = [principal.playerId];
+      const requestedParty = options.party;
 
       try {
-        this.ctx.storage.sql.exec(
-          `INSERT INTO flarelobby_matchmaking_tickets (
+        if (
+          isRecord(requestedParty) &&
+          isNonEmptyString(requestedParty["partyId"])
+        ) {
+          partyId = requestedParty["partyId"];
+          const partyStub = this.env.FLARE_LOBBY_PARTIES.getByName(
+            partyId,
+          ) as unknown as PartyQueueStub;
+          const queueStart = await partyStub.beginQueueTicket({
+            gatewayPrincipal: options.gatewayPrincipal,
+            ticketId,
+            poolKey: pool.poolKey,
+          });
+          partyFrozen = true;
+
+          if (queueStart.memberIds.length > pool.maxPartySize) {
+            throw new FlareLobbyError("INVALID_PAYLOAD", {
+              message:
+                "パーティーの人数が Pool の maxPartySize を超えています。",
+            });
+          }
+
+          ownerId = queueStart.leaderPlayerId;
+          partyRevision = queueStart.partyRevision;
+          memberIds = queueStart.memberIds;
+          const members = await this.snapshotMemberRatings(pool, memberIds);
+          membersJson = JSON.stringify(members);
+          ratingValue = roundHalfAwayFromZero(
+            members.reduce((sum, member) => sum + member.ratingValue, 0) /
+              members.length,
+          );
+        }
+
+        try {
+          this.ctx.storage.sql.exec(
+            `INSERT INTO flarelobby_matchmaking_tickets (
             ticket_id,
             pool_id,
             player_id,
@@ -889,27 +980,62 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
             match_result_json,
             matched_at,
             cancelled_at,
-            expired_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'creating', ?, NULL, NULL, NULL, NULL, NULL, NULL)`,
-          ticketId,
-          pool.poolId,
-          principal.playerId,
-          normalized.ratingValue,
-          createdAt,
-          null,
-          normalized.region,
-          normalized.inputMethod,
-          searchAttributesJson,
-          normalized.expiresAtMs,
-        );
-      } catch {
-        if (this.readActiveTicketByPlayer(principal.playerId) !== undefined) {
+            expired_at,
+            members_json,
+            party_id,
+            party_revision
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'creating', ?, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, ?)`,
+            ticketId,
+            pool.poolId,
+            ownerId,
+            ratingValue,
+            createdAt,
+            null,
+            normalized.region,
+            normalized.inputMethod,
+            searchAttributesJson,
+            normalized.expiresAtMs,
+            membersJson,
+            partyId,
+            partyRevision,
+          );
+
+          for (const memberId of memberIds) {
+            this.ctx.storage.sql.exec(
+              `INSERT INTO flarelobby_matchmaking_queue_players (
+              player_id, ticket_id
+            ) VALUES (?, ?)`,
+              memberId,
+              ticketId,
+            );
+          }
+        } catch {
+          // キュー投入済みの主体がいれば、N 人分の投入全体を拒否します。
+          this.ctx.storage.sql.exec(
+            `DELETE FROM flarelobby_matchmaking_queue_players
+             WHERE ticket_id = ?`,
+            ticketId,
+          );
+
+          if (this.readActiveTicketByPlayer(principal.playerId) !== undefined) {
+            throw new FlareLobbyError("CONFLICT", {
+              message: "同じマッチングプールで有効なチケットが既に存在します。",
+            });
+          }
+
           throw new FlareLobbyError("CONFLICT", {
-            message: "同じマッチングプールで有効なチケットが既に存在します。",
+            message:
+              "パーティーの構成員の一部が既にマッチング待機中のため、キュー投入できません。",
           });
         }
-
-        throw new FlareLobbyError("CONNECTION_FAILED");
+      } catch (error) {
+        if (partyFrozen && partyId !== null) {
+          const partyStub = this.env.FLARE_LOBBY_PARTIES.getByName(
+            partyId,
+          ) as unknown as PartyQueueStub;
+          await partyStub.endQueueTicket({ ticketId }).catch(() => undefined);
+        }
+        throw error;
       }
 
       this.incrementPoolRevision();
@@ -967,6 +1093,50 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
     options: MatchmakingTicketCreationOptions,
   ): Promise<MatchmakingTicketRecord> {
     return this.createTicket(options);
+  }
+  /** 構成員の現在のレートを D1 から読み込み、キュー投入時点で凍結します。 */
+  private async snapshotMemberRatings(
+    pool: PoolRow,
+    memberIds: readonly string[],
+  ): Promise<readonly MatchmakingTicketMember[]> {
+    const members: MatchmakingTicketMember[] = [];
+    for (const memberId of memberIds) {
+      const rating = await getRating(
+        this.env.FLARE_LOBBY_DB,
+        toPool(pool),
+        memberId,
+      );
+      members.push(Object.freeze({ id: memberId, ratingValue: rating.value }));
+    }
+    return members;
+  }
+
+  /**
+   * チケットを終端状態へ進めるときに、キュー主体の登録と Party の凍結を解除します。
+   * Party DO への通知はベストエフォートであり、失敗してもチケット遷移を妨げません。
+   */
+  private async releaseTicketQueues(rows: readonly TicketRow[]): Promise<void> {
+    for (const row of rows) {
+      this.ctx.storage.sql.exec(
+        `DELETE FROM flarelobby_matchmaking_queue_players
+         WHERE ticket_id = ?`,
+        row.ticketId,
+      );
+    }
+
+    for (const row of rows) {
+      if (row.partyId === null) {
+        continue;
+      }
+      const partyStub = this.env.FLARE_LOBBY_PARTIES.getByName(
+        row.partyId,
+      ) as unknown as PartyQueueStub;
+      try {
+        await partyStub.endQueueTicket({ ticketId: row.ticketId });
+      } catch {
+        // 無活動 TTL の Alarm 掃除が最終的に整合させます。
+      }
+    }
   }
 
   /** Ticket ID から SQLite の現在状態を復元します。 */
@@ -1062,6 +1232,7 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       this.incrementPoolRevision();
       this.appendTicketEvent(normalized.ticketId, "cancelled", cancelledAtMs);
       cancelledNow = true;
+      await this.releaseTicketQueues([row]);
       ticket =
         this.readTicket(normalized.ticketId) ??
         (() => {
@@ -1335,6 +1506,8 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       this.appendTicketEvent(ticketId, "matched", matchedAtMs);
     }
 
+    await this.releaseTicketQueues([first, second]);
+
     this.completeMatchIntent(result);
 
     await this.synchronizeAlarm();
@@ -1475,12 +1648,12 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
     return ticket;
   }
 
-  /** 期限処理をまとめて実行します。Alarm とテストから再利用します。 */
+  /** 期限到達済みの待機チケットをまとめて期限切れへ遷移させます。 */
   public async expireDueTickets(
     now = Date.now(),
   ): Promise<readonly MatchmakingTicketRecord[]> {
     const normalizedNow = normalizeNow(now);
-    const expired = this.expireDueTicketsAt(normalizedNow);
+    const expired = await this.expireDueTicketsAt(normalizedNow);
     await this.synchronizeAlarm();
     return Object.freeze(expired);
   }
@@ -1521,7 +1694,7 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
   /** Alarm は期限、検索幅拡大、次回 Alarm を同じ Pool の整合性境界で処理します。 */
   public override async alarm(): Promise<void> {
     const now = Date.now();
-    this.expireDueTicketsAt(now);
+    await this.expireDueTicketsAt(now);
     this.searchAndReserveCandidatesAt(now);
     await this.processPendingMatches({ now });
     await this.synchronizeAlarm();
@@ -1748,7 +1921,9 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
     return true;
   }
 
-  private expireDueTicketsAt(normalizedNow: number): MatchmakingTicketRecord[] {
+  private async expireDueTicketsAt(
+    normalizedNow: number,
+  ): Promise<MatchmakingTicketRecord[]> {
     const due = this.ctx.storage.sql
       .exec<TicketRow>(
         `SELECT
@@ -1768,7 +1943,10 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
           match_result_json AS matchResultJson,
           matched_at AS matchedAt,
           cancelled_at AS cancelledAt,
-          expired_at AS expiredAt
+          expired_at AS expiredAt,
+          members_json AS membersJson,
+          party_id AS partyId,
+          party_revision AS partyRevision
          FROM flarelobby_matchmaking_tickets
          WHERE status IN ('creating', 'waiting') AND expires_at_ms <= ?
          ORDER BY expires_at_ms ASC, ticket_id ASC`,
@@ -1794,6 +1972,7 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       }
     }
 
+    await this.releaseTicketQueues(due);
     return expired;
   }
 
@@ -2108,10 +2287,10 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
     );
   }
 
-  private failMatchIntent(
+  private async failMatchIntent(
     intent: MatchIntentRow,
     code: FlareLobbyErrorCode,
-  ): void {
+  ): Promise<void> {
     const nowMs = Date.now();
     this.ctx.storage.sql.exec(
       `UPDATE flarelobby_matchmaking_match_intents
@@ -2125,13 +2304,16 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       intent.matchId,
     );
 
-    this.releaseReservedCandidate(parseCandidate(intent.candidateJson), nowMs);
+    await this.releaseReservedCandidate(
+      parseCandidate(intent.candidateJson),
+      nowMs,
+    );
   }
 
-  private releaseReservedCandidate(
+  private async releaseReservedCandidate(
     candidate: MatchCandidate,
     cancelledAtMs: number,
-  ): void {
+  ): Promise<void> {
     const cancelledAt = new Date(cancelledAtMs).toISOString();
 
     for (const ticketId of candidate.ticketIds) {
@@ -2154,8 +2336,16 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
         ticketId,
       );
       this.incrementPoolRevision();
-      this.appendTicketEvent(ticketId, "cancelled", cancelledAtMs);
     }
+
+    await this.releaseTicketQueues(
+      candidate.ticketIds
+        .map((ticketId) => this.readTicketRow(ticketId))
+        .filter(
+          (row): row is TicketRow =>
+            row !== undefined && row.status === "cancelled",
+        ),
+    );
   }
 
   private toMatchIntent(row: MatchIntentRow): MatchmakingMatchIntent {
@@ -2232,7 +2422,9 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
           region,
           search_policy_json AS searchPolicyJson,
           match_room_json AS matchRoomJson,
-          revision
+          revision,
+          max_party_size AS maxPartySize,
+          team_size AS teamSize
          FROM flarelobby_matchmaking_pools
          WHERE singleton_id = 1`,
       )
@@ -2259,7 +2451,10 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
           match_result_json AS matchResultJson,
           matched_at AS matchedAt,
           cancelled_at AS cancelledAt,
-          expired_at AS expiredAt
+          expired_at AS expiredAt,
+          members_json AS membersJson,
+          party_id AS partyId,
+          party_revision AS partyRevision
          FROM flarelobby_matchmaking_tickets
          WHERE ticket_id = ?`,
         ticketId,
@@ -2290,7 +2485,10 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
           match_result_json AS matchResultJson,
           matched_at AS matchedAt,
           cancelled_at AS cancelledAt,
-          expired_at AS expiredAt
+          expired_at AS expiredAt,
+          members_json AS membersJson,
+          party_id AS partyId,
+          party_revision AS partyRevision
          FROM flarelobby_matchmaking_tickets
          WHERE status = 'waiting'
            AND queued_at IS NOT NULL
@@ -2323,7 +2521,10 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
           match_result_json AS matchResultJson,
           matched_at AS matchedAt,
           cancelled_at AS cancelledAt,
-          expired_at AS expiredAt
+          expired_at AS expiredAt,
+          members_json AS membersJson,
+          party_id AS partyId,
+          party_revision AS partyRevision
          FROM flarelobby_matchmaking_tickets
          WHERE player_id = ? AND status IN ('creating', 'waiting', 'reserved')
          ORDER BY created_at ASC, ticket_id ASC
@@ -2362,6 +2563,14 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       ),
       expiresAt: new Date(row.expiresAtMs).toISOString(),
       expiresAtMs: row.expiresAtMs,
+      ...(row.membersJson === null
+        ? {}
+        : { players: parseTicketMembers(row.membersJson) }),
+      ...(row.partyId === null || row.partyRevision === null
+        ? {}
+        : {
+            party: { partyId: row.partyId, revision: row.partyRevision },
+          }),
     } as const;
 
     switch (row.status) {
@@ -2439,6 +2648,9 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
         poolId: pool.poolId,
         value: row.ratingValue,
       },
+      ...(row.membersJson === null
+        ? {}
+        : { players: parseTicketMembers(row.membersJson) }),
       queuedAt: row.queuedAt,
       region: row.region,
       inputMethod: row.inputMethod,
@@ -2837,6 +3049,35 @@ function migrateMatchPoolSchema(sql: SqlStorage): void {
       Date.now(),
     );
   }
+
+  if (currentVersion < 4) {
+    sql.exec(
+      `ALTER TABLE flarelobby_matchmaking_pools
+       ADD COLUMN max_party_size INTEGER NOT NULL DEFAULT 1`,
+    );
+    sql.exec(
+      `ALTER TABLE flarelobby_matchmaking_pools
+       ADD COLUMN team_size INTEGER NOT NULL DEFAULT 1`,
+    );
+    sql.exec(
+      `
+      ALTER TABLE flarelobby_matchmaking_tickets ADD COLUMN members_json TEXT;
+
+      ALTER TABLE flarelobby_matchmaking_tickets ADD COLUMN party_id TEXT;
+
+      ALTER TABLE flarelobby_matchmaking_tickets ADD COLUMN party_revision INTEGER;
+
+      CREATE TABLE IF NOT EXISTS flarelobby_matchmaking_queue_players (
+        player_id TEXT PRIMARY KEY,
+        ticket_id TEXT NOT NULL
+      );
+
+      INSERT INTO flarelobby_matchmaking_schema_migrations (version, applied_at)
+      VALUES (4, ?)
+    `,
+      Date.now(),
+    );
+  }
 }
 
 function normalizePoolInput(
@@ -2862,7 +3103,10 @@ function normalizePoolInput(
     isRecord(input) && Object.prototype.hasOwnProperty.call(input, "matchRoom")
       ? input["matchRoom"]
       : undefined;
-  const matchRoom = normalizeMatchmakingMatchRoomOptions(matchRoomValue);
+  const matchRoom = normalizeMatchmakingMatchRoomOptions(
+    matchRoomValue,
+    pool.teamSize ?? 1,
+  );
 
   return {
     pool,
@@ -2886,12 +3130,17 @@ function normalizePool(value: unknown): MatchmakingPool {
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }
 
+  const maxPartySize = normalizeOptionalPartySize(value["maxPartySize"]);
+  const teamSize = normalizeOptionalPartySize(value["teamSize"]);
+
   return Object.freeze({
     id: value["id"],
     gameId: value["gameId"],
     seasonId: value["seasonId"],
     mode: value["mode"],
     region: value["region"],
+    ...(maxPartySize === undefined ? {} : { maxPartySize }),
+    ...(teamSize === undefined ? {} : { teamSize }),
   });
 }
 
@@ -2905,8 +3154,41 @@ function samePool(
     row.gameId === normalized.pool.gameId &&
     row.seasonId === normalized.pool.seasonId &&
     row.mode === normalized.pool.mode &&
-    row.region === normalized.pool.region
+    row.region === normalized.pool.region &&
+    row.maxPartySize === (normalized.pool.maxPartySize ?? 1) &&
+    row.teamSize === (normalized.pool.teamSize ?? 1)
   );
+}
+
+/** 保存済みの構成員 JSON を検証して復元します。 */
+function parseTicketMembers(value: string): readonly MatchmakingTicketMember[] {
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new FlareLobbyError("CONNECTION_FAILED");
+  }
+  return Object.freeze(
+    parsed.map((member) => {
+      if (
+        !isRecord(member) ||
+        !isNonEmptyString(member["id"]) ||
+        typeof member["ratingValue"] !== "number" ||
+        !Number.isFinite(member["ratingValue"])
+      ) {
+        throw new FlareLobbyError("CONNECTION_FAILED");
+      }
+      return Object.freeze({
+        id: member["id"],
+        ratingValue: member["ratingValue"],
+      });
+    }),
+  );
+}
+
+/** チケットの構成員 ID 一覧を返します。1 人チケットは所有者のみです。 */
+function getTicketMemberIds(row: TicketRow): readonly string[] {
+  return row.membersJson === null
+    ? [row.playerId]
+    : parseTicketMembers(row.membersJson).map((member) => member.id);
 }
 
 function toPool(row: PoolRow): MatchmakingPool {
@@ -2916,7 +3198,22 @@ function toPool(row: PoolRow): MatchmakingPool {
     seasonId: row.seasonId,
     mode: row.mode,
     region: row.region,
+    ...(row.maxPartySize === 1 ? {} : { maxPartySize: row.maxPartySize }),
+    ...(row.teamSize === 1 ? {} : { teamSize: row.teamSize }),
   });
+}
+
+function normalizeOptionalPartySize(value: unknown): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message:
+        "maxPartySize / teamSize は 1 以上の安全な整数で指定してください。",
+    });
+  }
+  return value;
 }
 
 function parseSearchPolicy(value: string): NormalizedMatchmakingSearchPolicy {
@@ -2932,6 +3229,7 @@ function parseSearchPolicy(value: string): NormalizedMatchmakingSearchPolicy {
 
 function normalizeMatchmakingMatchRoomOptions(
   input: unknown = {},
+  teamSize = 1,
 ): NormalizedMatchRoomOptions {
   if (!isRecord(input)) {
     throw new FlareLobbyError("INVALID_PAYLOAD");
@@ -2982,13 +3280,15 @@ function normalizeMatchmakingMatchRoomOptions(
     });
   }
 
+  // 既定の定員は Pool の teamSize から導出します (ADR-0005)。
+  const defaultPlayers = Math.max(2, teamSize * 2);
   const maxPlayers =
     input["maxPlayers"] === undefined
-      ? 2
+      ? defaultPlayers
       : normalizePositiveSafeInteger(input["maxPlayers"], "maxPlayers");
   const minimumPlayers =
     input["minimumPlayers"] === undefined
-      ? 2
+      ? defaultPlayers
       : normalizePositiveSafeInteger(input["minimumPlayers"], "minimumPlayers");
   const requireAllPlayersReady = input["requireAllPlayersReady"] ?? false;
 
@@ -3068,14 +3368,19 @@ function createMatchRoomInitialization(
   options: NormalizedMatchRoomOptions,
 ): RoomInitializationOptions {
   const ticketRows = [first, second] as const;
-  const participants: readonly Participant[] = ticketRows.map(
-    (ticket, index) => ({
-      kind: "player" as const,
-      id: `participant_${matchId}_${index + 1}`,
-      player: { id: ticket.playerId },
-      teamId: options.teamIds[index]!,
-      ready: false,
-    }),
+  let participantCounter = 1;
+  // パーティー単位のチケットでは、構成員全員を同じチームへ割り当てます。
+  // チーム内の順序はソート済みの memberIds で確定するため、結果登録の再生でも
+  // 同じ割当が再現できます (ADR-0005)。
+  const participants: readonly Participant[] = ticketRows.flatMap(
+    (ticket, ticketIndex) =>
+      getTicketMemberIds(ticket).map((playerId) => ({
+        kind: "player" as const,
+        id: `participant_${matchId}_${participantCounter++}`,
+        player: { id: playerId },
+        teamId: options.teamIds[ticketIndex]!,
+        ready: false,
+      })),
   );
   const teams: readonly Team[] = options.teamIds.map((id) => ({ id }));
 
@@ -3227,6 +3532,11 @@ function normalizeCreation(
     options["searchAttributes"] === undefined
       ? {}
       : normalizeJsonObject(options["searchAttributes"]);
+  const requestedParty = options["party"];
+  const partyId =
+    isRecord(requestedParty) && isNonEmptyString(requestedParty["partyId"])
+      ? requestedParty["partyId"]
+      : null;
   const createdAtMs = Date.now();
   const expiresAtProvided =
     options["expiresAt"] !== undefined || options["ttlMs"] !== undefined;
@@ -3241,6 +3551,7 @@ function normalizeCreation(
     region,
     inputMethod,
     searchAttributes,
+    ...(partyId === null ? {} : { partyId }),
     ...(expiresAtProvided ? { expiresAtMs } : {}),
   };
 
@@ -3749,21 +4060,6 @@ function parseTicketEventPath(
   }
 }
 
-function readGatewayToken(request: Request): string | null {
-  const direct = request.headers.get("x-flarelobby-gateway-token");
-  if (isNonEmptyString(direct)) {
-    return direct;
-  }
-
-  const authorization = request.headers.get("authorization");
-  if (authorization?.startsWith("Bearer ")) {
-    const token = authorization.slice("Bearer ".length);
-    return isNonEmptyString(token) ? token : null;
-  }
-
-  return null;
-}
-
 function ticketEventTag(ticketId: string): string {
   return `ticket:${ticketId}`;
 }
@@ -3925,4 +4221,13 @@ function deepFreeze<TValue>(value: TValue): TValue {
   }
 
   return value;
+}
+
+/**
+ * ELO の差分と同じ「0.5 はゼロから遠い方向へ丸める」規則で整数化します。
+ * レートは非負のため実質的に切り上げです (ADR-0005)。
+ */
+function roundHalfAwayFromZero(value: number): number {
+  const rounded = value < 0 ? Math.ceil(value - 0.5) : Math.floor(value + 0.5);
+  return Object.is(rounded, -0) ? 0 : rounded;
 }

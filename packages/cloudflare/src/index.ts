@@ -28,7 +28,9 @@ export {
   getRating,
   listMatchHistory,
   recordMatchResult,
+  recordTeamMatchResult,
   registerMatchResult,
+  registerTeamMatchResult,
 } from "./rating.js";
 export {
   DEFAULT_MATCHMAKING_MAX_CANDIDATES_PER_SEARCH,
@@ -73,9 +75,39 @@ export type {
 } from "./custom-room-index.js";
 export {
   MatchPoolDurableObject,
+  PartyDurableObject,
+  PartyMembershipDurableObject,
   RateLimitDurableObject,
   RoomDurableObject,
 } from "./durable-objects.js";
+export {
+  DEFAULT_PARTY_IDLE_TTL_MS,
+  DEFAULT_PARTY_INVITE_TTL_MS,
+  DEFAULT_PARTY_MAX_SIZE,
+} from "./party.js";
+export {
+  getPartyWebSocketRoute,
+  handlePartyRequest,
+  upgradePartyEventsWebSocket,
+} from "./party-gateway.js";
+export type {
+  PartyCreationOptions,
+  PartyEvent,
+  PartyInvite,
+  PartyInviteAcceptanceOptions,
+  PartyInviteOptions,
+  PartyLeadershipTransferOptions,
+  PartyMember,
+  PartyMemberRole,
+  PartyOperationOptions,
+  PartyQueueStartOptions,
+  PartyQueueStartResult,
+  PartySnapshot,
+} from "./party.js";
+export type {
+  PartyEventsWebSocketRoute,
+  PartyGatewayStub,
+} from "./party-gateway.js";
 export {
   DEFAULT_DISCONNECT_GRACE_PERIOD_MS,
   DEFAULT_EVENT_HISTORY_LIMIT,
@@ -129,6 +161,7 @@ export type {
   MatchmakingTicketEventQueryOptions,
   MatchmakingTicketMatchOptions,
   MatchmakingTicketRecord,
+  MatchmakingTicketMember,
   MatchmakingTicketReservationOptions,
 } from "./match-pool.js";
 export type {
@@ -143,6 +176,10 @@ export type {
   MatchResultRegistrationInput,
   RatingMatchParticipant,
   RatingMatchRecord,
+  TeamMatchResultRegistration,
+  TeamMatchResultRegistrationInput,
+  TeamRatingMatchParticipant,
+  TeamRatingMatchRecord,
 } from "./rating.js";
 export type {
   RoomInitializationOptions,
