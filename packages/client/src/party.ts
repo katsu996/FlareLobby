@@ -8,12 +8,14 @@ import type {
   RequestId,
   Timestamp,
 } from "@flarelobby/core";
-import type {
-  MatchmakingJoinOptions,
-  MatchmakingPoolReference,
-  MatchmakingTicket,
-  MatchmakingTicketCancelOptions,
-  MatchmakingTicketSnapshot,
+import {
+  normalizeRoomReconnectOptions,
+  type MatchmakingJoinOptions,
+  type MatchmakingPoolReference,
+  type MatchmakingTicket,
+  type MatchmakingTicketCancelOptions,
+  type MatchmakingTicketSnapshot,
+  type NormalizedReconnectOptions,
 } from "./matchmaking.js";
 import type {
   CustomRoomTransport,
@@ -21,10 +23,6 @@ import type {
 } from "./custom-room.js";
 
 const DEFAULT_PARTY_PATH = "/v1/parties";
-const DEFAULT_RECONNECT_MAX_ATTEMPTS = 5;
-const DEFAULT_RECONNECT_BASE_DELAY_MS = 250;
-const DEFAULT_RECONNECT_MAX_DELAY_MS = 30_000;
-const DEFAULT_RECONNECT_JITTER_RATIO = 0.2;
 
 /** パーティーのメンバー役割です。リーダーは常にちょうど 1 人です。 */
 export type PartyMemberRole = "leader" | "member";
@@ -209,13 +207,6 @@ export interface RawJsonEventConnection {
   onClose(listener: (error: FlareLobbyErrorType) => void): () => void;
 }
 
-interface NormalizedReconnectOptions {
-  readonly maxAttempts: number;
-  readonly baseDelayMs: number;
-  readonly maxDelayMs: number;
-  readonly jitterRatio: number;
-}
-
 /** クライアント本体からパーティー API を組み立てます。 */
 export function createPartyApi<TApp extends AnyFlareLobbyApp = FlareLobbyApp>(
   transport: PartyTransport<TApp>,
@@ -373,7 +364,7 @@ class PartyImpl<TApp extends AnyFlareLobbyApp> implements Party<TApp> {
   ) {
     this.transport = transport;
     this.snapshotState = snapshot;
-    this.reconnectOptions = normalizeReconnectOptions(reconnectOptions);
+    this.reconnectOptions = normalizeRoomReconnectOptions(reconnectOptions);
   }
 
   public get id(): string {
@@ -582,6 +573,8 @@ class PartyImpl<TApp extends AnyFlareLobbyApp> implements Party<TApp> {
     this.stopConnection();
     this.updateListeners.clear();
     this.statusListeners.clear();
+    // 起動失敗や明示的な破棄でも、API 層がハンドルを保持し続けないようにします。
+    this.onSettled?.();
   }
 
   private async connect(signal?: AbortSignal): Promise<void> {
@@ -965,41 +958,6 @@ function assertPartyId(partyId: string): void {
   if (!isNonEmptyString(partyId)) {
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }
-}
-
-function normalizeReconnectOptions(
-  options: RoomReconnectOptions | undefined,
-): NormalizedReconnectOptions {
-  return {
-    maxAttempts: normalizeReconnectInteger(
-      options?.maxAttempts,
-      DEFAULT_RECONNECT_MAX_ATTEMPTS,
-      1,
-    ),
-    baseDelayMs: normalizeReconnectInteger(
-      options?.baseDelayMs,
-      DEFAULT_RECONNECT_BASE_DELAY_MS,
-      0,
-    ),
-    maxDelayMs: normalizeReconnectInteger(
-      options?.maxDelayMs,
-      DEFAULT_RECONNECT_MAX_DELAY_MS,
-      0,
-    ),
-    jitterRatio: options?.jitterRatio ?? DEFAULT_RECONNECT_JITTER_RATIO,
-  };
-}
-
-function normalizeReconnectInteger(
-  value: number | undefined,
-  fallback: number,
-  minimum: number,
-): number {
-  if (value === undefined || !Number.isSafeInteger(value) || value < minimum) {
-    return fallback;
-  }
-
-  return value;
 }
 
 function requestSignalOptions(signal: AbortSignal | undefined): {

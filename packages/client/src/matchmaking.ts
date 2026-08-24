@@ -222,7 +222,7 @@ interface TicketWaiter<TApp extends AnyFlareLobbyApp> {
   aborted: boolean;
 }
 
-interface NormalizedReconnectOptions {
+export interface NormalizedReconnectOptions {
   readonly maxAttempts: number;
   readonly baseDelayMs: number;
   readonly maxDelayMs: number;
@@ -420,7 +420,7 @@ class MatchmakingTicketImpl<
     this.poolId = poolId;
     this.inlineConnection = connection;
     this.roomReconnectOptions = reconnectOptions;
-    this.reconnectOptions = normalizeReconnectOptions(reconnectOptions);
+    this.reconnectOptions = normalizeRoomReconnectOptions(reconnectOptions);
     this.queuedAtMs = getQueuedAtMs(snapshot);
     this.searchWidthState = getCurrentSearchWidth(snapshot, this.queuedAtMs);
   }
@@ -1265,7 +1265,11 @@ function getPoolSearchPolicy(
   return isRecord(policy) ? (policy as MatchmakingSearchPolicy) : undefined;
 }
 
-function normalizeReconnectOptions(
+/**
+ * Room・マッチメイキング・パーティーで共通の再接続設定の正規化です。
+ * 不正な値は既定値への置き換えではなく `INVALID_PAYLOAD` で拒否します。
+ */
+export function normalizeRoomReconnectOptions(
   options: RoomReconnectOptions | undefined,
 ): NormalizedReconnectOptions {
   const maxAttempts = normalizeReconnectInteger(

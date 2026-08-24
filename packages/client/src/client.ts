@@ -57,6 +57,9 @@ const AUTHENTICATION_PROTOCOL_PREFIX = "flarelobby.auth.";
 /** リスナー未登録時に保持するイベント上限です。超過分は古いものから破棄します。 */
 const MAX_QUEUED_EVENTS = 100;
 
+/** 生 JSON イベント接続でリスナー未登録時に保持するメッセージ上限です。 */
+const MAX_QUEUED_MESSAGES = 100;
+
 /** 標準 fetch を差し替えるための関数契約です。 */
 export type FetchImplementation = (
   input: RequestInfo | URL,
@@ -969,6 +972,7 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
   private readonly socket: WebSocket;
   private readonly messageListeners = new Set<(value: JsonValue) => void>();
   private readonly closeListeners = new Set<(error: FlareLobbyError) => void>();
+  private readonly queuedMessages: JsonValue[] = [];
   private readonly openPromise: Promise<void>;
   private resolveOpen!: () => void;
   private rejectOpen!: (error: FlareLobbyError) => void;
@@ -1040,6 +1044,12 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
     }
 
     this.messageListeners.add(listener);
+    if (this.queuedMessages.length > 0) {
+      const queuedMessages = this.queuedMessages.splice(0);
+      for (const value of queuedMessages) {
+        this.notifyMessageListeners(value);
+      }
+    }
     return (): void => {
       this.messageListeners.delete(listener);
     };
@@ -1094,6 +1104,20 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
       return;
     }
 
+    if (this.messageListeners.size === 0) {
+      // 接続直後の購読開始までの間に届いたメッセージは、リスナー登録時に
+      // 一括で配信できるよう上限付きで保持します。
+      this.queuedMessages.push(value);
+      if (this.queuedMessages.length > MAX_QUEUED_MESSAGES) {
+        this.queuedMessages.shift();
+      }
+      return;
+    }
+
+    this.notifyMessageListeners(value);
+  };
+
+  private notifyMessageListeners(value: JsonValue): void {
     for (const listener of this.messageListeners) {
       try {
         listener(value);
@@ -1101,7 +1125,7 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
         // 利用者の listener 例外で通信路を壊さないようにします。
       }
     }
-  };
+  }
 
   private readonly handleError = (): void => {
     this.terminate(new FlareLobbyError("CONNECTION_FAILED"));
@@ -1138,6 +1162,9 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
     if (!this.opened) {
       this.rejectOpen(error);
     }
+
+    // 閉じた接続の保持メッセージが後から配信されないように破棄します。
+    this.queuedMessages.length = 0;
 
     for (const listener of this.closeListeners) {
       try {

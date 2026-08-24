@@ -555,4 +555,45 @@ describe("@flarelobby/client party", () => {
       code: "CANCELLED",
     });
   });
+
+  it("購読開始前に届いたイベントをバッファし、登録時に一括配信する", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+
+    FakeWebSocket.autoOpen = false;
+    const pending = client.createParty();
+    await flushAsync();
+
+    // 接続完了と購読開始の間に届いたメッセージは破棄されず、
+    // onMessage 登録時に配信されます。
+    FakeWebSocket.instances[0]?.open();
+    FakeWebSocket.instances[0]?.receive(
+      partyEvent(1, "member_joined", joinedSnapshot()),
+    );
+
+    const party = await pending;
+    expect(party.snapshot.members).toHaveLength(2);
+  });
+
+  it("不正な reconnect 設定は INVALID_PAYLOAD で拒否される", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+
+    await expect(
+      client.createParty({ reconnect: { jitterRatio: 5 } }),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+    await expect(
+      client.createParty({ reconnect: { maxAttempts: -1 } }),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+  });
 });
