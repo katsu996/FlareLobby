@@ -105,3 +105,15 @@ await pool.initialize({
 Pool ごとに Alarm は 1 個だけ使い、最も近いチケット期限または次の検索幅切替時刻へ設定します。待機チケットがなく、期限処理も検索幅切替も不要になった場合は Alarm を削除します。期限処理は `waiting` または `creating` の行だけを `expired` へ遷移させるため、Alarm の再試行で同じイベントを重複生成しません。
 
 `getTicketEvents()` はチケット状態、待機数・有効数、イベント発生時点の検索幅を含む永続イベントを返します。Durable Object の `fetch()` へ `/v1/matchmaking/tickets/{ticketId}/events` または `/ws` で WebSocket 接続すると、同じイベントを JSON プロトコル v1 の `matchmaking.ticket` イベントとして受信できます。イベントの `sequence` は Pool 全体で採番されるため、特定チケットの履歴には数値の飛びが含まれることがあります。接続には Gateway の署名済み主体トークンが必要です。
+
+## パーティー単位のチケット
+
+ADR-0005 に基づき、Pool は `maxPartySize`（既定 1）と `teamSize`（既定 1）を持ちます。`maxPartySize` が 1 の場合、v0.1.0 と同じ 1 対 1 の挙動は変わりません。
+
+リーダーは Gateway のチケット作成へ `partyId` を指定して、パーティー単位のチケットをキュー投入できます。Match Pool Durable Object は Party Durable Object へ凍結を要求し、現在の `revision` と構成員一覧（正本は Party 側）を受け取ります。参照レートは各構成員のレートの算術平均（0.5 はゼロから遠い方向へ丸め）、候補評価は core の N 人拡張に従います。`teamSize` と構成員数が一致しないチケットは成立しません。
+
+待機中のパーティーは参加・退出・招待受諾を拒否します。解散は待機チケットのキャンセルを伴い、チケットが終端状態（matched / cancelled / expired / failed）になると凍結は解除されます。
+
+## Party Durable Object
+
+1 パーティー = 1 Durable Object で、状態の正本は DO 内 SQLite です。作成・招待・受諾・退出・移譲・解散はすべて `requestId` 再生セマンティクスを持ち、状態変更ごとに単調な `revision` とイベント `sequence` が進みます。招待は単一用途トークン付きで、期限内かつ未使用の再発行要求は既存トークンを返します。「主体は同時に 1 つのパーティーにしか所属できない」不変条件は、主体 ID を分割キーとする `PartyMembershipDurableObject` で原子的に検査します。リーダーの自発的退出では最古参メンバーへ権限が移り、メンバー数が 2 未満になった時点で自動解散します。無活動パーティーは Alarm + TTL で掃除します。

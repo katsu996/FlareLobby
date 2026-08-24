@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// src/rating.ts の RATING_SCHEMA_STATEMENTS と migrations/0002_rating.sql は
-// 同じ D1 スキーマを 2 箇所に記述している。どちらか片方だけが更新された場合に
-// ドリフトを検出するため、両者を解析して一致を検証する。
+// src/rating.ts の RATING_SCHEMA_STATEMENTS と migrations/0002_rating.sql、
+// migrations/0004_team_rating.sql は同じ D1 スキーマを複数箇所に記述している。
+// どれか片方だけが更新された場合にドリフトを検出するため、一致を検証する。
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const errors = [];
 
@@ -12,10 +12,11 @@ const ratingSource = readFileSync(
   resolve(root, "packages/cloudflare/src/rating.ts"),
   "utf8",
 );
-const migrationSql = readFileSync(
-  resolve(root, "packages/cloudflare/migrations/0002_rating.sql"),
-  "utf8",
-);
+const migrationSql = ["0002_rating.sql", "0004_team_rating.sql"]
+  .map((file) =>
+    readFileSync(resolve(root, "packages/cloudflare/migrations", file), "utf8"),
+  )
+  .join("\n");
 
 function normalize(statement) {
   return statement.replace(/\s+/gu, " ").trim();

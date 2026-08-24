@@ -1,6 +1,8 @@
 import { defineFlareLobby } from "./config.js";
 export {
   MatchPoolDurableObject,
+  PartyDurableObject,
+  PartyMembershipDurableObject,
   RateLimitDurableObject,
   RoomDurableObject,
 } from "./durable-objects.js";

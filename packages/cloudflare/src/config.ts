@@ -15,11 +15,13 @@ import type { ProtocolResult } from "@flarelobby/core";
 
 import type {
   MatchPoolDurableObject,
+  PartyDurableObject,
+  PartyMembershipDurableObject,
   RateLimitDurableObject,
   RoomDurableObject,
 } from "./durable-objects.js";
-import type { MatchmakingMatchRoomOptions } from "./match-pool.js";
 import type { RatingConfiguration } from "./rating.js";
+import type { MatchmakingMatchRoomOptions } from "./match-pool.js";
 import {
   attachObservabilityHeaders,
   createObservabilityContext,
@@ -40,6 +42,11 @@ import {
   handleMatchmakingRequest,
   upgradeMatchmakingTicketWebSocket,
 } from "./matchmaking.js";
+import {
+  getPartyWebSocketRoute,
+  handlePartyRequest,
+  upgradePartyEventsWebSocket,
+} from "./party-gateway.js";
 import {
   DEFAULT_DISCONNECT_GRACE_PERIOD_MS,
   DEFAULT_EVENT_HISTORY_LIMIT,
@@ -65,7 +72,8 @@ import type {
 export const FLARE_LOBBY_BINDINGS = {
   room: "FLARE_LOBBY_ROOMS",
   matchPool: "FLARE_LOBBY_MATCH_POOLS",
-  rateLimit: "FLARE_LOBBY_RATE_LIMITS",
+  parties: "FLARE_LOBBY_PARTIES",
+  partyMemberships: "FLARE_LOBBY_PARTY_MEMBERSHIPS",
   database: "FLARE_LOBBY_DB",
   analytics: "FLARE_LOBBY_ANALYTICS",
   tokenSecret: "FLARE_LOBBY_TOKEN_SECRET",
@@ -81,6 +89,8 @@ export const FLARE_LOBBY_BINDINGS = {
 export interface FlareLobbyBindings {
   readonly FLARE_LOBBY_ROOMS: DurableObjectNamespace<RoomDurableObject>;
   readonly FLARE_LOBBY_MATCH_POOLS: DurableObjectNamespace<MatchPoolDurableObject>;
+  readonly FLARE_LOBBY_PARTIES: DurableObjectNamespace<PartyDurableObject>;
+  readonly FLARE_LOBBY_PARTY_MEMBERSHIPS: DurableObjectNamespace<PartyMembershipDurableObject>;
   readonly FLARE_LOBBY_RATE_LIMITS: DurableObjectNamespace<RateLimitDurableObject>;
   readonly FLARE_LOBBY_DB: D1Database;
   readonly FLARE_LOBBY_ANALYTICS?: AnalyticsEngineDataset;
@@ -145,6 +155,8 @@ export const FLARE_LOBBY_CONFIGURATION_ERROR_CODES = [
   "D1_BINDING_MISSING",
   "ROOM_DURABLE_OBJECT_BINDING_MISSING",
   "MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING",
+  "PARTY_DURABLE_OBJECT_BINDING_MISSING",
+  "PARTY_MEMBERSHIP_DURABLE_OBJECT_BINDING_MISSING",
   "TOKEN_SECRET_MISSING",
   "INVALID_CUSTOM_ROOM_CONFIGURATION",
   "INVALID_MATCHMAKING_POOL",
@@ -166,6 +178,10 @@ const defaultConfigurationErrorMessages: Readonly<
     "FlareLobby の Room Durable Object Binding（FLARE_LOBBY_ROOMS）が設定されていません。",
   MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING:
     "FlareLobby の Match Pool Durable Object Binding（FLARE_LOBBY_MATCH_POOLS）が設定されていません。",
+  PARTY_DURABLE_OBJECT_BINDING_MISSING:
+    "FlareLobby の Party Durable Object Binding（FLARE_LOBBY_PARTIES）が設定されていません。",
+  PARTY_MEMBERSHIP_DURABLE_OBJECT_BINDING_MISSING:
+    "FlareLobby の Party Membership Durable Object Binding（FLARE_LOBBY_PARTY_MEMBERSHIPS）が設定されていません。",
   TOKEN_SECRET_MISSING:
     "FlareLobby の Secret（FLARE_LOBBY_TOKEN_SECRET）が設定されていません。",
   INVALID_CUSTOM_ROOM_CONFIGURATION: "カスタムルーム設定が正しくありません。",
@@ -299,6 +315,16 @@ export function createGatewayWorker<
 
           const websocketRoomId = getCustomRoomWebSocketRoute(pathname);
 
+          const partyWebSocketRoute = getPartyWebSocketRoute(pathname);
+
+          if (partyWebSocketRoute !== null) {
+            return upgradePartyEventsWebSocket(
+              request,
+              env,
+              partyWebSocketRoute,
+            );
+          }
+
           const matchmakingWebSocketRoute =
             getMatchmakingTicketWebSocketRoute(pathname);
 
@@ -339,6 +365,17 @@ export function createGatewayWorker<
 
           if (matchmakingResponse !== null) {
             return matchmakingResponse;
+          }
+
+          const partyResponse = await handlePartyRequest(
+            request,
+            env,
+            normalizedConfiguration,
+            authenticatedRequest.value,
+          );
+
+          if (partyResponse !== null) {
+            return partyResponse;
           }
 
           if (request.method === "POST" && pathname === "/v1/custom-rooms") {
@@ -805,6 +842,18 @@ function assertRequiredBindings(env: FlareLobbyBindings): void {
   if (env.FLARE_LOBBY_MATCH_POOLS === undefined) {
     throw new FlareLobbyConfigurationError(
       "MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING",
+    );
+  }
+
+  if (env.FLARE_LOBBY_PARTIES === undefined) {
+    throw new FlareLobbyConfigurationError(
+      "PARTY_DURABLE_OBJECT_BINDING_MISSING",
+    );
+  }
+
+  if (env.FLARE_LOBBY_PARTY_MEMBERSHIPS === undefined) {
+    throw new FlareLobbyConfigurationError(
+      "PARTY_MEMBERSHIP_DURABLE_OBJECT_BINDING_MISSING",
     );
   }
 

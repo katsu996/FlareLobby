@@ -79,3 +79,9 @@ POST /v1/matchmaking/pools/:poolId/matches/:matchId/result
 この HTTP 本文にはプレイヤー ID を含めません。Gateway は `matchId` に対応する成立済み Match Pool チケットから参加者を復元し、`authorizeMatchResult` が許可した場合だけ結果を適用します。結果 ID と match ID は冪等性キーとして扱い、同じ結果の再送は再計算せず `applied: false` を返します。
 
 試合行、2 人の参加者履歴、2 人のレーティング更新は 1 回の D1 batch へまとめます。レーティングの版番号を条件にした更新が競合した場合は再読込・再計算を有界回数だけ行うため、同時更新で片方の結果を失いません。`listMatchHistory()` / `getMatchHistory()` は Pool と任意の playerId で絞り込み、cursor と limit（最大 100）で新しい順に取得できます。
+
+## チーム対応の試合結果
+
+パーティー単位の N 人チケットで成立した試合は、`registerTeamMatchResult()`（別名 `recordTeamMatchResult()`）で記録します。入力は両チームのチーム ID と構成員プレイヤー ID、A 側チームの得点です。Gateway の公開結果 API では、これらも Match Pool チケットから復元します。
+
+参照レートは各チーム構成員レートの算術平均とし、個々の構成員の更新差分は自分のレートと相手チーム平均から ELO 計算します。丸めは 1 対 1 と同じ「0.5 はゼロから遠い方向」規則です。試合行、全構成員の参加者履歴、全構成員のレーティング更新を 1 回の D1 batch で確定し、`matchId` / `resultId` の再送は `applied: false` を返します。テーブルは `migrations/0004_team_rating.sql` として追加され、1 対 1 の既存テーブルと API 契約は変更されません。

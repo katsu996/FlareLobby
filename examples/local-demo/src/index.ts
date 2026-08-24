@@ -130,6 +130,8 @@ const demoWorker = {
 export default demoWorker satisfies ExportedHandler<DemoEnv>;
 export {
   MatchPoolDurableObject,
+  PartyDurableObject,
+  PartyMembershipDurableObject,
   RateLimitDurableObject,
   RoomDurableObject,
 } from "@flarelobby/cloudflare";

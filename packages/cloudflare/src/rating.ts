@@ -50,6 +50,50 @@ export interface MatchResultRegistration {
   readonly applied: boolean;
 }
 
+/** チーム対応の試合結果登録入力です。result は A 側チームの得点です。 */
+export interface TeamMatchResultRegistrationInput {
+  readonly resultId: string;
+  readonly matchId: string;
+  /** スロット A 側のチームと構成員です。 */
+  readonly teamAId: string;
+  readonly playerAIds: readonly string[];
+  /** スロット B 側のチームと構成員です。 */
+  readonly teamBId: string;
+  readonly playerBIds: readonly string[];
+  readonly result: RatingResult;
+}
+
+/** チーム対応の試合に参加したプレイヤーのレーティング履歴です。 */
+export interface TeamRatingMatchParticipant {
+  readonly slot: "A" | "B";
+  readonly playerId: string;
+  readonly teamId: string;
+  readonly score: RatingResult;
+  readonly ratingBefore: number;
+  readonly delta: number;
+  readonly ratingAfter: number;
+  readonly versionBefore: number;
+  readonly versionAfter: number;
+}
+
+/** D1 へ確定したチーム対応の試合履歴です。 */
+export interface TeamRatingMatchRecord {
+  readonly matchId: string;
+  readonly resultId: string;
+  readonly pool: MatchmakingPool;
+  readonly result: RatingResult;
+  readonly teamIds: readonly [string, string];
+  readonly participants: readonly TeamRatingMatchParticipant[];
+  readonly createdAt: string;
+  readonly appliedAt: string;
+}
+
+/** チーム対応の試合結果登録の戻り値です。重複再送時は applied が false になります。 */
+export interface TeamMatchResultRegistration {
+  readonly match: TeamRatingMatchRecord;
+  readonly applied: boolean;
+}
+
 /** 内部の試合履歴取得条件です。結果は新しい順に返します。 */
 export interface MatchHistoryQuery {
   readonly pool: MatchmakingPool;
@@ -144,6 +188,45 @@ const RATING_SCHEMA_STATEMENTS = Object.freeze([
      ON flarelobby_rating_matches (
        game_id, season_id, pool_id, player_a_id, player_b_id,
        applied_at DESC, match_id DESC
+     )`,
+  `CREATE TABLE IF NOT EXISTS flarelobby_team_rating_matches (
+     match_id TEXT PRIMARY KEY,
+     result_id TEXT NOT NULL UNIQUE,
+     game_id TEXT NOT NULL,
+     season_id TEXT NOT NULL,
+     pool_id TEXT NOT NULL,
+     mode TEXT NOT NULL,
+     region TEXT NOT NULL,
+     team_a_id TEXT NOT NULL,
+     team_b_id TEXT NOT NULL,
+     result REAL NOT NULL CHECK (result IN (0, 0.5, 1)),
+     created_at INTEGER NOT NULL,
+     applied_at INTEGER NOT NULL,
+     FOREIGN KEY (game_id, season_id, pool_id)
+       REFERENCES flarelobby_rating_seasons (game_id, season_id, pool_id)
+   )`,
+  `CREATE TABLE IF NOT EXISTS flarelobby_team_rating_match_participants (
+     match_id TEXT NOT NULL,
+     slot TEXT NOT NULL CHECK (slot IN ('A', 'B')),
+     player_id TEXT NOT NULL,
+     team_id TEXT NOT NULL,
+     score REAL NOT NULL CHECK (score IN (0, 0.5, 1)),
+     rating_before REAL NOT NULL,
+     delta INTEGER NOT NULL,
+     rating_after REAL NOT NULL,
+     version_before INTEGER NOT NULL,
+     version_after INTEGER NOT NULL,
+     PRIMARY KEY (match_id, player_id),
+     FOREIGN KEY (match_id)
+       REFERENCES flarelobby_team_rating_matches (match_id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_flarelobby_team_rating_matches_pool_time
+     ON flarelobby_team_rating_matches (
+       game_id, season_id, pool_id, applied_at DESC, match_id DESC
+     )`,
+  `CREATE INDEX IF NOT EXISTS idx_flarelobby_team_rating_match_participants_player
+     ON flarelobby_team_rating_match_participants (
+       player_id, match_id
      )`,
 ] as const);
 
@@ -567,6 +650,268 @@ export const recordMatchResult = registerMatchResult;
 /** `registerMatchResult()` の説明的な別名です。 */
 export const applyMatchResult = registerMatchResult;
 
+/**
+ * 認可済みのチーム対応試合結果を D1 へ一度だけ適用します。
+ *
+ * 参照レートは各チームの構成員レートの算術平均とし、各構成員の ELO 更新は
+ * 自分のレートと相手チーム平均から計算します (ADR-0005)。丸めは 1 対 1 と
+ * 同じ「0.5 はゼロから遠い方向」規則を使います。試合行、全構成員の参加者履歴、
+ * 全構成員のレーティング更新は 1 回の D1 batch へまとめ、楽観的版ガードで
+ * 同時更新を防ぎます。`matchId` または `resultId` が既存なら再計算せず
+ * `applied: false` を返します。
+ */
+export async function registerTeamMatchResult(
+  database: D1Database,
+  pool: MatchmakingPool,
+  input: TeamMatchResultRegistrationInput,
+  configuration: RatingConfiguration = {},
+  maxRetries = DEFAULT_RATING_CONFLICT_RETRY_COUNT,
+): Promise<TeamMatchResultRegistration> {
+  const normalizedPool = normalizePool(pool);
+  const normalizedInput = normalizeTeamMatchResultInput(input);
+  const normalizedConfiguration = normalizeRatingConfiguration(configuration);
+  const retryCount = normalizeRetryCount(maxRetries);
+
+  await ensureRatingSchema(database);
+  await ensureTeamRatingRows(
+    database,
+    normalizedPool,
+    [...normalizedInput.playerAIds, ...normalizedInput.playerBIds],
+    normalizedConfiguration,
+  );
+
+  let existing = await findExistingTeamMatch(
+    database,
+    normalizedInput.matchId,
+    normalizedInput.resultId,
+  );
+
+  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
+    if (existing !== null) {
+      return resolveExistingTeamMatch(
+        existing,
+        normalizedPool,
+        normalizedInput,
+        database,
+      );
+    }
+
+    const [season, ratings] = await readTeamRatingState(
+      database,
+      normalizedPool,
+      [...normalizedInput.playerAIds, ...normalizedInput.playerBIds],
+    );
+
+    if (season === null || ratings === null) {
+      throw new FlareLobbyError("CONNECTION_FAILED");
+    }
+
+    const ratingByPlayer = new Map(ratings.map((row) => [row.playerId, row]));
+    const teamAAverage =
+      normalizedInput.playerAIds.reduce(
+        (sum, playerId) => sum + (ratingByPlayer.get(playerId)?.value ?? 0),
+        0,
+      ) / normalizedInput.playerAIds.length;
+    const teamBAverage =
+      normalizedInput.playerBIds.reduce(
+        (sum, playerId) => sum + (ratingByPlayer.get(playerId)?.value ?? 0),
+        0,
+      ) / normalizedInput.playerBIds.length;
+    const kFactor = season.kFactor;
+
+    const participants = [
+      ...normalizedInput.playerAIds.map((playerId) => {
+        const rating = requireRatingRow(ratingByPlayer.get(playerId));
+        const rawDelta =
+          kFactor *
+          (normalizedInput.result -
+            calculateExpectedScore(teamBAverage, rating.value));
+        return {
+          slot: "A" as const,
+          playerId,
+          teamId: normalizedInput.teamAId,
+          score: normalizedInput.result,
+          ratingBefore: rating.value,
+          versionBefore: rating.version,
+          delta: roundHalfAwayFromZero(rawDelta),
+        };
+      }),
+      ...normalizedInput.playerBIds.map((playerId) => {
+        const rating = requireRatingRow(ratingByPlayer.get(playerId));
+        const rawDelta =
+          kFactor *
+          (1 -
+            normalizedInput.result -
+            calculateExpectedScore(teamAAverage, rating.value));
+        return {
+          slot: "B" as const,
+          playerId,
+          teamId: normalizedInput.teamBId,
+          score: toRatingResult(1 - normalizedInput.result),
+          ratingBefore: rating.value,
+          versionBefore: rating.version,
+          delta: roundHalfAwayFromZero(rawDelta),
+        };
+      }),
+    ];
+    const now = Date.now();
+
+    try {
+      const statements: D1PreparedStatement[] = [
+        database
+          .prepare(
+            `INSERT INTO flarelobby_team_rating_matches (
+               match_id, result_id, game_id, season_id, pool_id, mode, region,
+               team_a_id, team_b_id, result, created_at, applied_at
+             )
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+             WHERE
+             ${participants
+               .map(
+                 () => `EXISTS (
+               SELECT 1 FROM flarelobby_ratings
+               WHERE player_id = ? AND game_id = ? AND season_id = ?
+                 AND pool_id = ? AND mode = ? AND region = ?
+                 AND version = ?
+             )`,
+               )
+               .join("\n             AND ")}`,
+          )
+          .bind(
+            normalizedInput.matchId,
+            normalizedInput.resultId,
+            normalizedPool.gameId,
+            normalizedPool.seasonId,
+            normalizedPool.id,
+            normalizedPool.mode,
+            normalizedPool.region,
+            normalizedInput.teamAId,
+            normalizedInput.teamBId,
+            normalizedInput.result,
+            now,
+            now,
+            ...participants.flatMap((participant) => [
+              participant.playerId,
+              normalizedPool.gameId,
+              normalizedPool.seasonId,
+              normalizedPool.id,
+              normalizedPool.mode,
+              normalizedPool.region,
+              participant.versionBefore,
+            ]),
+          ),
+      ];
+
+      for (const participant of participants) {
+        statements.push(
+          database
+            .prepare(
+              `UPDATE flarelobby_ratings
+               SET rating_value = ?, version = version + 1, updated_at = ?
+               WHERE player_id = ? AND game_id = ? AND season_id = ?
+                 AND pool_id = ? AND mode = ? AND region = ? AND version = ?
+                 AND EXISTS (
+                   SELECT 1 FROM flarelobby_team_rating_matches
+                   WHERE match_id = ?
+                 )`,
+            )
+            .bind(
+              participant.ratingBefore + participant.delta,
+              now,
+              participant.playerId,
+              normalizedPool.gameId,
+              normalizedPool.seasonId,
+              normalizedPool.id,
+              normalizedPool.mode,
+              normalizedPool.region,
+              participant.versionBefore,
+              normalizedInput.matchId,
+            ),
+        );
+      }
+
+      for (const participant of participants) {
+        statements.push(
+          database
+            .prepare(
+              `INSERT INTO flarelobby_team_rating_match_participants (
+                 match_id, slot, player_id, team_id, score, rating_before,
+                 delta, rating_after, version_before, version_after
+               )
+               SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+               WHERE EXISTS (
+                 SELECT 1 FROM flarelobby_team_rating_matches WHERE match_id = ?
+               )`,
+            )
+            .bind(
+              normalizedInput.matchId,
+              participant.slot,
+              participant.playerId,
+              participant.teamId,
+              participant.score,
+              participant.ratingBefore,
+              participant.delta,
+              participant.ratingBefore + participant.delta,
+              participant.versionBefore,
+              participant.versionBefore + 1,
+              normalizedInput.matchId,
+            ),
+        );
+      }
+
+      const results = await database.batch(statements);
+
+      if (
+        resultChanges(results[0]) === 0 ||
+        results.slice(1).some((result) => resultChanges(result) !== 1)
+      ) {
+        if (attempt < retryCount) {
+          continue;
+        }
+
+        throw new FlareLobbyError("CONFLICT", {
+          message: "レーティングの版競合を解決できませんでした。",
+        });
+      }
+
+      const stored = await readTeamMatchRecord(
+        database,
+        normalizedInput.matchId,
+      );
+      if (stored === null) {
+        throw new FlareLobbyError("CONNECTION_FAILED");
+      }
+
+      return Object.freeze({ match: stored, applied: true });
+    } catch (error) {
+      const raced = await findExistingTeamMatch(
+        database,
+        normalizedInput.matchId,
+        normalizedInput.resultId,
+      );
+      existing = raced;
+
+      if (raced !== null) {
+        return resolveExistingTeamMatch(
+          raced,
+          normalizedPool,
+          normalizedInput,
+          database,
+        );
+      }
+
+      throw normalizeRatingError(error);
+    }
+  }
+
+  throw new FlareLobbyError("CONFLICT", {
+    message: "レーティングの版競合を解決できませんでした。",
+  });
+}
+
+/** `registerTeamMatchResult()` の説明的な別名です。 */
+export const recordTeamMatchResult = registerTeamMatchResult;
+
 /** 試合履歴をページング取得します。履歴は D1 の確定時刻で安定ソートします。 */
 export async function listMatchHistory(
   database: D1Database,
@@ -660,6 +1005,479 @@ export async function listMatchHistory(
 
 /** `listMatchHistory()` の説明的な別名です。 */
 export const getMatchHistory = listMatchHistory;
+
+function normalizeTeamMatchResultInput(
+  input: TeamMatchResultRegistrationInput,
+): TeamMatchResultRegistrationInput {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  const resultId = normalizeIdentifier(input.resultId, "resultId");
+  const matchId = normalizeIdentifier(input.matchId, "matchId");
+  const teamAId = normalizeIdentifier(input.teamAId, "teamAId");
+  const teamBId = normalizeIdentifier(input.teamBId, "teamBId");
+  const playerAIds = normalizePlayerIdList(input.playerAIds, "playerAIds");
+  const playerBIds = normalizePlayerIdList(input.playerBIds, "playerBIds");
+
+  for (const playerId of playerAIds) {
+    if (playerBIds.includes(playerId)) {
+      throw new FlareLobbyError("INVALID_PAYLOAD", {
+        message: "同じ構成員を両チームへ含められません。",
+      });
+    }
+  }
+
+  if (!isRatingResult(input.result)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return Object.freeze({
+    resultId,
+    matchId,
+    teamAId,
+    playerAIds,
+    teamBId,
+    playerBIds,
+    result: input.result,
+  });
+}
+
+function normalizePlayerIdList(
+  value: unknown,
+  fieldName: string,
+): readonly string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some(
+      (playerId) => typeof playerId !== "string" || playerId.length === 0,
+    )
+  ) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: `${fieldName} は 1 人以上のプレイヤー ID の配列で指定してください。`,
+    });
+  }
+  const unique = Object.freeze(
+    [...new Set(value as string[])].sort(compareStrings),
+  );
+  if (unique.length !== value.length) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: `${fieldName} に重複したプレイヤー ID を指定できません。`,
+    });
+  }
+  return unique;
+}
+
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+async function ensureTeamRatingRows(
+  database: D1Database,
+  pool: MatchmakingPool,
+  playerIds: readonly string[],
+  configuration: NormalizedRatingConfiguration,
+): Promise<void> {
+  const now = Date.now();
+
+  try {
+    await database.batch([
+      database
+        .prepare(
+          `INSERT OR IGNORE INTO flarelobby_rating_seasons (
+             game_id, season_id, pool_id, initial_rating, k_factor,
+             created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          pool.gameId,
+          pool.seasonId,
+          pool.id,
+          configuration.initialRating,
+          configuration.kFactor,
+          now,
+          now,
+        ),
+      ...playerIds.map((playerId) =>
+        createRatingInsert(database, pool, playerId, configuration, now),
+      ),
+    ]);
+  } catch (error) {
+    throw normalizeRatingError(error);
+  }
+}
+
+async function readTeamRatingState(
+  database: D1Database,
+  pool: MatchmakingPool,
+  playerIds: readonly string[],
+): Promise<readonly [SeasonRow | null, readonly RatingRow[] | null]> {
+  const seasonStatement = database
+    .prepare(
+      `SELECT
+         game_id AS gameId,
+         season_id AS seasonId,
+         pool_id AS poolId,
+         initial_rating AS initialRating,
+         k_factor AS kFactor
+       FROM flarelobby_rating_seasons
+       WHERE game_id = ? AND season_id = ? AND pool_id = ?`,
+    )
+    .bind(pool.gameId, pool.seasonId, pool.id);
+  const ratingStatement = database.prepare(
+    `SELECT
+       player_id AS playerId,
+       game_id AS gameId,
+       season_id AS seasonId,
+       pool_id AS poolId,
+       mode,
+       region,
+       rating_value AS value,
+       version
+     FROM flarelobby_ratings
+     WHERE game_id = ? AND season_id = ? AND pool_id = ?
+       AND mode = ? AND region = ?
+       AND player_id IN (${playerIds.map(() => "?").join(", ")})`,
+  );
+
+  try {
+    const results = await database.batch([
+      seasonStatement,
+      ratingStatement.bind(
+        pool.gameId,
+        pool.seasonId,
+        pool.id,
+        pool.mode,
+        pool.region,
+        ...playerIds,
+      ),
+    ]);
+    const season = toSeasonRow(firstResultRow(results[0]));
+    const ratings = (results[1]?.results ?? [])
+      .map((row) => toRatingRow(asRecord(row)))
+      .filter((row): row is RatingRow => row !== null);
+
+    if (season === null || ratings.length !== playerIds.length) {
+      return [season, null];
+    }
+
+    return [season, ratings];
+  } catch (error) {
+    throw normalizeRatingError(error);
+  }
+}
+
+function requireRatingRow(row: RatingRow | undefined): RatingRow {
+  if (row === undefined) {
+    throw new FlareLobbyError("CONNECTION_FAILED");
+  }
+  return row;
+}
+
+async function findExistingTeamMatch(
+  database: D1Database,
+  matchId: string,
+  resultId: string,
+): Promise<TeamMatchRow | null> {
+  try {
+    const matchStatement = database
+      .prepare(`${TEAM_MATCH_SELECT} WHERE match_id = ?`)
+      .bind(matchId);
+    const resultStatement = database
+      .prepare(`${TEAM_MATCH_SELECT} WHERE result_id = ?`)
+      .bind(resultId);
+    const results = await database.batch([matchStatement, resultStatement]);
+    return (
+      toTeamMatchRow(firstResultRow(results[0])) ??
+      toTeamMatchRow(firstResultRow(results[1]))
+    );
+  } catch (error) {
+    throw normalizeRatingError(error);
+  }
+}
+
+async function resolveExistingTeamMatch(
+  existing: TeamMatchRow,
+  pool: MatchmakingPool,
+  input: TeamMatchResultRegistrationInput,
+  database: D1Database,
+): Promise<TeamMatchResultRegistration> {
+  if (
+    existing.matchId !== input.matchId ||
+    existing.resultId !== input.resultId ||
+    existing.gameId !== pool.gameId ||
+    existing.seasonId !== pool.seasonId ||
+    existing.poolId !== pool.id ||
+    existing.mode !== pool.mode ||
+    existing.region !== pool.region ||
+    existing.teamAId !== input.teamAId ||
+    existing.teamBId !== input.teamBId ||
+    existing.result !== input.result
+  ) {
+    throw new FlareLobbyError("CONFLICT", {
+      message: "同じ試合または結果識別子へ異なる結果を適用できません。",
+    });
+  }
+
+  const record = await readTeamMatchRecord(database, existing.matchId);
+  if (record === null) {
+    throw new FlareLobbyError("CONNECTION_FAILED");
+  }
+
+  return Object.freeze({ match: record, applied: false });
+}
+
+async function readTeamMatchRecord(
+  database: D1Database,
+  matchId: string,
+): Promise<TeamRatingMatchRecord | null> {
+  try {
+    const match = await database
+      .prepare(`${TEAM_MATCH_SELECT} WHERE match_id = ?`)
+      .bind(matchId)
+      .first<Record<string, unknown>>();
+
+    if (match === null) {
+      return null;
+    }
+
+    const participants = await database
+      .prepare(
+        `${TEAM_PARTICIPANT_SELECT}
+         WHERE match_id = ?
+         ORDER BY slot ASC, player_id ASC`,
+      )
+      .bind(matchId)
+      .all<Record<string, unknown>>();
+
+    return toTeamMatchRecord(
+      requireTeamMatchRow(toTeamMatchRow(match)),
+      participants.results.map((row) =>
+        requireTeamParticipantRow(toTeamParticipantRow(row)),
+      ),
+    );
+  } catch (error) {
+    throw normalizeRatingError(error);
+  }
+}
+
+const TEAM_MATCH_SELECT = `SELECT
+  match_id AS matchId,
+  result_id AS resultId,
+  game_id AS gameId,
+  season_id AS seasonId,
+  pool_id AS poolId,
+  mode,
+  region,
+  team_a_id AS teamAId,
+  team_b_id AS teamBId,
+  result,
+  created_at AS createdAt,
+  applied_at AS appliedAt
+FROM flarelobby_team_rating_matches`;
+
+const TEAM_PARTICIPANT_SELECT = `SELECT
+  match_id AS matchId,
+  slot,
+  player_id AS playerId,
+  team_id AS teamId,
+  score,
+  rating_before AS ratingBefore,
+  delta,
+  rating_after AS ratingAfter,
+  version_before AS versionBefore,
+  version_after AS versionAfter
+FROM flarelobby_team_rating_match_participants`;
+
+interface TeamMatchRow {
+  readonly matchId: string;
+  readonly resultId: string;
+  readonly gameId: string;
+  readonly seasonId: string;
+  readonly poolId: string;
+  readonly mode: string;
+  readonly region: string;
+  readonly teamAId: string;
+  readonly teamBId: string;
+  readonly result: RatingResult;
+  readonly createdAt: number;
+  readonly appliedAt: number;
+}
+
+interface TeamParticipantRow {
+  readonly matchId: string;
+  readonly slot: "A" | "B";
+  readonly playerId: string;
+  readonly teamId: string;
+  readonly score: RatingResult;
+  readonly ratingBefore: number;
+  readonly delta: number;
+  readonly ratingAfter: number;
+  readonly versionBefore: number;
+  readonly versionAfter: number;
+}
+
+function toTeamMatchRow(
+  row: Record<string, unknown> | null,
+): TeamMatchRow | null {
+  if (
+    row === null ||
+    !isNonEmptyString(row["matchId"]) ||
+    !isNonEmptyString(row["resultId"]) ||
+    !isNonEmptyString(row["gameId"]) ||
+    !isNonEmptyString(row["seasonId"]) ||
+    !isNonEmptyString(row["poolId"]) ||
+    !isNonEmptyString(row["mode"]) ||
+    !isNonEmptyString(row["region"]) ||
+    !isNonEmptyString(row["teamAId"]) ||
+    !isNonEmptyString(row["teamBId"]) ||
+    !isRatingResult(row["result"]) ||
+    !isSafeInteger(row["createdAt"]) ||
+    !isSafeInteger(row["appliedAt"])
+  ) {
+    return null;
+  }
+
+  return {
+    matchId: row["matchId"],
+    resultId: row["resultId"],
+    gameId: row["gameId"],
+    seasonId: row["seasonId"],
+    poolId: row["poolId"],
+    mode: row["mode"],
+    region: row["region"],
+    teamAId: row["teamAId"],
+    teamBId: row["teamBId"],
+    result: row["result"],
+    createdAt: row["createdAt"],
+    appliedAt: row["appliedAt"],
+  };
+}
+
+function toTeamParticipantRow(
+  row: Record<string, unknown> | null,
+): TeamParticipantRow | null {
+  if (
+    row === null ||
+    !isNonEmptyString(row["matchId"]) ||
+    (row["slot"] !== "A" && row["slot"] !== "B") ||
+    !isNonEmptyString(row["playerId"]) ||
+    !isNonEmptyString(row["teamId"]) ||
+    !isRatingResult(row["score"]) ||
+    !isFiniteNumber(row["ratingBefore"]) ||
+    !isSafeIntegerValue(row["delta"]) ||
+    !isFiniteNumber(row["ratingAfter"]) ||
+    !isSafeInteger(row["versionBefore"]) ||
+    !isSafeInteger(row["versionAfter"])
+  ) {
+    return null;
+  }
+
+  return {
+    matchId: row["matchId"],
+    slot: row["slot"],
+    playerId: row["playerId"],
+    teamId: row["teamId"],
+    score: row["score"],
+    ratingBefore: row["ratingBefore"],
+    delta: row["delta"],
+    ratingAfter: row["ratingAfter"],
+    versionBefore: row["versionBefore"],
+    versionAfter: row["versionAfter"],
+  };
+}
+
+function toTeamMatchRecord(
+  row: TeamMatchRow,
+  participantRows: readonly TeamParticipantRow[],
+): TeamRatingMatchRecord {
+  return Object.freeze({
+    matchId: row.matchId,
+    resultId: row.resultId,
+    pool: Object.freeze({
+      id: row.poolId,
+      gameId: row.gameId,
+      seasonId: row.seasonId,
+      mode: row.mode,
+      region: row.region,
+    }),
+    result: row.result,
+    teamIds: Object.freeze([row.teamAId, row.teamBId]) as readonly [
+      string,
+      string,
+    ],
+    participants: Object.freeze(participantRows.map(toTeamParticipantRecord)),
+    createdAt: new Date(row.createdAt).toISOString(),
+    appliedAt: new Date(row.appliedAt).toISOString(),
+  });
+}
+
+function toTeamParticipantRecord(
+  row: TeamParticipantRow,
+): TeamRatingMatchParticipant {
+  return Object.freeze({
+    slot: row.slot,
+    playerId: row.playerId,
+    teamId: row.teamId,
+    score: row.score,
+    ratingBefore: row.ratingBefore,
+    delta: row.delta,
+    ratingAfter: row.ratingAfter,
+    versionBefore: row.versionBefore,
+    versionAfter: row.versionAfter,
+  });
+}
+
+function calculateExpectedScore(ratingA: number, ratingB: number): number {
+  return 1 / (1 + 10 ** ((ratingB - ratingA) / 400));
+}
+
+/** ELO の丸め規則と同じ「0.5 はゼロから遠い方向」で整数化します。 */
+function roundHalfAwayFromZero(rawDelta: number): number {
+  const rounded =
+    rawDelta < 0 ? Math.ceil(rawDelta - 0.5) : Math.floor(rawDelta + 0.5);
+
+  if (!Number.isSafeInteger(rounded)) {
+    throw new RangeError("ELO の更新差分が安全な整数になりません。");
+  }
+
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+function toRatingResult(value: number): RatingResult {
+  if (!isRatingResult(value)) {
+    throw new Error("ELO の内部計算結果が不正です。");
+  }
+
+  return value;
+}
+
+function requireTeamMatchRow(row: TeamMatchRow | null): TeamMatchRow {
+  if (row === null) {
+    throw new FlareLobbyError("CONNECTION_FAILED");
+  }
+  return row;
+}
+
+function requireTeamParticipantRow(
+  row: TeamParticipantRow | null,
+): TeamParticipantRow {
+  if (row === null) {
+    throw new FlareLobbyError("CONNECTION_FAILED");
+  }
+  return row;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isSafeIntegerValue(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value);
+}
 
 async function ensureRatingRows(
   database: D1Database,
@@ -1282,8 +2100,4 @@ function isSafeInteger(value: unknown): value is number {
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return isSafeInteger(value);
-}
-
-function isSafeIntegerValue(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value);
 }

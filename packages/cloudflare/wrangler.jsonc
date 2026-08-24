@@ -20,6 +20,14 @@
         "class_name": "MatchPoolDurableObject",
       },
       {
+        "name": "FLARE_LOBBY_PARTIES",
+        "class_name": "PartyDurableObject",
+      },
+      {
+        "name": "FLARE_LOBBY_PARTY_MEMBERSHIPS",
+        "class_name": "PartyMembershipDurableObject",
+      },
+      {
         "name": "FLARE_LOBBY_RATE_LIMITS",
         "class_name": "RateLimitDurableObject",
       },
@@ -33,6 +41,13 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["RateLimitDurableObject"],
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": [
+        "PartyDurableObject",
+        "PartyMembershipDurableObject",
+      ],
     },
   ],
   "d1_databases": [
@@ -60,6 +75,14 @@
           {
             "name": "FLARE_LOBBY_MATCH_POOLS",
             "class_name": "MatchPoolDurableObject",
+          },
+          {
+            "name": "FLARE_LOBBY_PARTIES",
+            "class_name": "PartyDurableObject",
+          },
+          {
+            "name": "FLARE_LOBBY_PARTY_MEMBERSHIPS",
+            "class_name": "PartyMembershipDurableObject",
           },
           {
             "name": "FLARE_LOBBY_RATE_LIMITS",
@@ -92,6 +115,14 @@
           {
             "name": "FLARE_LOBBY_MATCH_POOLS",
             "class_name": "MatchPoolDurableObject",
+          },
+          {
+            "name": "FLARE_LOBBY_PARTIES",
+            "class_name": "PartyDurableObject",
+          },
+          {
+            "name": "FLARE_LOBBY_PARTY_MEMBERSHIPS",
+            "class_name": "PartyMembershipDurableObject",
           },
           {
             "name": "FLARE_LOBBY_RATE_LIMITS",
