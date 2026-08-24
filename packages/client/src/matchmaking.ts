@@ -50,6 +50,11 @@ export interface MatchmakingJoinOptions {
   readonly searchAttributes?: JsonObject;
   readonly expiresAt?: number | Timestamp;
   readonly ttlMs?: number;
+  /**
+   * パーティー単位のチケットを作成する場合のパーティー ID です。
+   * 指定時はリーダーだけが作成でき、構成員は凍結されます。
+   */
+  readonly partyId?: string;
   readonly signal?: AbortSignal;
   readonly reconnect?: RoomReconnectOptions;
 }
@@ -286,6 +291,7 @@ async function joinMatchmaking<TApp extends AnyFlareLobbyApp>(
     searchAttributes: options.searchAttributes,
     expiresAt: options.expiresAt,
     ttlMs: options.ttlMs,
+    partyId: options.partyId,
   });
 
   let response: unknown;

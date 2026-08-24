@@ -39,6 +39,15 @@ import type {
   MatchmakingTicket,
   MatchmakingTicketRequestOptions,
 } from "./matchmaking.js";
+import { createPartyApi } from "./party.js";
+import type {
+  PartyClientApi,
+  PartyCreationOptions,
+  PartyJoinOptions,
+  PartyRequestOptions,
+  Party,
+  RawJsonEventConnection,
+} from "./party.js";
 
 const WEBSOCKET_OPEN = 1;
 const WEBSOCKET_CLOSED = 3;
@@ -176,6 +185,22 @@ export interface FlareLobbyClient<
     options?: MatchmakingTicketRequestOptions,
   ): Promise<import("@flarelobby/core").Rating>;
   dispose(): void;
+  /** パーティーを作成し、作成者をリーダーとした接続済みハンドルを返します。 */
+  createParty(options?: PartyCreationOptions): Promise<Party<TApp>>;
+  /** 既存パーティーの状態を取得し、イベント購読を開始します。 */
+  getParty(
+    partyId: string,
+    options?: PartyRequestOptions,
+  ): Promise<Party<TApp>>;
+  /**
+   * 単一用途トークンでパーティーへ参加し、イベント購読を開始します。
+   * トークンだけでは参加先を決められないため、招待元から受け取った
+   * `partyId` を指定してください。
+   */
+  joinParty(
+    invite: { readonly partyId: string; readonly token: string },
+    options?: PartyJoinOptions,
+  ): Promise<Party<TApp>>;
   /** `dispose()` の説明的な別名です。 */
   destroy(): void;
 }
@@ -200,6 +225,7 @@ class FlareLobbyClientImpl<
   private readonly requestIdFactory: () => RequestId;
   private readonly customRoomApi: CustomRoomClientApi<TApp>;
   private readonly matchmakingApi: MatchmakingClientApi<TApp>;
+  private readonly partyApi: PartyClientApi<TApp>;
   private readonly connections = new Set<FlareLobbyWebSocketConnectionImpl>();
   private disposedState = false;
 
@@ -232,6 +258,20 @@ class FlareLobbyClientImpl<
       connectWithToken: (path, connectionOptions, token) =>
         this.connectWithToken(path, connectionOptions, token),
       requestIdFactory: this.requestIdFactory,
+      ...(options.reconnect === undefined
+        ? {}
+        : { reconnectOptions: options.reconnect }),
+    });
+    this.partyApi = createPartyApi<TApp>({
+      request: this.request.bind(this),
+      connect: this.connect.bind(this),
+      connectWithToken: (path, connectionOptions, token) =>
+        this.connectWithToken(path, connectionOptions, token),
+      requestIdFactory: this.requestIdFactory,
+      connectEvents: (path, connectionOptions) =>
+        this.connectEventStream(path, connectionOptions),
+      startQueue: (pool, queueOptions) =>
+        this.matchmakingApi.joinMatchmaking(pool, queueOptions),
       ...(options.reconnect === undefined
         ? {}
         : { reconnectOptions: options.reconnect }),
@@ -364,6 +404,33 @@ class FlareLobbyClientImpl<
     }
   }
 
+  /**
+   * Party Durable Object のイベント接続のように、プロトコル Envelope ではなく
+   * 1 メッセージ = 1 JSON 値を配信する WebSocket を開きます。
+   */
+  private async connectEventStream(
+    path: string,
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<RawJsonEventConnection> {
+    this.assertActive();
+    throwIfAborted(options.signal);
+
+    const url = resolveWebSocketUrl(this.endpointUrl, path);
+    const authenticationToken = await this.readAccessToken();
+    throwIfAborted(options.signal);
+
+    const protocols = createWebSocketProtocols(undefined, authenticationToken);
+    const socket = this.createWebSocket(url, protocols);
+    const connection = new RawJsonEventConnectionImpl(socket);
+    try {
+      await connection.waitForOpen(options.signal);
+      return connection;
+    } catch (error) {
+      connection.close();
+      throw normalizeClientError(error, "CONNECTION_FAILED");
+    }
+  }
+
   public connectWebSocket(
     path: string | URL,
     options: ClientWebSocketOptions = {},
@@ -418,13 +485,31 @@ class FlareLobbyClientImpl<
     return this.matchmakingApi.getRating(pool, options);
   }
 
+  public createParty(options: PartyCreationOptions = {}): Promise<Party<TApp>> {
+    return this.partyApi.createParty(options);
+  }
+
+  public getParty(
+    partyId: string,
+    options: PartyRequestOptions = {},
+  ): Promise<Party<TApp>> {
+    return this.partyApi.getParty(partyId, options);
+  }
+
+  public joinParty(
+    invite: { readonly partyId: string; readonly token: string },
+    options: PartyJoinOptions = {},
+  ): Promise<Party<TApp>> {
+    return this.partyApi.joinParty(invite, options);
+  }
+
   public dispose(): void {
     if (this.disposedState) {
       return;
     }
 
     this.disposedState = true;
-    this.matchmakingApi.dispose();
+    this.partyApi.dispose();
     for (const connection of this.connections) {
       connection.close(1000, "client disposed");
     }
@@ -864,6 +949,205 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
     this.closeListeners.clear();
     this.eventListeners.clear();
     this.onClosed();
+
+    if (this.socket.readyState !== WEBSOCKET_CLOSED) {
+      try {
+        this.socket.close(closeCode, closeReason);
+      } catch {
+        // すでに閉じた WebSocket の例外は公開しません。
+      }
+    }
+  }
+}
+
+/**
+ * プロトコル Envelope を解釈せず、受信メッセージを JSON 値として配信する
+ * WebSocket 接続です。Party イベント接続のような送信専用方向を持たない
+ * 購読系の通信で使います。
+ */
+class RawJsonEventConnectionImpl implements RawJsonEventConnection {
+  private readonly socket: WebSocket;
+  private readonly messageListeners = new Set<(value: JsonValue) => void>();
+  private readonly closeListeners = new Set<(error: FlareLobbyError) => void>();
+  private readonly openPromise: Promise<void>;
+  private resolveOpen!: () => void;
+  private rejectOpen!: (error: FlareLobbyError) => void;
+  private opened = false;
+  private closedState = false;
+  private closedByClient = false;
+  private closedError: FlareLobbyError | undefined;
+
+  public constructor(socket: WebSocket) {
+    this.socket = socket;
+    this.openPromise = new Promise<void>((resolve, reject) => {
+      this.resolveOpen = resolve;
+      this.rejectOpen = reject;
+    });
+
+    this.socket.addEventListener("open", this.handleOpen);
+    this.socket.addEventListener("message", this.handleMessage);
+    this.socket.addEventListener("error", this.handleError);
+    this.socket.addEventListener("close", this.handleClose);
+
+    if (this.socket.readyState === WEBSOCKET_OPEN) {
+      queueMicrotask(this.handleOpen);
+    }
+  }
+
+  public get closed(): boolean {
+    return this.closedState || this.socket.readyState === WEBSOCKET_CLOSED;
+  }
+
+  public waitForOpen(signal?: AbortSignal): Promise<void> {
+    if (signal === undefined) {
+      return this.openPromise;
+    }
+
+    if (signal.aborted) {
+      this.close();
+      return Promise.reject(new FlareLobbyError("CANCELLED"));
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const cleanup = (): void => {
+        signal.removeEventListener("abort", onAbort);
+      };
+      const settle = (callback: () => void): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        callback();
+      };
+      const onAbort = (): void => {
+        this.close();
+        settle(() => reject(new FlareLobbyError("CANCELLED")));
+      };
+
+      signal.addEventListener("abort", onAbort, { once: true });
+      this.openPromise.then(
+        () => settle(resolve),
+        (error: FlareLobbyError) => settle(() => reject(error)),
+      );
+    });
+  }
+
+  public onMessage(listener: (value: JsonValue) => void): () => void {
+    if (this.closedState) {
+      throw this.closedError ?? new FlareLobbyError("CANCELLED");
+    }
+
+    this.messageListeners.add(listener);
+    return (): void => {
+      this.messageListeners.delete(listener);
+    };
+  }
+
+  public onClose(listener: (error: FlareLobbyError) => void): () => void {
+    if (this.closedState) {
+      listener(this.closedError ?? new FlareLobbyError("CONNECTION_FAILED"));
+      return (): void => undefined;
+    }
+
+    this.closeListeners.add(listener);
+    return (): void => {
+      this.closeListeners.delete(listener);
+    };
+  }
+
+  public close(code?: number, reason?: string): void {
+    if (this.closedState) {
+      return;
+    }
+
+    this.closedByClient = true;
+    this.terminate(new FlareLobbyError("CANCELLED"), code, reason);
+  }
+
+  private readonly handleOpen = (): void => {
+    if (this.closedState) {
+      return;
+    }
+
+    this.opened = true;
+    this.resolveOpen();
+  };
+
+  private readonly handleMessage = (event: Event): void => {
+    if (this.closedState) {
+      return;
+    }
+
+    const data = (event as MessageEvent).data;
+    if (typeof data !== "string") {
+      this.terminate(new FlareLobbyError("INVALID_MESSAGE"), 1002);
+      return;
+    }
+
+    let value: JsonValue;
+    try {
+      value = JSON.parse(data) as JsonValue;
+    } catch {
+      this.terminate(new FlareLobbyError("INVALID_MESSAGE"), 1002);
+      return;
+    }
+
+    for (const listener of this.messageListeners) {
+      try {
+        listener(value);
+      } catch {
+        // 利用者の listener 例外で通信路を壊さないようにします。
+      }
+    }
+  };
+
+  private readonly handleError = (): void => {
+    this.terminate(new FlareLobbyError("CONNECTION_FAILED"));
+  };
+
+  private readonly handleClose = (event: Event): void => {
+    if (this.closedState) {
+      return;
+    }
+
+    this.terminate(
+      this.closedByClient
+        ? new FlareLobbyError("CANCELLED")
+        : errorForWebSocketCloseCode((event as CloseEvent).code),
+    );
+  };
+
+  private terminate(
+    error: FlareLobbyError,
+    closeCode?: number,
+    closeReason?: string,
+  ): void {
+    if (this.closedState) {
+      return;
+    }
+
+    this.closedState = true;
+    this.closedError = error;
+    this.socket.removeEventListener("open", this.handleOpen);
+    this.socket.removeEventListener("message", this.handleMessage);
+    this.socket.removeEventListener("error", this.handleError);
+    this.socket.removeEventListener("close", this.handleClose);
+
+    if (!this.opened) {
+      this.rejectOpen(error);
+    }
+
+    for (const listener of this.closeListeners) {
+      try {
+        listener(error);
+      } catch {
+        // 切断通知の利用者例外で後始末を止めないようにします。
+      }
+    }
+    this.closeListeners.clear();
+    this.messageListeners.clear();
 
     if (this.socket.readyState !== WEBSOCKET_CLOSED) {
       try {
