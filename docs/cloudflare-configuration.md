@@ -48,6 +48,8 @@ D1 スキーマは [`packages/cloudflare/migrations`](../packages/cloudflare/mig
 | `0001_custom_room_index.sql` | 公開カスタムルーム一覧の検索用テーブルと索引     |
 | `0002_rating.sql`            | シーズン、レーティング、試合履歴のテーブルと索引 |
 | `0003_local_demo_rps.sql`    | ローカルデモ用のじゃんけん対戦記録テーブル       |
+| `0004_team_rating.sql`       | チーム対応の試合結果テーブルと索引               |
+| `0005_rating_algorithm.sql`  | レーティング方式と RD・ボラティリティの列追加    |
 
 適用は Wrangler の migration コマンドを使います。
 

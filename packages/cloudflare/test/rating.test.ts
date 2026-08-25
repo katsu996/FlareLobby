@@ -9,7 +9,9 @@ import {
   getMatchHistory,
   getRating,
   registerMatchResult,
+  registerTeamMatchResult,
 } from "../src/index.js";
+import { FlareLobbyError } from "@flarelobby/core";
 import type { GatewayPrincipalEnvelope } from "../src/index.js";
 
 function createPool(label = crypto.randomUUID()): MatchmakingPool {
@@ -386,5 +388,173 @@ describe("レーティング Gateway", () => {
         payload.match.participants.map((participant) => participant.playerId),
       ),
     ).toEqual(new Set([firstTicket.player.id, secondTicket.player.id]));
+  });
+});
+
+describe("Glicko-2 レーティング永続化", () => {
+  async function readStoredRatingState(
+    pool: MatchmakingPool,
+    playerId: string,
+  ): Promise<{
+    readonly value: number;
+    readonly version: number;
+    readonly deviation: number | null;
+    readonly volatility: number | null;
+  } | null> {
+    return env.FLARE_LOBBY_DB.prepare(
+      `SELECT rating_value AS value, version,
+              rating_deviation AS deviation, rating_volatility AS volatility
+       FROM flarelobby_ratings
+       WHERE player_id = ? AND game_id = ? AND season_id = ?
+         AND pool_id = ? AND mode = ? AND region = ?`,
+    )
+      .bind(
+        playerId,
+        pool.gameId,
+        pool.seasonId,
+        pool.id,
+        pool.mode,
+        pool.region,
+      )
+      .first();
+  }
+
+  it("Glicko-2 の結果を一度だけ適用し、RD を保存する", async () => {
+    const pool = createPool();
+    const configuration = { algorithm: "glicko-2" } as const;
+    const input = createResultInput("match-glicko-1", "result-glicko-1");
+
+    const first = await registerMatchResult(
+      env.FLARE_LOBBY_DB,
+      pool,
+      input,
+      configuration,
+    );
+    expect(first.applied).toBe(true);
+    expect(first.match.participants.map((p) => p.delta)).toEqual([162, -162]);
+    expect(first.match.participants.map((p) => p.versionAfter)).toEqual([1, 1]);
+
+    // 既知値: 同条件の勝者は 1662.31 / RD 290.32、敗者は 1337.69。
+    const winner = await readStoredRatingState(pool, "player-a");
+    const loser = await readStoredRatingState(pool, "player-b");
+    expect(winner).toMatchObject({
+      value: 1_662,
+      version: 1,
+      volatility: expect.closeTo(0.06, 5),
+    });
+    expect(winner?.deviation).toBeCloseTo(290.319, 3);
+    expect(loser?.value).toBe(1_338);
+    expect(loser?.deviation).toBeCloseTo(290.319, 3);
+
+    const duplicate = await registerMatchResult(
+      env.FLARE_LOBBY_DB,
+      pool,
+      input,
+      configuration,
+    );
+    expect(duplicate.applied).toBe(false);
+    expect(await readStoredRatingState(pool, "player-a")).toMatchObject({
+      value: 1_662,
+      version: 1,
+    });
+
+    const matchCount = await env.FLARE_LOBBY_DB.prepare(
+      `SELECT COUNT(*) AS count FROM flarelobby_rating_matches
+       WHERE match_id = ? OR result_id = ?`,
+    )
+      .bind(input.matchId, input.resultId)
+      .first<{ count: number }>();
+    expect(matchCount?.count).toBe(1);
+  });
+
+  it("連戦で更新後のレートと RD を入力として使う", async () => {
+    const pool = createPool();
+    const configuration = { algorithm: "glicko-2" } as const;
+    await registerMatchResult(
+      env.FLARE_LOBBY_DB,
+      pool,
+      {
+        ...createResultInput("match-seq-1", "result-seq-1"),
+        playerBId: "player-x",
+      },
+      configuration,
+    );
+    const second = await registerMatchResult(
+      env.FLARE_LOBBY_DB,
+      pool,
+      {
+        ...createResultInput("match-seq-2", "result-seq-2"),
+        playerBId: "player-y",
+      },
+      configuration,
+    );
+
+    expect(second.applied).toBe(true);
+    expect(second.match.participants[0]?.ratingBefore).toBe(1_662);
+    expect(second.match.participants.map((p) => p.delta)).toEqual([88, -117]);
+
+    const stored = await readStoredRatingState(pool, "player-a");
+    expect(stored).toMatchObject({ value: 1_750, version: 2 });
+    expect(stored?.deviation).toBeCloseTo(256.335, 3);
+  });
+
+  it("Season の方式と一致しない設定を拒否する", async () => {
+    const pool = createPool();
+    const glickoConfiguration = { algorithm: "glicko-2" } as const;
+
+    await registerMatchResult(
+      env.FLARE_LOBBY_DB,
+      pool,
+      {
+        ...createResultInput("match-mix-1", "result-mix-1"),
+        playerBId: "player-z",
+      },
+      glickoConfiguration,
+    );
+
+    await expect(
+      registerMatchResult(env.FLARE_LOBBY_DB, pool, {
+        ...createResultInput("match-mix-2", "result-mix-2"),
+        playerBId: "player-z",
+      }),
+    ).rejects.toThrow(FlareLobbyError);
+  });
+
+  it("チーム対応の結果登録でも Glicko-2 を適用し、再送を冪等に扱う", async () => {
+    const pool = createPool();
+    const configuration = { algorithm: "glicko-2" } as const;
+    const input = {
+      matchId: "match-team-glicko",
+      resultId: "result-team-glicko",
+      teamAId: "team-a",
+      teamBId: "team-b",
+      playerAIds: ["team-player-a1", "team-player-a2"],
+      playerBIds: ["team-player-b1", "team-player-b2"],
+      result: 1,
+    } as const;
+
+    const first = await registerTeamMatchResult(
+      env.FLARE_LOBBY_DB,
+      pool,
+      input,
+      configuration,
+    );
+    expect(first.applied).toBe(true);
+    expect(first.match.participants).toHaveLength(4);
+    expect(first.match.participants.map((p) => p.delta)).toEqual([
+      162, 162, -162, -162,
+    ]);
+
+    const member = await readStoredRatingState(pool, "team-player-a1");
+    expect(member?.value).toBe(1_662);
+    expect(member?.deviation).toBeCloseTo(290.319, 3);
+
+    const replayed = await registerTeamMatchResult(
+      env.FLARE_LOBBY_DB,
+      pool,
+      input,
+      configuration,
+    );
+    expect(replayed.applied).toBe(false);
   });
 });

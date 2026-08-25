@@ -1,14 +1,12 @@
 import type {
   AnyFlareLobbyApp,
   AppRoomSettings,
-  EloOptions,
   FlareLobbyApp,
   MatchmakingPool,
   MatchmakingSearchPolicy,
 } from "@flarelobby/core";
 import {
   FlareLobbyError,
-  elo,
   normalizeMatchmakingSearchPolicy,
 } from "@flarelobby/core";
 import type { ProtocolResult } from "@flarelobby/core";
@@ -20,6 +18,7 @@ import type {
   RateLimitDurableObject,
   RoomDurableObject,
 } from "./durable-objects.js";
+import { resolveRatingConfiguration } from "./rating.js";
 import type { RatingConfiguration } from "./rating.js";
 import type { MatchmakingMatchRoomOptions } from "./match-pool.js";
 import {
@@ -876,10 +875,6 @@ function isNonEmptyString(value: unknown): value is string {
 
 function normalizeRatingConfiguration(
   configuration: RatingConfiguration,
-): Required<EloOptions> {
-  const engine = elo(configuration);
-  return {
-    initialRating: engine.initialRating,
-    kFactor: engine.kFactor,
-  };
+): Required<RatingConfiguration> {
+  return resolveRatingConfiguration(configuration);
 }

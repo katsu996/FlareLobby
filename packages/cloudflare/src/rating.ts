@@ -1,13 +1,54 @@
-import { FlareLobbyError, elo } from "@flarelobby/core";
+import {
+  FlareLobbyError,
+  DEFAULT_ELO_K_FACTOR,
+  DEFAULT_GLICKO2_INITIAL_RATING_DEVIATION,
+  DEFAULT_GLICKO2_TAU,
+  DEFAULT_GLICKO2_VOLATILITY,
+  elo,
+  glicko2,
+} from "@flarelobby/core";
 import type {
-  EloOptions,
+  EloCalculation,
+  EloEngine,
+  Glicko2Calculation,
+  Glicko2Engine,
   MatchmakingPool,
   Rating,
+  RatingCalculation,
   RatingResult,
 } from "@flarelobby/core";
 
-/** D1 へ保存するレーティングの設定です。省略時は ELO の既定値を使います。 */
-export interface RatingConfiguration extends EloOptions {}
+/** Pool/Season で利用するレーティング方式です。省略時は `elo` です。 */
+export type RatingAlgorithm = "elo" | "glicko-2";
+
+/**
+ * D1 へ保存するレーティングの設定です。省略時は ELO の既定値を使います。
+ * `algorithm` を `glicko-2` へ変えると RD とボラティリティも D1 へ保存します。
+ */
+export interface RatingConfiguration {
+  /** 省略時は `elo` です。Season 作成後に変更すると `CONFLICT` になります。 */
+  readonly algorithm?: RatingAlgorithm;
+  /** 省略時は `1500` です。 */
+  readonly initialRating?: number;
+  /** ELO の K 係数です。省略時は `24` です。`glicko-2` では使いません。 */
+  readonly kFactor?: number;
+  /** Glicko-2 の初期 RD です。省略時は `350` です。 */
+  readonly initialRatingDeviation?: number;
+  /** Glicko-2 のシステム定数です。省略時は `0.5` です。 */
+  readonly tau?: number;
+  /** Glicko-2 の初期ボラティリティです。省略時は `0.06` です。 */
+  readonly volatility?: number;
+}
+
+/**
+ * 設定の既定値を解決し、Pool 設定として公開できる形へ正規化します。
+ * 不正なキーや値は `FlareLobbyError` になります。
+ */
+export function resolveRatingConfiguration(
+  configuration: RatingConfiguration,
+): Required<RatingConfiguration> {
+  return normalizeRatingConfiguration(configuration);
+}
 
 /** サーバー側で認可された試合結果の登録入力です。result は A 側の得点です。 */
 export interface MatchResultRegistrationInput {
@@ -230,12 +271,39 @@ const RATING_SCHEMA_STATEMENTS = Object.freeze([
      )`,
 ] as const);
 
+/**
+ * 既存テーブルへの列追加です。`migrations/0005_rating_algorithm.sql` と
+ * 同じ内容を Worker 実行時に冪等へ適用します。列が既に存在する場合は
+ * 何もしません。
+ */
+const RATING_SCHEMA_UPGRADES = Object.freeze([
+  {
+    table: "flarelobby_rating_seasons",
+    column: "algorithm",
+    statement:
+      "ALTER TABLE flarelobby_rating_seasons ADD COLUMN algorithm TEXT NOT NULL DEFAULT 'elo'",
+  },
+  {
+    table: "flarelobby_ratings",
+    column: "rating_deviation",
+    statement:
+      "ALTER TABLE flarelobby_ratings ADD COLUMN rating_deviation REAL",
+  },
+  {
+    table: "flarelobby_ratings",
+    column: "rating_volatility",
+    statement:
+      "ALTER TABLE flarelobby_ratings ADD COLUMN rating_volatility REAL",
+  },
+] as const);
+
 interface SeasonRow extends Record<string, unknown> {
   gameId: string;
   seasonId: string;
   poolId: string;
   initialRating: number;
   kFactor: number;
+  algorithm: RatingAlgorithm;
 }
 
 interface RatingRow extends Record<string, unknown> {
@@ -247,6 +315,10 @@ interface RatingRow extends Record<string, unknown> {
   region: string;
   value: number;
   version: number;
+  /** Glicko-2 の現在の RD です。ELO のみの Pool や旧データでは null です。 */
+  deviation: number | null;
+  /** Glicko-2 の現在のボラティリティです。ELO のみの Pool や旧データでは null です。 */
+  volatility: number | null;
 }
 
 interface MatchRow extends Record<string, unknown> {
@@ -297,16 +369,81 @@ export async function ensureRatingSchema(database: D1Database): Promise<void> {
     return;
   }
 
-  const initialization = database
-    .batch(
+  const initialization = (async () => {
+    await database.batch(
       RATING_SCHEMA_STATEMENTS.map((statement) => database.prepare(statement)),
-    )
-    .catch(() => {
-      schemaInitialization.delete(database);
-      throw new FlareLobbyError("CONNECTION_FAILED");
-    });
+    );
+    await applyRatingSchemaUpgrades(database);
+  })().catch(() => {
+    schemaInitialization.delete(database);
+    throw new FlareLobbyError("CONNECTION_FAILED");
+  });
   schemaInitialization.set(database, initialization);
   await initialization;
+}
+
+/** 既存テーブルへ不足しているレーティング列を追加します。 */
+async function applyRatingSchemaUpgrades(database: D1Database): Promise<void> {
+  const tables = [
+    ...new Set(RATING_SCHEMA_UPGRADES.map((upgrade) => upgrade.table)),
+  ];
+  const existingColumns = new Map<string, Set<string>>();
+
+  for (const table of tables) {
+    const result = await database
+      .prepare(`PRAGMA table_info(${table})`)
+      .all<{ name: unknown }>();
+    existingColumns.set(
+      table,
+      new Set(result.results.map((row) => String(row["name"]))),
+    );
+  }
+
+  const statements = RATING_SCHEMA_UPGRADES.filter(
+    (upgrade) => !existingColumns.get(upgrade.table)?.has(upgrade.column),
+  ).map((upgrade) => database.prepare(upgrade.statement));
+
+  if (statements.length > 0) {
+    try {
+      await database.batch(statements);
+    } catch (error) {
+      // 同時実行では同じ列への ALTER TABLE ADD COLUMN が競合しうるため、
+      // duplicate column エラーだけは無視して列の存在確認へ進みます。
+      if (!isDuplicateColumnError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  await assertUpgradeColumnsExist(database);
+}
+
+function isDuplicateColumnError(error: unknown): boolean {
+  return error instanceof Error && /duplicate column/i.test(error.message);
+}
+
+/** 必要な列がすべて存在することを再読込して確認します。 */
+async function assertUpgradeColumnsExist(database: D1Database): Promise<void> {
+  const tables = [
+    ...new Set(RATING_SCHEMA_UPGRADES.map((upgrade) => upgrade.table)),
+  ];
+  for (const table of tables) {
+    const required = RATING_SCHEMA_UPGRADES.filter(
+      (upgrade) => upgrade.table === table,
+    ).map((upgrade) => upgrade.column);
+    const result = await database
+      .prepare(`PRAGMA table_info(${table})`)
+      .all<{ name: unknown }>();
+    const columns = new Set(result.results.map((row) => String(row["name"])));
+
+    for (const column of required) {
+      if (!columns.has(column)) {
+        throw new Error(
+          `レーティングスキーマの列 ${table}.${column} を確認できませんでした。`,
+        );
+      }
+    }
+  }
 }
 
 /** 初回参照時に設定済み初期値を保存し、現在のレーティングを返します。 */
@@ -328,8 +465,8 @@ export async function getRating(
         .prepare(
           `INSERT OR IGNORE INTO flarelobby_rating_seasons (
              game_id, season_id, pool_id, initial_rating, k_factor,
-             created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+             algorithm, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           normalizedPool.gameId,
@@ -337,6 +474,7 @@ export async function getRating(
           normalizedPool.id,
           normalizedConfiguration.initialRating,
           normalizedConfiguration.kFactor,
+          normalizedConfiguration.algorithm,
           now,
           now,
         ),
@@ -344,8 +482,9 @@ export async function getRating(
         .prepare(
           `INSERT OR IGNORE INTO flarelobby_ratings (
              player_id, game_id, season_id, pool_id, mode, region,
-             rating_value, version, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+             rating_value, version, created_at, updated_at,
+             rating_deviation, rating_volatility
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
         )
         .bind(
           normalizedPlayerId,
@@ -357,6 +496,7 @@ export async function getRating(
           normalizedConfiguration.initialRating,
           now,
           now,
+          ...createDeviationBinds(normalizedConfiguration),
         ),
     ]);
 
@@ -438,14 +578,35 @@ export async function registerMatchResult(
       throw new FlareLobbyError("CONNECTION_FAILED");
     }
 
-    const calculation = elo({
-      initialRating: season.initialRating,
-      kFactor: season.kFactor,
-    }).calculate({
-      ratingA: ratingA.value,
-      ratingB: ratingB.value,
-      result: normalizedInput.result,
-    });
+    if (season.algorithm !== normalizedConfiguration.algorithm) {
+      throw new FlareLobbyError("CONFLICT", {
+        message: "レーティング方式が Season の作成時設定と一致しません。",
+      });
+    }
+
+    const engine = createRatingEngine(normalizedConfiguration);
+    const calculation: EloCalculation | Glicko2Calculation =
+      normalizedConfiguration.algorithm === "glicko-2"
+        ? (engine as Glicko2Engine).calculate({
+            ratingA: ratingA.value,
+            ratingB: ratingB.value,
+            result: normalizedInput.result,
+            deviationA:
+              ratingA.deviation ??
+              normalizedConfiguration.initialRatingDeviation,
+            deviationB:
+              ratingB.deviation ??
+              normalizedConfiguration.initialRatingDeviation,
+            volatilityA:
+              ratingA.volatility ?? normalizedConfiguration.volatility,
+            volatilityB:
+              ratingB.volatility ?? normalizedConfiguration.volatility,
+          })
+        : engine.calculate({
+            ratingA: ratingA.value,
+            ratingB: ratingB.value,
+            result: normalizedInput.result,
+          });
     const now = Date.now();
 
     try {
@@ -506,17 +667,18 @@ export async function registerMatchResult(
           ),
         database
           .prepare(
-            `UPDATE flarelobby_ratings
-             SET rating_value = ?, version = version + 1, updated_at = ?
-             WHERE player_id = ? AND game_id = ? AND season_id = ?
-               AND pool_id = ? AND mode = ? AND region = ? AND version = ?
-               AND EXISTS (
-                 SELECT 1 FROM flarelobby_rating_matches
-                 WHERE match_id = ?
-               )`,
+            createRatingUpdateSql(
+              normalizedConfiguration,
+              "flarelobby_rating_matches",
+            ),
           )
           .bind(
             calculation.updatedRatingA,
+            ...createRatingUpdateExtraBinds(
+              normalizedConfiguration,
+              calculation,
+              "A",
+            ),
             now,
             normalizedInput.playerAId,
             normalizedPool.gameId,
@@ -529,17 +691,18 @@ export async function registerMatchResult(
           ),
         database
           .prepare(
-            `UPDATE flarelobby_ratings
-             SET rating_value = ?, version = version + 1, updated_at = ?
-             WHERE player_id = ? AND game_id = ? AND season_id = ?
-               AND pool_id = ? AND mode = ? AND region = ? AND version = ?
-               AND EXISTS (
-                 SELECT 1 FROM flarelobby_rating_matches
-                 WHERE match_id = ?
-               )`,
+            createRatingUpdateSql(
+              normalizedConfiguration,
+              "flarelobby_rating_matches",
+            ),
           )
           .bind(
             calculation.updatedRatingB,
+            ...createRatingUpdateExtraBinds(
+              normalizedConfiguration,
+              calculation,
+              "B",
+            ),
             now,
             normalizedInput.playerBId,
             normalizedPool.gameId,
@@ -706,26 +869,111 @@ export async function registerTeamMatchResult(
       throw new FlareLobbyError("CONNECTION_FAILED");
     }
 
+    if (season.algorithm !== normalizedConfiguration.algorithm) {
+      throw new FlareLobbyError("CONFLICT", {
+        message: "レーティング方式が Season の作成時設定と一致しません。",
+      });
+    }
+
     const ratingByPlayer = new Map(ratings.map((row) => [row.playerId, row]));
-    const teamAAverage =
-      normalizedInput.playerAIds.reduce(
+    const teamAverage = (playerIds: readonly string[]): number =>
+      playerIds.reduce(
         (sum, playerId) => sum + (ratingByPlayer.get(playerId)?.value ?? 0),
         0,
-      ) / normalizedInput.playerAIds.length;
-    const teamBAverage =
-      normalizedInput.playerBIds.reduce(
-        (sum, playerId) => sum + (ratingByPlayer.get(playerId)?.value ?? 0),
+      ) / playerIds.length;
+    const teamAAverage = teamAverage(normalizedInput.playerAIds);
+    const teamBAverage = teamAverage(normalizedInput.playerBIds);
+
+    const engine = createRatingEngine(normalizedConfiguration);
+    const isGlicko = normalizedConfiguration.algorithm === "glicko-2";
+    const deviationOf = (row: RatingRow): number =>
+      row.deviation ?? normalizedConfiguration.initialRatingDeviation;
+    const volatilityOf = (row: RatingRow): number =>
+      row.volatility ?? normalizedConfiguration.volatility;
+    const teamAverageOf = (
+      playerIds: readonly string[],
+      read: (row: RatingRow) => number,
+    ): number =>
+      playerIds.reduce(
+        (sum, playerId) =>
+          sum + read(requireRatingRow(ratingByPlayer.get(playerId))),
         0,
-      ) / normalizedInput.playerBIds.length;
-    const kFactor = season.kFactor;
+      ) / playerIds.length;
+    const teamAAverageDeviation = teamAverageOf(
+      normalizedInput.playerAIds,
+      deviationOf,
+    );
+    const teamBAverageDeviation = teamAverageOf(
+      normalizedInput.playerBIds,
+      deviationOf,
+    );
+    const teamAAverageVolatility = teamAverageOf(
+      normalizedInput.playerAIds,
+      volatilityOf,
+    );
+    const teamBAverageVolatility = teamAverageOf(
+      normalizedInput.playerBIds,
+      volatilityOf,
+    );
+
+    /**
+     * 構成員 1 人の更新を計算します。Glicko-2 では相手チームの平均レートを
+     * 平均 RD・平均ボラティリティの仮想対戦相手として扱います。
+     */
+    const calculateMember = (
+      ratingBefore: number,
+      deviationBefore: number,
+      volatilityBefore: number,
+      opponentAverage: number,
+      opponentAverageDeviation: number,
+      opponentAverageVolatility: number,
+      score: RatingResult,
+    ): {
+      delta: number;
+      updatedDeviation: number | null;
+      updatedVolatility: number | null;
+    } => {
+      if (!isGlicko) {
+        return {
+          delta: engine.calculate({
+            ratingA: ratingBefore,
+            ratingB: opponentAverage,
+            result: score,
+          }).deltaA,
+          updatedDeviation: null,
+          updatedVolatility: null,
+        };
+      }
+
+      const calculation = (engine as Glicko2Engine).calculate({
+        ratingA: ratingBefore,
+        ratingB: opponentAverage,
+        result: score,
+        deviationA: deviationBefore,
+        deviationB: opponentAverageDeviation,
+        volatilityA: volatilityBefore,
+        volatilityB: opponentAverageVolatility,
+      });
+
+      return {
+        delta: calculation.deltaA,
+        updatedDeviation: calculation.updatedDeviationA,
+        updatedVolatility: calculation.updatedVolatilityA,
+      };
+    };
 
     const participants = [
       ...normalizedInput.playerAIds.map((playerId) => {
         const rating = requireRatingRow(ratingByPlayer.get(playerId));
-        const rawDelta =
-          kFactor *
-          (normalizedInput.result -
-            calculateExpectedScore(teamBAverage, rating.value));
+        const update = calculateMember(
+          rating.value,
+          deviationOf(rating),
+          volatilityOf(rating),
+          teamBAverage,
+          teamBAverageDeviation,
+          teamBAverageVolatility,
+          normalizedInput.result,
+        );
         return {
           slot: "A" as const,
           playerId,
@@ -733,16 +981,22 @@ export async function registerTeamMatchResult(
           score: normalizedInput.result,
           ratingBefore: rating.value,
           versionBefore: rating.version,
-          delta: roundHalfAwayFromZero(rawDelta),
+          delta: update.delta,
+          updatedDeviation: update.updatedDeviation,
+          updatedVolatility: update.updatedVolatility,
         };
       }),
       ...normalizedInput.playerBIds.map((playerId) => {
         const rating = requireRatingRow(ratingByPlayer.get(playerId));
-        const rawDelta =
-          kFactor *
-          (1 -
-            normalizedInput.result -
-            calculateExpectedScore(teamAAverage, rating.value));
+        const update = calculateMember(
+          rating.value,
+          deviationOf(rating),
+          volatilityOf(rating),
+          teamAAverage,
+          teamAAverageDeviation,
+          teamAAverageVolatility,
+          toRatingResult(1 - normalizedInput.result),
+        );
         return {
           slot: "B" as const,
           playerId,
@@ -750,7 +1004,9 @@ export async function registerTeamMatchResult(
           score: toRatingResult(1 - normalizedInput.result),
           ratingBefore: rating.value,
           versionBefore: rating.version,
-          delta: roundHalfAwayFromZero(rawDelta),
+          delta: update.delta,
+          updatedDeviation: update.updatedDeviation,
+          updatedVolatility: update.updatedVolatility,
         };
       }),
     ];
@@ -806,17 +1062,20 @@ export async function registerTeamMatchResult(
         statements.push(
           database
             .prepare(
-              `UPDATE flarelobby_ratings
-               SET rating_value = ?, version = version + 1, updated_at = ?
-               WHERE player_id = ? AND game_id = ? AND season_id = ?
-                 AND pool_id = ? AND mode = ? AND region = ? AND version = ?
-                 AND EXISTS (
-                   SELECT 1 FROM flarelobby_team_rating_matches
-                   WHERE match_id = ?
-                 )`,
+              createRatingUpdateSql(
+                normalizedConfiguration,
+                "flarelobby_team_rating_matches",
+              ),
             )
             .bind(
               participant.ratingBefore + participant.delta,
+              ...(participant.updatedDeviation === null ||
+              participant.updatedVolatility === null
+                ? []
+                : [
+                    participant.updatedDeviation,
+                    participant.updatedVolatility,
+                  ]),
               now,
               participant.playerId,
               normalizedPool.gameId,
@@ -1087,8 +1346,8 @@ async function ensureTeamRatingRows(
         .prepare(
           `INSERT OR IGNORE INTO flarelobby_rating_seasons (
              game_id, season_id, pool_id, initial_rating, k_factor,
-             created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+             algorithm, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           pool.gameId,
@@ -1096,6 +1355,7 @@ async function ensureTeamRatingRows(
           pool.id,
           configuration.initialRating,
           configuration.kFactor,
+          configuration.algorithm,
           now,
           now,
         ),
@@ -1120,7 +1380,8 @@ async function readTeamRatingState(
          season_id AS seasonId,
          pool_id AS poolId,
          initial_rating AS initialRating,
-         k_factor AS kFactor
+         k_factor AS kFactor,
+         algorithm AS algorithm
        FROM flarelobby_rating_seasons
        WHERE game_id = ? AND season_id = ? AND pool_id = ?`,
     )
@@ -1134,7 +1395,9 @@ async function readTeamRatingState(
        mode,
        region,
        rating_value AS value,
-       version
+       version,
+       rating_deviation AS deviation,
+       rating_volatility AS volatility
      FROM flarelobby_ratings
      WHERE game_id = ? AND season_id = ? AND pool_id = ?
        AND mode = ? AND region = ?
@@ -1429,22 +1692,6 @@ function toTeamParticipantRecord(
   });
 }
 
-function calculateExpectedScore(ratingA: number, ratingB: number): number {
-  return 1 / (1 + 10 ** ((ratingB - ratingA) / 400));
-}
-
-/** ELO の丸め規則と同じ「0.5 はゼロから遠い方向」で整数化します。 */
-function roundHalfAwayFromZero(rawDelta: number): number {
-  const rounded =
-    rawDelta < 0 ? Math.ceil(rawDelta - 0.5) : Math.floor(rawDelta + 0.5);
-
-  if (!Number.isSafeInteger(rounded)) {
-    throw new RangeError("ELO の更新差分が安全な整数になりません。");
-  }
-
-  return Object.is(rounded, -0) ? 0 : rounded;
-}
-
 function toRatingResult(value: number): RatingResult {
   if (!isRatingResult(value)) {
     throw new Error("ELO の内部計算結果が不正です。");
@@ -1494,8 +1741,8 @@ async function ensureRatingRows(
         .prepare(
           `INSERT OR IGNORE INTO flarelobby_rating_seasons (
              game_id, season_id, pool_id, initial_rating, k_factor,
-             created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+             algorithm, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           pool.gameId,
@@ -1503,6 +1750,7 @@ async function ensureRatingRows(
           pool.id,
           configuration.initialRating,
           configuration.kFactor,
+          configuration.algorithm,
           now,
           now,
         ),
@@ -1525,8 +1773,9 @@ function createRatingInsert(
     .prepare(
       `INSERT OR IGNORE INTO flarelobby_ratings (
          player_id, game_id, season_id, pool_id, mode, region,
-         rating_value, version, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+         rating_value, version, created_at, updated_at,
+         rating_deviation, rating_volatility
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
     )
     .bind(
       playerId,
@@ -1538,6 +1787,7 @@ function createRatingInsert(
       configuration.initialRating,
       now,
       now,
+      ...createDeviationBinds(configuration),
     );
 }
 
@@ -1554,7 +1804,8 @@ async function readRatingState(
          season_id AS seasonId,
          pool_id AS poolId,
          initial_rating AS initialRating,
-         k_factor AS kFactor
+         k_factor AS kFactor,
+         algorithm AS algorithm
        FROM flarelobby_rating_seasons
        WHERE game_id = ? AND season_id = ? AND pool_id = ?`,
     )
@@ -1568,7 +1819,9 @@ async function readRatingState(
        mode,
        region,
        rating_value AS value,
-       version
+       version,
+       rating_deviation AS deviation,
+       rating_volatility AS volatility
      FROM flarelobby_ratings
      WHERE player_id = ? AND game_id = ? AND season_id = ?
        AND pool_id = ? AND mode = ? AND region = ?`,
@@ -1621,7 +1874,9 @@ async function readRatingRow(
            mode,
            region,
            rating_value AS value,
-           version
+           version,
+           rating_deviation AS deviation,
+           rating_volatility AS volatility
          FROM flarelobby_ratings
          WHERE player_id = ? AND game_id = ? AND season_id = ?
            AND pool_id = ? AND mode = ? AND region = ?`,
@@ -1853,7 +2108,8 @@ function toSeasonRow(row: Record<string, unknown> | null): SeasonRow | null {
     !isNonEmptyString(row["seasonId"]) ||
     !isNonEmptyString(row["poolId"]) ||
     !isFiniteNumber(row["initialRating"]) ||
-    !isFiniteNumber(row["kFactor"])
+    !isFiniteNumber(row["kFactor"]) ||
+    !isRatingAlgorithm(row["algorithm"])
   ) {
     return null;
   }
@@ -1864,6 +2120,7 @@ function toSeasonRow(row: Record<string, unknown> | null): SeasonRow | null {
     poolId: row["poolId"],
     initialRating: row["initialRating"],
     kFactor: row["kFactor"],
+    algorithm: row["algorithm"],
   };
 }
 
@@ -1891,6 +2148,18 @@ function toRatingRow(row: Record<string, unknown> | null): RatingRow | null {
     region: row["region"],
     value: row["value"],
     version: row["version"],
+    deviation:
+      row["deviation"] === null || row["deviation"] === undefined
+        ? null
+        : isFiniteNumber(row["deviation"]) && row["deviation"] >= 0
+          ? row["deviation"]
+          : null,
+    volatility:
+      row["volatility"] === null || row["volatility"] === undefined
+        ? null
+        : isFiniteNumber(row["volatility"]) && row["volatility"] > 0
+          ? row["volatility"]
+          : null,
   };
 }
 
@@ -1942,18 +2211,179 @@ function toMatchRow(row: Record<string, unknown> | null): MatchRow | null {
 }
 
 interface NormalizedRatingConfiguration {
+  readonly algorithm: RatingAlgorithm;
   readonly initialRating: number;
   readonly kFactor: number;
+  readonly initialRatingDeviation: number;
+  readonly tau: number;
+  readonly volatility: number;
 }
 
 function normalizeRatingConfiguration(
   configuration: RatingConfiguration,
 ): NormalizedRatingConfiguration {
-  const engine = elo(configuration);
-  return Object.freeze({
-    initialRating: engine.initialRating,
-    kFactor: engine.kFactor,
+  if (!isRecord(configuration)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  const algorithm = configuration["algorithm"] ?? "elo";
+  if (!isRatingAlgorithm(algorithm)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  // 正規化済み設定を再入力しても同じ結果になるよう、両方式のキーを許可します。
+  // 各値は数値として検証され、アルゴリズムごとに不要なキーは無視されます。
+  const allowedKeys = [
+    "algorithm",
+    "initialRating",
+    "kFactor",
+    "initialRatingDeviation",
+    "tau",
+    "volatility",
+  ];
+  for (const key of Object.keys(configuration)) {
+    if (!allowedKeys.includes(key)) {
+      throw new FlareLobbyError("INVALID_PAYLOAD");
+    }
+  }
+
+  try {
+    if (algorithm === "glicko-2") {
+      const engine = glicko2({
+        ...(hasOwn(configuration, "initialRating")
+          ? { initialRating: configuration["initialRating"] as number }
+          : {}),
+        ...(hasOwn(configuration, "initialRatingDeviation")
+          ? {
+              initialRatingDeviation: configuration[
+                "initialRatingDeviation"
+              ] as number,
+            }
+          : {}),
+        ...(hasOwn(configuration, "tau")
+          ? { tau: configuration["tau"] as number }
+          : {}),
+        ...(hasOwn(configuration, "volatility")
+          ? { volatility: configuration["volatility"] as number }
+          : {}),
+      });
+      return Object.freeze({
+        algorithm,
+        initialRating: engine.initialRating,
+        kFactor: DEFAULT_ELO_K_FACTOR,
+        initialRatingDeviation: engine.initialRatingDeviation,
+        tau: engine.tau,
+        volatility: engine.volatility,
+      });
+    }
+
+    const engine = elo({
+      ...(hasOwn(configuration, "initialRating")
+        ? { initialRating: configuration["initialRating"] as number }
+        : {}),
+      ...(hasOwn(configuration, "kFactor")
+        ? { kFactor: configuration["kFactor"] as number }
+        : {}),
+    });
+    return Object.freeze({
+      algorithm,
+      initialRating: engine.initialRating,
+      kFactor: engine.kFactor,
+      initialRatingDeviation: DEFAULT_GLICKO2_INITIAL_RATING_DEVIATION,
+      tau: DEFAULT_GLICKO2_TAU,
+      volatility: DEFAULT_GLICKO2_VOLATILITY,
+    });
+  } catch {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+}
+
+function hasOwn(configuration: Record<string, unknown>, key: string): boolean {
+  if (!Object.prototype.hasOwnProperty.call(configuration, key)) {
+    return false;
+  }
+
+  if (typeof configuration[key] !== "number") {
+    throw new FlareLobbyError("INVALID_PAYLOAD");
+  }
+
+  return true;
+}
+
+function isRatingAlgorithm(value: unknown): value is RatingAlgorithm {
+  return value === "elo" || value === "glicko-2";
+}
+
+/** 正規化済み設定からレーティングエンジンを構築します。 */
+function createRatingEngine(
+  configuration: NormalizedRatingConfiguration,
+): EloEngine | Glicko2Engine {
+  if (configuration.algorithm === "glicko-2") {
+    return glicko2({
+      initialRating: configuration.initialRating,
+      initialRatingDeviation: configuration.initialRatingDeviation,
+      tau: configuration.tau,
+      volatility: configuration.volatility,
+    });
+  }
+
+  return elo({
+    initialRating: configuration.initialRating,
+    kFactor: configuration.kFactor,
   });
+}
+
+/** INSERT 用の RD・ボラティリティ束縛値です。ELO では null を保存します。 */
+function createDeviationBinds(
+  configuration: NormalizedRatingConfiguration,
+): readonly (number | null)[] {
+  if (configuration.algorithm === "glicko-2") {
+    return [configuration.initialRatingDeviation, configuration.volatility];
+  }
+
+  return [null, null];
+}
+/** 版条件付きレーティング更新の SQL です。Glicko-2 では RD とボラティリティも更新します。 */
+function createRatingUpdateSql(
+  configuration: NormalizedRatingConfiguration,
+  gateTable: string,
+): string {
+  const setState =
+    configuration.algorithm === "glicko-2"
+      ? `SET rating_value = ?, rating_deviation = ?, rating_volatility = ?,
+               version = version + 1, updated_at = ?`
+      : `SET rating_value = ?, version = version + 1, updated_at = ?`;
+
+  return `UPDATE flarelobby_ratings
+             ${setState}
+             WHERE player_id = ? AND game_id = ? AND season_id = ?
+               AND pool_id = ? AND mode = ? AND region = ? AND version = ?
+               AND EXISTS (
+                 SELECT 1 FROM ${gateTable}
+                 WHERE match_id = ?
+               )`;
+}
+
+/** レーティング更新の RD・ボラティリティ束縛値です。ELO では空配列です。 */
+function createRatingUpdateExtraBinds(
+  configuration: NormalizedRatingConfiguration,
+  calculation: RatingCalculation,
+  slot: "A" | "B",
+): readonly number[] {
+  if (configuration.algorithm !== "glicko-2") {
+    return [];
+  }
+
+  const glickoCalculation = calculation as Glicko2Calculation;
+
+  return [
+    slot === "A"
+      ? glickoCalculation.updatedDeviationA
+      : glickoCalculation.updatedDeviationB,
+    slot === "A"
+      ? glickoCalculation.updatedVolatilityA
+      : glickoCalculation.updatedVolatilityB,
+  ];
 }
 
 function normalizeMatchResultInput(
