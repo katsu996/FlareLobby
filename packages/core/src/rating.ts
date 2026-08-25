@@ -156,14 +156,18 @@ export const DEFAULT_GLICKO2_VOLATILITY = 0.06;
 const GLICKO2_SCALE = 173.71779769170146;
 
 /**
- * Glicko-2 の 1 試合計算入力です。各側の試合前 RD を指定できます。
- * 省略時は設定済みの `initialRatingDeviation` を使います。
+ * Glicko-2 の 1 試合計算入力です。各側の試合前 RD とボラティリティを指定できます。
+ * 省略時は設定済みの `initialRatingDeviation` / `volatility` を使います。
  */
 export interface Glicko2CalculationInput extends RatingCalculationInput {
   /** A 側の試合前レーティング偏差（RD）です。 */
   readonly deviationA?: number;
   /** B 側の試合前レーティング偏差（RD）です。 */
   readonly deviationB?: number;
+  /** A 側の試合前ボラティリティ（σ）です。 */
+  readonly volatilityA?: number;
+  /** B 側の試合前ボラティリティ（σ）です。 */
+  readonly volatilityB?: number;
 }
 
 /** Glicko-2 の詳細な計算過程を含む結果です。 */
@@ -184,6 +188,10 @@ export interface Glicko2Calculation extends RatingCalculation {
   readonly deviationA: number;
   /** B 側の試合前 RD です。 */
   readonly deviationB: number;
+  /** A 側の試合前ボラティリティです。 */
+  readonly volatilityA: number;
+  /** B 側の試合前ボラティリティです。 */
+  readonly volatilityB: number;
   /** A 側の試合後 RD です。 */
   readonly updatedDeviationA: number;
   /** B 側の試合後 RD です。 */
@@ -226,7 +234,7 @@ export function glicko2(options: Glicko2Options = {}): Glicko2Engine {
       const updateA = applyGlicko2Update(
         normalizedInput.ratingA,
         normalizedInput.deviationA,
-        config.volatility,
+        normalizedInput.volatilityA,
         normalizedInput.ratingB,
         normalizedInput.deviationB,
         normalizedInput.result,
@@ -235,7 +243,7 @@ export function glicko2(options: Glicko2Options = {}): Glicko2Engine {
       const updateB = applyGlicko2Update(
         normalizedInput.ratingB,
         normalizedInput.deviationB,
-        config.volatility,
+        normalizedInput.volatilityB,
         normalizedInput.ratingA,
         normalizedInput.deviationA,
         toRatingResult(1 - normalizedInput.result),
@@ -268,6 +276,8 @@ export function glicko2(options: Glicko2Options = {}): Glicko2Engine {
         rawDeltaB: updateB.rawDelta,
         deviationA: normalizedInput.deviationA,
         deviationB: normalizedInput.deviationB,
+        volatilityA: normalizedInput.volatilityA,
+        volatilityB: normalizedInput.volatilityB,
         updatedDeviationA: updateA.updatedDeviation,
         updatedDeviationB: updateB.updatedDeviation,
         updatedVolatilityA: updateA.updatedVolatility,
@@ -348,7 +358,6 @@ function normalizeGlicko2Options(options: unknown): NormalizedGlicko2Options {
 
   return { initialRating, initialRatingDeviation, tau, volatility };
 }
-
 function normalizeGlicko2CalculationInput(
   input: unknown,
   config: NormalizedGlicko2Options,
@@ -358,6 +367,8 @@ function normalizeGlicko2CalculationInput(
   result: RatingResult;
   deviationA: number;
   deviationB: number;
+  volatilityA: number;
+  volatilityB: number;
 } {
   const base = normalizeCalculationInput(input);
 
@@ -368,7 +379,9 @@ function normalizeGlicko2CalculationInput(
       key !== "ratingB" &&
       key !== "result" &&
       key !== "deviationA" &&
-      key !== "deviationB"
+      key !== "deviationB" &&
+      key !== "volatilityA" &&
+      key !== "volatilityB"
     ) {
       throw new TypeError(`Glicko-2 の計算入力を解釈できません: ${key}`);
     }
@@ -376,8 +389,18 @@ function normalizeGlicko2CalculationInput(
 
   const deviationA = readDeviation(record["deviationA"], config, "deviationA");
   const deviationB = readDeviation(record["deviationB"], config, "deviationB");
+  const volatilityA = readVolatility(
+    record["volatilityA"],
+    config,
+    "volatilityA",
+  );
+  const volatilityB = readVolatility(
+    record["volatilityB"],
+    config,
+    "volatilityB",
+  );
 
-  return { ...base, deviationA, deviationB };
+  return { ...base, deviationA, deviationB, volatilityA, volatilityB };
 }
 
 function readDeviation(
@@ -391,6 +414,24 @@ function readDeviation(
 
   if (!isFiniteNumber(value) || value < 0) {
     throw new RangeError(`${key} は 0 以上の有限な数値で指定してください。`);
+  }
+
+  return value;
+}
+
+function readVolatility(
+  value: unknown,
+  config: NormalizedGlicko2Options,
+  key: string,
+): number {
+  if (value === undefined) {
+    return config.volatility;
+  }
+
+  if (!isFiniteNumber(value) || value <= 0) {
+    throw new RangeError(
+      `${key} は 0 より大きい有限な数値で指定してください。`,
+    );
   }
 
   return value;
@@ -583,7 +624,7 @@ function roundDelta(rawDelta: number): number {
     rawDelta < 0 ? Math.ceil(rawDelta - 0.5) : Math.floor(rawDelta + 0.5);
 
   if (!Number.isSafeInteger(rounded)) {
-    throw new RangeError("ELO の更新差分が安全な整数になりません。");
+    throw new RangeError("レーティングの更新差分が安全な整数になりません。");
   }
 
   return Object.is(rounded, -0) ? 0 : rounded;
@@ -591,7 +632,7 @@ function roundDelta(rawDelta: number): number {
 
 function toRatingResult(value: number): RatingResult {
   if (!isRatingResult(value)) {
-    throw new Error("ELO の内部計算結果が不正です。");
+    throw new Error("レーティングの内部計算結果が不正です。");
   }
 
   return value;
@@ -609,7 +650,7 @@ function readOption(
   const value = options[key];
 
   if (typeof value !== "number") {
-    throw new TypeError(`ELO の ${key} は数値で指定してください。`);
+    throw new TypeError(`${key} は数値で指定してください。`);
   }
 
   return value;

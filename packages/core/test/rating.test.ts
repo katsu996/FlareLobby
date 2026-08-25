@@ -282,6 +282,35 @@ describe("1 対 1 Glicko-2 レーティングエンジン", () => {
     expect(calculation.tau).toBe(0.9);
   });
 
+  it("各側の試合前ボラティリティを既知値どおりに反映する", () => {
+    // 独立実装（glicko2 npm 0.10.0、A は σ=0.07・B は σ=0.05）で確認した参照値。
+    const calculation = glicko2().calculate({
+      ratingA: 1_550,
+      deviationA: 50,
+      volatilityA: 0.07,
+      ratingB: 1_700,
+      deviationB: 300,
+      volatilityB: 0.05,
+      result: 1,
+    });
+
+    expect(calculation.volatilityA).toBe(0.07);
+    expect(calculation.volatilityB).toBe(0.05);
+    expect(calculation.rawDeltaA).toBeCloseTo(7.1169, 4);
+    expect(calculation.deltaA).toBe(7);
+    expect(calculation.updatedDeviationA).toBeCloseTo(51.1908, 4);
+    expect(calculation.updatedVolatilityA).toBeCloseTo(0.070002, 6);
+
+    // 省略時は設定済みの初期ボラティリティが使われる。
+    const defaulted = glicko2({ volatility: 0.08 }).calculate({
+      ratingA: 1_500,
+      ratingB: 1_500,
+      result: 0.5,
+    });
+    expect(defaulted.volatilityA).toBe(0.08);
+    expect(defaulted.volatilityB).toBe(0.08);
+  });
+
   it("不正なレーティング、RD、設定を明示的に拒否する", () => {
     const engine = glicko2();
 

@@ -404,7 +404,45 @@ async function applyRatingSchemaUpgrades(database: D1Database): Promise<void> {
   ).map((upgrade) => database.prepare(upgrade.statement));
 
   if (statements.length > 0) {
-    await database.batch(statements);
+    try {
+      await database.batch(statements);
+    } catch (error) {
+      // 同時実行では同じ列への ALTER TABLE ADD COLUMN が競合しうるため、
+      // duplicate column エラーだけは無視して列の存在確認へ進みます。
+      if (!isDuplicateColumnError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  await assertUpgradeColumnsExist(database);
+}
+
+function isDuplicateColumnError(error: unknown): boolean {
+  return error instanceof Error && /duplicate column/i.test(error.message);
+}
+
+/** 必要な列がすべて存在することを再読込して確認します。 */
+async function assertUpgradeColumnsExist(database: D1Database): Promise<void> {
+  const tables = [
+    ...new Set(RATING_SCHEMA_UPGRADES.map((upgrade) => upgrade.table)),
+  ];
+  for (const table of tables) {
+    const required = RATING_SCHEMA_UPGRADES.filter(
+      (upgrade) => upgrade.table === table,
+    ).map((upgrade) => upgrade.column);
+    const result = await database
+      .prepare(`PRAGMA table_info(${table})`)
+      .all<{ name: unknown }>();
+    const columns = new Set(result.results.map((row) => String(row["name"])));
+
+    for (const column of required) {
+      if (!columns.has(column)) {
+        throw new Error(
+          `レーティングスキーマの列 ${table}.${column} を確認できませんでした。`,
+        );
+      }
+    }
   }
 }
 
@@ -559,6 +597,10 @@ export async function registerMatchResult(
             deviationB:
               ratingB.deviation ??
               normalizedConfiguration.initialRatingDeviation,
+            volatilityA:
+              ratingA.volatility ?? normalizedConfiguration.volatility,
+            volatilityB:
+              ratingB.volatility ?? normalizedConfiguration.volatility,
           })
         : engine.calculate({
             ratingA: ratingA.value,
@@ -846,28 +888,45 @@ export async function registerTeamMatchResult(
     const isGlicko = normalizedConfiguration.algorithm === "glicko-2";
     const deviationOf = (row: RatingRow): number =>
       row.deviation ?? normalizedConfiguration.initialRatingDeviation;
-    const teamAAverageDeviation =
-      normalizedInput.playerAIds.reduce(
+    const volatilityOf = (row: RatingRow): number =>
+      row.volatility ?? normalizedConfiguration.volatility;
+    const teamAverageOf = (
+      playerIds: readonly string[],
+      read: (row: RatingRow) => number,
+    ): number =>
+      playerIds.reduce(
         (sum, playerId) =>
-          sum + deviationOf(requireRatingRow(ratingByPlayer.get(playerId))),
+          sum + read(requireRatingRow(ratingByPlayer.get(playerId))),
         0,
-      ) / normalizedInput.playerAIds.length;
-    const teamBAverageDeviation =
-      normalizedInput.playerBIds.reduce(
-        (sum, playerId) =>
-          sum + deviationOf(requireRatingRow(ratingByPlayer.get(playerId))),
-        0,
-      ) / normalizedInput.playerBIds.length;
+      ) / playerIds.length;
+    const teamAAverageDeviation = teamAverageOf(
+      normalizedInput.playerAIds,
+      deviationOf,
+    );
+    const teamBAverageDeviation = teamAverageOf(
+      normalizedInput.playerBIds,
+      deviationOf,
+    );
+    const teamAAverageVolatility = teamAverageOf(
+      normalizedInput.playerAIds,
+      volatilityOf,
+    );
+    const teamBAverageVolatility = teamAverageOf(
+      normalizedInput.playerBIds,
+      volatilityOf,
+    );
 
     /**
      * 構成員 1 人の更新を計算します。Glicko-2 では相手チームの平均レートを
-     * 平均 RD の仮想対戦相手として扱います。
+     * 平均 RD・平均ボラティリティの仮想対戦相手として扱います。
      */
     const calculateMember = (
       ratingBefore: number,
       deviationBefore: number,
+      volatilityBefore: number,
       opponentAverage: number,
       opponentAverageDeviation: number,
+      opponentAverageVolatility: number,
       score: RatingResult,
     ): {
       delta: number;
@@ -892,6 +951,8 @@ export async function registerTeamMatchResult(
         result: score,
         deviationA: deviationBefore,
         deviationB: opponentAverageDeviation,
+        volatilityA: volatilityBefore,
+        volatilityB: opponentAverageVolatility,
       });
 
       return {
@@ -907,8 +968,10 @@ export async function registerTeamMatchResult(
         const update = calculateMember(
           rating.value,
           deviationOf(rating),
+          volatilityOf(rating),
           teamBAverage,
           teamBAverageDeviation,
+          teamBAverageVolatility,
           normalizedInput.result,
         );
         return {
@@ -928,8 +991,10 @@ export async function registerTeamMatchResult(
         const update = calculateMember(
           rating.value,
           deviationOf(rating),
+          volatilityOf(rating),
           teamAAverage,
           teamAAverageDeviation,
+          teamAAverageVolatility,
           toRatingResult(1 - normalizedInput.result),
         );
         return {

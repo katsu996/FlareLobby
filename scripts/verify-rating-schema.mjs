@@ -62,6 +62,12 @@ if (upgradeSourceStatements.length === 0) {
   );
 }
 
+if (upgradeMigrationStatements.length === 0) {
+  errors.push(
+    "migrations/0005_rating_algorithm.sql に列追加が含まれていません。",
+  );
+}
+
 if (
   upgradeSourceStatements.length > 0 &&
   upgradeMigrationStatements.length > 0 &&

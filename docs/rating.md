@@ -45,7 +45,7 @@ calculation.updatedVolatilityA; // 約 0.06
 
 既定値は初期レーティング `1500`、初期 RD `350`、システム定数 tau `0.5`、初期ボラティリティ `0.06` です。変更する場合は `glicko2({ initialRating, initialRatingDeviation, tau, volatility })` を指定します。
 
-ELO と異なり、Glicko-2 では両側の差分が正負対称になるとは限りません。各側の新レートは相手のレートと RD から Glicko-2 式で独立に求められ、丸めだけを ELO と同じ「0.5 はゼロから遠い方向」規則で行います。計算結果には両側の更新後 RD・ボラティリティ・期待勝率・未丸め差分が含まれます。連戦する場合は前回結果の `updatedRating*` / `updatedDeviation*` を次の入力へ渡すことで不確実性が単調に縮みます。
+ELO と異なり、Glicko-2 では両側の差分が正負対称になるとは限りません。各側の新レートは相手のレートと RD から Glicko-2 式で独立に求められ、丸めだけを ELO と同じ「0.5 はゼロから遠い方向」規則で行います。計算結果には両側の更新後 RD・ボラティリティ・期待勝率・未丸め差分が含まれます。連戦する場合は前回結果の `updatedRating*` / `updatedDeviation*` / `updatedVolatility*` を次の入力へ渡すことで不確実性が単調に縮みます。ボラティリティを省略した場合は設定済みの初期値が使われます。
 
 ## 計算式と丸め
 
@@ -116,4 +116,4 @@ POST /v1/matchmaking/pools/:poolId/matches/:matchId/result
 
 パーティー単位の N 人チケットで成立した試合は、`registerTeamMatchResult()`（別名 `recordTeamMatchResult()`）で記録します。入力は両チームのチーム ID と構成員プレイヤー ID、A 側チームの得点です。Gateway の公開結果 API では、これらも Match Pool チケットから復元します。
 
-参照レートは各チーム構成員レートの算術平均とし、個々の構成員の更新差分は自分のレートと相手チーム平均(平均 RD)から Pool 設定の `algorithm` で計算します。ELO の場合は従来どおり K 係数による差分になります。丸めは 1 対 1 と同じ「0.5 はゼロから遠い方向」規則です。試合行、全構成員の参加者履歴、全構成員のレーティング更新(RD・ボラティリティを含む)を 1 回の D1 batch で確定し、`matchId` / `resultId` の再送は `applied: false` を返します。テーブルは `migrations/0004_team_rating.sql` として追加され、1 対 1 の既存テーブルと API 契約は変更されません。
+参照レートは各チーム構成員レートの算術平均とし、個々の構成員の更新差分は自分のレートと相手チーム平均(平均 RD・平均ボラティリティ)から Pool 設定の `algorithm` で計算します。ELO の場合は従来どおり K 係数による差分になります。丸めは 1 対 1 と同じ「0.5 はゼロから遠い方向」規則です。試合行、全構成員の参加者履歴、全構成員のレーティング更新(RD・ボラティリティを含む)を 1 回の D1 batch で確定し、`matchId` / `resultId` の再送は `applied: false` を返します。テーブルは `migrations/0004_team_rating.sql` として追加され、1 対 1 の既存テーブルと API 契約は変更されません。
