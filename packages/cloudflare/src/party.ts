@@ -473,7 +473,9 @@ export class PartyDurableObject extends DurableObject<Env> {
         command: "party.leave",
         playerId: leavingPlayerId,
         payloadJson: normalized.payloadJson,
-        resultJson: JSON.stringify({ dissolved: remaining < 2 }),
+        resultJson: JSON.stringify(
+          remaining < 2 ? { dissolved: true } : this.requireSnapshot(),
+        ),
         createdAt: Date.now(),
       });
     }

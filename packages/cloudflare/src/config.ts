@@ -320,6 +320,7 @@ export function createGatewayWorker<
             return upgradePartyEventsWebSocket(
               request,
               env,
+              normalizedConfiguration,
               partyWebSocketRoute,
             );
           }

@@ -2,7 +2,11 @@ import { FlareLobbyError } from "@flarelobby/core";
 import type { AnyFlareLobbyApp } from "@flarelobby/core";
 
 import type { FlareLobbyBindings, FlareLobbyConfiguration } from "./config.js";
-import { createErrorResponse, readWebSocketJoinToken } from "./security.js";
+import {
+  authenticateGatewayRequest,
+  createErrorResponse,
+  readWebSocketJoinToken,
+} from "./security.js";
 import type {
   AuthenticatedGatewayRequest,
   GatewayPrincipalEnvelope,
@@ -62,9 +66,11 @@ export function getPartyWebSocketRoute(
 /** WebSocket subprotocol のアクセストークンを Gateway Token へ変換して転送します。 */
 export async function upgradePartyEventsWebSocket<
   TEnv extends FlareLobbyBindings,
+  TApp extends AnyFlareLobbyApp = AnyFlareLobbyApp,
 >(
   request: Request,
   env: TEnv,
+  configuration: FlareLobbyConfiguration<TApp>,
   route: PartyEventsWebSocketRoute,
 ): Promise<Response> {
   if (
@@ -81,10 +87,25 @@ export async function upgradePartyEventsWebSocket<
 
   const headers = new Headers(request.headers);
   headers.set("Authorization", `Bearer ${token.value}`);
+  const authenticationRequest = new Request(request, { headers });
+  const authenticatedRequest = await authenticateGatewayRequest(
+    authenticationRequest,
+    configuration.authenticate,
+    env.FLARE_LOBBY_TOKEN_SECRET,
+  );
+
+  if (!authenticatedRequest.ok) {
+    return createErrorResponse(authenticatedRequest.error);
+  }
+
   const partyStub = env.FLARE_LOBBY_PARTIES.getByName(
     route.partyId,
   ) as unknown as PartyGatewayStub;
   try {
+    headers.set(
+      "Authorization",
+      `Bearer ${authenticatedRequest.value.gatewayPrincipal.token}`,
+    );
     return await partyStub.fetch(new Request(request, { headers }));
   } catch (error) {
     return createErrorResponse(normalizeGatewayError(error));
@@ -104,8 +125,12 @@ export async function handlePartyRequest<TEnv extends FlareLobbyBindings>(
   }
 
   try {
+    // 作成時は Gateway の入口で新しい Party ID を発行します。
+    // 既存パーティーへの操作は URL 中の partyId をそのまま使います。
     const partyStub = env.FLARE_LOBBY_PARTIES.getByName(
-      parsedRoute.partyId ?? "",
+      parsedRoute.action === "create"
+        ? `party_${crypto.randomUUID()}`
+        : (parsedRoute.partyId ?? ""),
     ) as unknown as PartyGatewayStub;
     const gatewayPrincipal = authenticatedRequest.gatewayPrincipal;
     const body =

@@ -1735,10 +1735,16 @@ export class MatchPoolDurableObject extends DurableObject<Env> {
       return createErrorResponse(new FlareLobbyError("FORBIDDEN"));
     }
 
-    const afterSequence = parseAfterSequence(url.searchParams.get("after"));
-
-    if (afterSequence === null) {
-      return createErrorResponse(new FlareLobbyError("INVALID_PAYLOAD"));
+    // parseAfterSequence() は不正値で throw するため、ここで 400 へ正規化する。
+    let afterSequence: number;
+    try {
+      afterSequence = parseAfterSequence(url.searchParams.get("after"));
+    } catch (error) {
+      return createErrorResponse(
+        error instanceof FlareLobbyError
+          ? error
+          : new FlareLobbyError("INVALID_PAYLOAD"),
+      );
     }
 
     const events = this.readTicketEvents(parsedPath.ticketId, afterSequence);
