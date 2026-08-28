@@ -1,19 +1,23 @@
+import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
 import {
   FlareLobbyConfigurationError,
   createGatewayWorker,
   defineFlareLobby,
+  issueResumeToken,
 } from "../src/index.js";
 import type {
   FlareLobbyBindings,
   FlareLobbyConfigurationErrorCode,
+  MatchmakingPoolConfiguration,
 } from "../src/index.js";
 
 function createValidConfiguration() {
   return {
     customRooms: {
       maxPlayers: 4,
+      maxSpectators: 2,
       defaultSettings: {
         map: "forest",
       },
@@ -26,7 +30,7 @@ function createValidConfiguration() {
         seasonId: "season-1",
         mode: "ranked-1v1",
         region: "jp",
-      },
+      } as MatchmakingPoolConfiguration,
     ],
     authenticate: () => ({
       id: "principal-1",
@@ -172,5 +176,200 @@ describe("defineFlareLobby", () => {
       message:
         "FlareLobby の D1 Binding（FLARE_LOBBY_DB）が設定されていません。",
     });
+  });
+});
+
+describe("Gateway Worker の設定検証", () => {
+  it("認証 Hook が関数でない設定を拒否する", () => {
+    const configuration = {
+      ...createValidConfiguration(),
+      authenticate: "not-a-function",
+    } as unknown as Parameters<typeof createGatewayWorker>[0];
+
+    expectConfigurationError(
+      () => createGatewayWorker<FlareLobbyBindings>(configuration),
+      "INVALID_AUTHENTICATION_HOOK",
+    );
+  });
+
+  it("カスタムルームの定員設定に不正な値を指定できない", () => {
+    const invalidPlayers = createValidConfiguration();
+    invalidPlayers.customRooms.maxPlayers = 0;
+    expectConfigurationError(
+      () => createGatewayWorker<FlareLobbyBindings>(invalidPlayers),
+      "INVALID_CUSTOM_ROOM_CONFIGURATION",
+    );
+
+    const invalidSpectators = createValidConfiguration();
+    invalidSpectators.customRooms.maxSpectators = -1;
+    expectConfigurationError(
+      () => createGatewayWorker<FlareLobbyBindings>(invalidSpectators),
+      "INVALID_CUSTOM_ROOM_CONFIGURATION",
+    );
+  });
+
+  it("検索ポリシーの正規化結果を設定へ反映し、不正値を拒否する", () => {
+    const validConfiguration = createValidConfiguration();
+    validConfiguration.matchmakingPools[0] = {
+      ...validConfiguration.matchmakingPools[0]!,
+      searchPolicy: {
+        stages: [
+          { afterMs: 0, maxRatingDifference: 50 },
+          { afterMs: 1_000, maxRatingDifference: 150 },
+        ],
+      },
+    };
+    expect(() =>
+      createGatewayWorker<FlareLobbyBindings>(validConfiguration),
+    ).not.toThrow();
+
+    const invalidConfiguration = createValidConfiguration();
+    invalidConfiguration.matchmakingPools[0] = {
+      ...invalidConfiguration.matchmakingPools[0]!,
+      searchPolicy: {
+        stages: [{ afterMs: 0, maxRatingDifference: 200 }],
+        maxRatingDifference: 100,
+      },
+    };
+    expectConfigurationError(
+      () => createGatewayWorker<FlareLobbyBindings>(invalidConfiguration),
+      "INVALID_MATCHMAKING_POOL",
+    );
+  });
+
+  it("プールのレーティング設定に不正値を指定できない", () => {
+    const configuration = createValidConfiguration();
+    configuration.matchmakingPools[0] = {
+      ...configuration.matchmakingPools[0]!,
+      rating: { kFactor: "strong" } as never,
+    };
+
+    expectConfigurationError(
+      () => createGatewayWorker<FlareLobbyBindings>(configuration),
+      "INVALID_MATCHMAKING_POOL",
+    );
+  });
+
+  it("必須 Binding の不足ごとに安定したエラーコードを返す", async () => {
+    const worker = createGatewayWorker<FlareLobbyBindings>(
+      createValidConfiguration(),
+    );
+    const missingBindings: readonly [keyof FlareLobbyBindings, string][] = [
+      ["FLARE_LOBBY_ROOMS", "ROOM_DURABLE_OBJECT_BINDING_MISSING"],
+      ["FLARE_LOBBY_MATCH_POOLS", "MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING"],
+      ["FLARE_LOBBY_PARTIES", "PARTY_DURABLE_OBJECT_BINDING_MISSING"],
+      [
+        "FLARE_LOBBY_PARTY_MEMBERSHIPS",
+        "PARTY_MEMBERSHIP_DURABLE_OBJECT_BINDING_MISSING",
+      ],
+      ["FLARE_LOBBY_TOKEN_SECRET", "TOKEN_SECRET_MISSING"],
+    ];
+
+    for (const [binding, code] of missingBindings) {
+      const brokenEnv = { ...env } as FlareLobbyBindings;
+      (brokenEnv as unknown as Record<string, unknown>)[binding] = undefined;
+      const response = await worker.fetch(
+        new Request("https://example.test/v1/custom-rooms"),
+        brokenEnv,
+        {} as ExecutionContext,
+      );
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toMatchObject({ code });
+    }
+  });
+});
+
+describe("Gateway Worker の WebSocket Upgrade 経路", () => {
+  const lobby = defineFlareLobby(createValidConfiguration());
+  const worker = lobby.createGatewayWorker<FlareLobbyBindings>();
+  const roomId = "room-configuration-ws";
+
+  it("Upgrade ヘッダーのない要求を INVALID_MESSAGE で拒否する", async () => {
+    const response = await worker.fetch(
+      new Request(
+        `https://example.test/v1/custom-rooms/${encodeURIComponent(roomId)}/ws`,
+      ) as unknown as Parameters<typeof worker.fetch>[0],
+      env,
+      {} as ExecutionContext,
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "INVALID_MESSAGE",
+    });
+  });
+
+  it("参加トークンのない Upgrade を拒否する", async () => {
+    const response = await worker.fetch(
+      new Request(
+        `https://example.test/v1/custom-rooms/${encodeURIComponent(roomId)}/ws`,
+        {
+          headers: { Upgrade: "websocket" },
+        },
+      ) as unknown as Parameters<typeof worker.fetch>[0],
+      env,
+      {} as ExecutionContext,
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "UNAUTHENTICATED",
+    });
+  });
+
+  it("参加者識別子を持たないトークンでの Upgrade を拒否する", async () => {
+    const token = await issueResumeToken(env.FLARE_LOBBY_TOKEN_SECRET, {
+      principal: {
+        id: "principal-no-participant",
+        playerId: "player-no-participant",
+      },
+      roomId,
+      expiresAt: Date.now() + 60_000,
+    });
+
+    if (!token.ok) {
+      throw token.error;
+    }
+
+    const bytes = new TextEncoder().encode(token.value);
+    let binary = "";
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+    const encodedToken = btoa(binary)
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replace(/=+$/u, "");
+    const response = await worker.fetch(
+      new Request(
+        `https://example.test/v1/custom-rooms/${encodeURIComponent(roomId)}/ws`,
+        {
+          headers: {
+            Upgrade: "websocket",
+            "Sec-WebSocket-Protocol": `flarelobby.v1, flarelobby.auth.${encodedToken}`,
+          },
+        },
+      ) as unknown as Parameters<typeof worker.fetch>[0],
+      env,
+      {} as ExecutionContext,
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "UNAUTHENTICATED",
+    });
+  });
+
+  it("パーセントエンコーディングが不正な Room 経路を WebSocket 経路として扱わない", async () => {
+    const response = await worker.fetch(
+      new Request(
+        "https://example.test/v1/custom-rooms/%zz/ws",
+      ) as unknown as Parameters<typeof worker.fetch>[0],
+      env,
+      {} as ExecutionContext,
+    );
+    // WebSocket 経路として解釈されず、未知の経路として扱われます。
+    expect(response.status).toBe(404);
   });
 });

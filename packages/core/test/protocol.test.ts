@@ -302,4 +302,52 @@ describe("JSON 通信プロトコル v1", () => {
       }),
     );
   });
+
+  it("FlareLobbyError.fromPayload は requestId の有無で例外情報を復元する", () => {
+    const payload = {
+      code: "ROOM_FINISHED",
+      message: "ルームは終了しています。",
+    } as const;
+
+    const withoutRequest = FlareLobbyError.fromPayload(payload);
+    expect(withoutRequest.code).toBe("ROOM_FINISHED");
+    expect(withoutRequest.message).toBe("ルームは終了しています。");
+    expect(withoutRequest.requestId).toBeUndefined();
+
+    const withRequest = FlareLobbyError.fromPayload(payload, "request-9");
+    expect(withRequest.requestId).toBe("request-9");
+    expect(withRequest.toJSON()).toEqual(payload);
+  });
+
+  it("decode 系の入力形式と JSON 解析失敗を INVALID_MESSAGE へ正規化する", () => {
+    // 文字列以外
+    expectProtocolError(
+      decodeProtocolMessage(42 as unknown as string),
+      "INVALID_MESSAGE",
+    );
+    // JSON として不正
+    expectProtocolError(decodeProtocolMessage("{{{"), "INVALID_MESSAGE");
+    // JSON だがオブジェクトでない
+    expectProtocolError(
+      decodeProtocolMessage(JSON.stringify([1, 2, 3])),
+      "INVALID_MESSAGE",
+    );
+  });
+
+  it("validateProtocolMessage は Envelope 形式外を INVALID_MESSAGE で拒否する", () => {
+    expectProtocolError(
+      validateProtocolMessage("command" as unknown as ProtocolMessage),
+      "INVALID_MESSAGE",
+    );
+    expectProtocolError(
+      validateProtocolMessage({
+        protocolVersion: 99,
+        kind: "event",
+        event: "room.snapshot",
+        revision: 1,
+        payload: null,
+      } as unknown as ProtocolMessage),
+      "UNSUPPORTED_PROTOCOL_VERSION",
+    );
+  });
 });

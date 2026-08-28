@@ -596,4 +596,633 @@ describe("@flarelobby/client party", () => {
       client.createParty({ reconnect: { maxAttempts: -1 } }),
     ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
   });
+
+  it("on / onStatusChange は不正な購読者を INVALID_PAYLOAD で拒否し、解除で配信を止める", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty({ reconnect: reconnectOptions });
+
+    const notFunction = "listener" as unknown as () => void;
+    let invalidUpdateError: unknown = null;
+    try {
+      party.on("update", notFunction);
+    } catch (error) {
+      invalidUpdateError = error;
+    }
+    let invalidStatusError: unknown = null;
+    try {
+      party.onStatusChange(notFunction);
+    } catch (error) {
+      invalidStatusError = error;
+    }
+    expect(invalidUpdateError).toMatchObject({ code: "INVALID_PAYLOAD" });
+    expect(invalidStatusError).toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    const updates: number[] = [];
+    const statuses: string[] = [];
+    const unsubscribeUpdate = party.on("update", () => {
+      updates.push(party.revision);
+    });
+    const unsubscribeStatus = party.onStatusChange((status) => {
+      statuses.push(status);
+    });
+
+    FakeWebSocket.instances[0]?.drop();
+    unsubscribeStatus();
+    await flushAsync();
+
+    expect(statuses).toEqual(["disconnected", "reconnecting"]);
+
+    FakeWebSocket.instances
+      .at(-1)
+      ?.receive(partyEvent(1, "member_joined", joinedSnapshot()));
+    expect(updates).toEqual([2]);
+
+    unsubscribeUpdate();
+    unsubscribeUpdate();
+    FakeWebSocket.instances
+      .at(-1)
+      ?.receive(partyEvent(2, "member_left", baseSnapshot({ revision: 3 })));
+    expect(updates).toEqual([2]);
+  });
+
+  it("空の playerId への invite / transferLeadership は INVALID_PAYLOAD で拒否される", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty();
+
+    await expect(party.invite("")).rejects.toMatchObject({
+      code: "INVALID_PAYLOAD",
+    });
+    await expect(party.transferLeadership("")).rejects.toMatchObject({
+      code: "INVALID_PAYLOAD",
+    });
+  });
+
+  it("refresh は取得した Snapshot で状態を進め、後退する版は無視する", async () => {
+    const { fetch, state } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty();
+
+    state.snapshot = baseSnapshot({
+      revision: 5,
+      updatedAt: "2026-08-25T00:02:00.000Z",
+    });
+    const refreshed = await party.refresh();
+    expect(refreshed.revision).toBe(5);
+    expect(party.revision).toBe(5);
+    expect(Object.isFrozen(refreshed)).toBe(true);
+
+    state.snapshot = baseSnapshot({ revision: 2 });
+    await expect(party.refresh()).resolves.toMatchObject({ revision: 5 });
+  });
+
+  it("joinParty は空 partyId や空トークンを INVALID_PAYLOAD で拒否する", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+
+    await expect(
+      client.joinParty({ partyId: "", token: "invite-token" }),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+    await expect(
+      client.joinParty({ partyId: "party-1", token: "" }),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+  });
+
+  it("作成応答が空パーティー・非オブジェクト・形式不正の場合に公開エラーへ正規化する", async () => {
+    const emptyFetch: FetchImplementation = vi.fn(async () =>
+      Response.json({ party: null }),
+    );
+    const emptyClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch: emptyFetch,
+      webSocket,
+    });
+    await expect(emptyClient.createParty()).rejects.toMatchObject({
+      code: "CONNECTION_FAILED",
+    });
+
+    const malformedFetch: FetchImplementation = vi.fn(async () =>
+      Response.json("not-an-object"),
+    );
+    const malformedClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch: malformedFetch,
+      webSocket,
+    });
+    await expect(malformedClient.createParty()).rejects.toMatchObject({
+      code: "INVALID_MESSAGE",
+    });
+
+    const invalidSnapshots: Record<string, unknown>[] = [
+      {},
+      baseSnapshot({ queuedTicket: { ticketId: "", poolKey: "" } }),
+      baseSnapshot({ members: [{ playerId: "player-1", role: "leader" }] }),
+      baseSnapshot({
+        invites: [
+          {
+            playerId: "player-2",
+            token: "invite-token",
+            expiresAt: CREATED_AT,
+          },
+        ],
+      }),
+    ];
+    for (const snapshot of invalidSnapshots) {
+      const fetchImpl: FetchImplementation = vi.fn(async () =>
+        Response.json({ party: snapshot }),
+      );
+      const client = createFlareLobbyClient({
+        endpoint: "https://example.test",
+        getAccessToken: () => "access-token",
+        fetch: fetchImpl,
+        webSocket,
+      });
+      await expect(client.createParty()).rejects.toMatchObject({
+        code: "INVALID_MESSAGE",
+      });
+    }
+  });
+
+  it("参加応答が空パーティーの場合は CONNECTION_FAILED", async () => {
+    const fetchImpl: FetchImplementation = vi.fn(async (input, init) => {
+      if (
+        input.toString().endsWith("/parties/party-1/members") &&
+        (init?.method ?? "GET") === "POST"
+      ) {
+        return Response.json({ party: null });
+      }
+      return Response.json({ party: baseSnapshot() });
+    });
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch: fetchImpl,
+      webSocket,
+    });
+
+    await expect(
+      client.joinParty({ partyId: "party-1", token: "invite-token" }),
+    ).rejects.toMatchObject({ code: "CONNECTION_FAILED" });
+  });
+
+  it("送信後に中断された参加要求は同一 requestId で再取得してから CANCELLED になる", async () => {
+    const controller = new AbortController();
+    const seenBodies: Record<string, unknown>[] = [];
+    const retryFetch: FetchImplementation = vi.fn(async (_input, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<
+        string,
+        unknown
+      >;
+      seenBodies.push(body);
+      if (seenBodies.length === 1) {
+        controller.abort();
+        throw new Error("aborted while sending");
+      }
+      return Response.json({ party: joinedSnapshot() });
+    });
+    const retryClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch: retryFetch,
+    });
+
+    const pending = retryClient.joinParty(
+      { partyId: "party-1", token: "invite-token" },
+      { signal: controller.signal },
+    );
+    // 中止後も同じ requestId で再取得してから CANCELLED を報告します。
+    await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(seenBodies).toHaveLength(2);
+    expect(seenBodies[1]?.["requestId"]).toBe(seenBodies[0]?.["requestId"]);
+    expect(seenBodies[1]?.["token"]).toBe("invite-token");
+
+    const abortingController = new AbortController();
+    const failingFetch: FetchImplementation = vi.fn(async () => {
+      abortingController.abort();
+      throw new Error("aborted while sending");
+    });
+    const failingClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch: failingFetch,
+      webSocket,
+    });
+    await expect(
+      failingClient.joinParty(
+        { partyId: "party-1", token: "invite-token" },
+        { signal: abortingController.signal },
+      ),
+    ).rejects.toMatchObject({ code: "CANCELLED" });
+  });
+
+  it("中止済みの操作は開始前に CANCELLED で拒否される", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      client.createParty({ signal: controller.signal }),
+    ).rejects.toMatchObject({ code: "CANCELLED" });
+    await expect(
+      client.joinParty(
+        { partyId: "party-1", token: "invite-token" },
+        { signal: controller.signal },
+      ),
+    ).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("requestIdFactory が空文字を返すと CONNECTION_FAILED になる", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+      requestIdFactory: () => "",
+    });
+
+    await expect(client.createParty()).rejects.toMatchObject({
+      code: "CONNECTION_FAILED",
+    });
+  });
+
+  it("イベント接続に失敗した作成要求はハンドルを破棄してエラーを正規化する", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+
+    FakeWebSocket.autoOpen = false;
+    const pending = client.createParty({ reconnect: reconnectOptions });
+    await flushAsync();
+    FakeWebSocket.instances[0]?.drop();
+
+    await expect(pending).rejects.toMatchObject({
+      code: "CONNECTION_FAILED",
+    });
+    // 失敗したハンドルは解放済みのため、以降の操作も CANCELLED になります。
+    client.dispose();
+  });
+
+  it("解釈できないイベントは履歴不整合として接続を作り直す", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty({ reconnect: reconnectOptions });
+
+    const badPayloads = [
+      // partyRevision と Snapshot の revision が一致しないイベント
+      JSON.stringify({
+        sequence: 1,
+        partyRevision: 2,
+        type: "member_joined",
+        snapshot: baseSnapshot(),
+        occurredAt: CREATED_AT,
+      }),
+      // Snapshot として解釈できないメッセージ
+      partyEvent(1, "member_joined", { unexpected: true }),
+      // occurredAt がタイムスタンプでないイベント
+      JSON.stringify({
+        sequence: 1,
+        partyRevision: 1,
+        type: "member_joined",
+        snapshot: baseSnapshot(),
+        occurredAt: "not-a-timestamp",
+      }),
+    ];
+    for (const [index, payload] of badPayloads.entries()) {
+      const socket = FakeWebSocket.instances[index];
+      socket?.receive(payload);
+      expect(socket?.readyState).toBe(3);
+      await flushAsync();
+    }
+
+    expect(FakeWebSocket.instances).toHaveLength(4);
+    expect(party.connectionStatus).toBe("connected");
+  });
+
+  it("後退する Snapshot を運ぶイベントは無視する", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty();
+    const listener = vi.fn();
+    party.on("update", listener);
+
+    FakeWebSocket.instances[0]?.receive(
+      partyEvent(1, "member_joined", joinedSnapshot()),
+    );
+    FakeWebSocket.instances[0]?.receive(
+      partyEvent(2, "member_left", baseSnapshot()),
+    );
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(party.revision).toBe(2);
+    expect(party.snapshot.members).toHaveLength(2);
+  });
+
+  it("非再試行エラーの切断では再接続しない", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty({ reconnect: reconnectOptions });
+
+    FakeWebSocket.instances[0]?.drop(4403);
+    await flushAsync();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(party.connectionStatus).toBe("disconnected");
+  });
+
+  it("再接続に失敗し続けると上限到達後に disconnected になる", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+
+    FakeWebSocket.autoOpen = false;
+    const pending = client.createParty({
+      reconnect: {
+        maxAttempts: 2,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+        jitterRatio: 0,
+      },
+    });
+    await flushAsync();
+    FakeWebSocket.instances[0]?.open();
+    const party = await pending;
+
+    FakeWebSocket.instances[0]?.drop();
+    await flushAsync(5);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    FakeWebSocket.instances[1]?.drop();
+    await flushAsync(5);
+    expect(FakeWebSocket.instances).toHaveLength(3);
+    FakeWebSocket.instances[2]?.drop();
+    await flushAsync(5);
+
+    expect(party.connectionStatus).toBe("disconnected");
+  });
+
+  it("再接続待ちの状態で dispose すると再接続を取り消す", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty({
+      reconnect: {
+        maxAttempts: 3,
+        baseDelayMs: 60_000,
+        maxDelayMs: 60_000,
+        jitterRatio: 0,
+      },
+    });
+
+    FakeWebSocket.instances[0]?.drop();
+    expect(party.connectionStatus).toBe("reconnecting");
+    party.dispose();
+    party.dispose();
+    await flushAsync();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(party.connectionStatus).toBe("disconnected");
+  });
+
+  it("キュー操作の失敗は公開エラーへ正規化される", async () => {
+    const ticketFailureFetch: FetchImplementation = vi.fn(async (input) => {
+      if (input.toString().endsWith("/v1/parties")) {
+        return Response.json({ party: baseSnapshot() });
+      }
+      throw new Error("queue unavailable");
+    });
+    const ticketFailureClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch: ticketFailureFetch,
+      webSocket,
+    });
+    const failingParty = await ticketFailureClient.createParty();
+    await expect(failingParty.joinRankedQueue(pool)).rejects.toMatchObject({
+      code: "CONNECTION_FAILED",
+    });
+
+    const cancelFailureFetch: FetchImplementation = vi.fn(
+      async (input, init) => {
+        const url = input.toString();
+        const method = init?.method ?? "GET";
+        if (url.endsWith("/v1/parties") && method === "POST") {
+          return Response.json({ party: baseSnapshot() });
+        }
+        if (url.endsWith("/cancel")) {
+          throw new Error("cancel unavailable");
+        }
+        if (url.endsWith("/tickets")) {
+          return Response.json({ ticket: waitingTicket() });
+        }
+        throw new Error(`unexpected request: ${method} ${url}`);
+      },
+    );
+    const cancelFailureClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch: cancelFailureFetch,
+      webSocket,
+    });
+    const party = await cancelFailureClient.createParty();
+    await expect(party.joinRankedQueue(pool)).resolves.toMatchObject({
+      status: "waiting",
+    });
+    await expect(party.cancelQueue()).rejects.toMatchObject({
+      code: "CONNECTION_FAILED",
+    });
+  });
+
+  it("クライアントの dispose は保持中の全パーティーを切断する", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const created = await client.createParty();
+    const fetched = await client.getParty("party-1");
+
+    client.dispose();
+    expect(created.connectionStatus).toBe("disconnected");
+    expect(fetched.connectionStatus).toBe("disconnected");
+    await expect(created.refresh()).rejects.toMatchObject({
+      code: "CANCELLED",
+    });
+  });
+
+  it("invite 応答の形式不正は INVALID_MESSAGE になる", async () => {
+    const fetchImpl: FetchImplementation = vi.fn(async (input, init) => {
+      if (
+        input.toString().endsWith("/parties/party-1/invites") &&
+        (init?.method ?? "GET") === "POST"
+      ) {
+        return Response.json([]);
+      }
+      return Response.json({ party: baseSnapshot() });
+    });
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch: fetchImpl,
+      webSocket,
+    });
+    const party = await client.createParty();
+
+    await expect(party.invite("player-2")).rejects.toMatchObject({
+      code: "INVALID_MESSAGE",
+    });
+  });
+
+  it("refresh が別パーティーの Snapshot を返した場合は FORBIDDEN", async () => {
+    const { fetch, state } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty();
+
+    state.snapshot = baseSnapshot({ partyId: "party-other" });
+    await expect(party.refresh()).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+  });
+
+  it("移譲応答が空パーティーの場合は CONNECTION_FAILED", async () => {
+    const fetchImpl: FetchImplementation = vi.fn(async (input, init) => {
+      if (
+        input.toString().endsWith("/parties/party-1/transfer-leadership") &&
+        (init?.method ?? "GET") === "POST"
+      ) {
+        return Response.json({ party: null });
+      }
+      return Response.json({ party: baseSnapshot() });
+    });
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch: fetchImpl,
+      webSocket,
+    });
+    const party = await client.createParty();
+
+    await expect(party.transferLeadership("player-2")).rejects.toMatchObject({
+      code: "CONNECTION_FAILED",
+    });
+  });
+
+  it("maxAttempts 0 の再接続設定では再接続しない", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty({
+      reconnect: {
+        maxAttempts: 0,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+        jitterRatio: 0,
+      },
+    });
+
+    FakeWebSocket.instances[0]?.drop();
+    await flushAsync();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(party.connectionStatus).toBe("disconnected");
+  });
+
+  it("再接続が認証失敗で拒否された場合は disconnected で停止する", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+
+    FakeWebSocket.autoOpen = false;
+    const pending = client.createParty({
+      reconnect: {
+        maxAttempts: 2,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+        jitterRatio: 0,
+      },
+    });
+    await flushAsync();
+    FakeWebSocket.instances[0]?.open();
+    const party = await pending;
+
+    FakeWebSocket.instances[0]?.drop();
+    await flushAsync(5);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    FakeWebSocket.instances[1]?.drop(4403);
+    await flushAsync(5);
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(party.connectionStatus).toBe("disconnected");
+  });
 });

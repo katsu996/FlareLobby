@@ -7,6 +7,7 @@ import {
   findBestMatchCandidate,
   getMatchmakingSearchWidth,
   getNextMatchmakingSearchAt,
+  normalizeMatchmakingSearchPolicy,
   selectMatchCandidates,
 } from "../src/index.js";
 import type {
@@ -359,5 +360,158 @@ describe("パーティーチケットの候補探索", () => {
     expect(
       evaluateMatchCandidate(explicitSolo, opponent, { now: NOW }),
     ).toEqual(evaluateMatchCandidate(solo, opponent, { now: NOW }));
+  });
+});
+
+describe("検索ポリシーの正規化", () => {
+  it("オブジェクト以外の入力は TypeError", () => {
+    expect(() => normalizeMatchmakingSearchPolicy("fast")).toThrow(TypeError);
+    expect(() => normalizeMatchmakingSearchPolicy(null)).toThrow(TypeError);
+  });
+
+  it("stages と searchWidthStages は一致する場合だけ併用できる", () => {
+    const stages = [{ afterMs: 0, maxRatingDifference: 75 }];
+    expect(() =>
+      normalizeMatchmakingSearchPolicy({
+        stages,
+        searchWidthStages: [{ afterMs: 0, maxRatingDifference: 150 }],
+      }),
+    ).toThrow(RangeError);
+    expect(
+      normalizeMatchmakingSearchPolicy({ stages, searchWidthStages: stages })
+        .stages,
+    ).toEqual(stages);
+  });
+
+  it("段階数と各段階のフィールド形式を検証する", () => {
+    expect(() => normalizeMatchmakingSearchPolicy({ stages: [] })).toThrow(
+      RangeError,
+    );
+    expect(() =>
+      normalizeMatchmakingSearchPolicy({
+        stages: Array.from({ length: 33 }, (_, index) => ({
+          afterMs: index * 10_000,
+          maxRatingDifference: 75 + index,
+        })),
+      }),
+    ).toThrow(RangeError);
+    expect(() =>
+      normalizeMatchmakingSearchPolicy({ stages: ["wide"] }),
+    ).toThrow(TypeError);
+    expect(() =>
+      normalizeMatchmakingSearchPolicy({
+        stages: [{ afterMs: -1, maxRatingDifference: 75 }],
+      }),
+    ).toThrow(RangeError);
+    expect(() =>
+      normalizeMatchmakingSearchPolicy({
+        stages: [{ afterMs: 0, maxRatingDifference: Number.NaN }],
+      }),
+    ).toThrow(RangeError);
+  });
+
+  it("段階は afterMs と maxRatingDifference が単調増加するよう要求する", () => {
+    expect(() =>
+      normalizeMatchmakingSearchPolicy({
+        stages: [{ afterMs: 1_000, maxRatingDifference: 75 }],
+      }),
+    ).toThrow(/単調増加/u);
+    expect(() =>
+      normalizeMatchmakingSearchPolicy({
+        stages: [
+          { afterMs: 0, maxRatingDifference: 150 },
+          { afterMs: 20_000, maxRatingDifference: 75 },
+        ],
+      }),
+    ).toThrow(/単調増加/u);
+    expect(() =>
+      normalizeMatchmakingSearchPolicy({
+        stages: [
+          { afterMs: 0, maxRatingDifference: 75 },
+          { afterMs: 0, maxRatingDifference: 150 },
+        ],
+      }),
+    ).toThrow(/単調増加/u);
+  });
+
+  it("上限値の別名が矛盾するときは拒否し、段階が上限を超えるときも拒否する", () => {
+    expect(() =>
+      normalizeMatchmakingSearchPolicy({
+        maxRatingDifference: 100,
+        maxSearchWidth: 200,
+      }),
+    ).toThrow(/別名/u);
+    expect(() =>
+      normalizeMatchmakingSearchPolicy({ maxTicketsPerSearch: 0 }),
+    ).toThrow(RangeError);
+    expect(() =>
+      normalizeMatchmakingSearchPolicy({ maxMatchesPerSearch: 1.5 }),
+    ).toThrow(RangeError);
+    expect(() =>
+      normalizeMatchmakingSearchPolicy({
+        maxRatingDifference: 100,
+        stages: DEFAULT_MATCHMAKING_SEARCH_WIDTH_STAGES,
+      }),
+    ).toThrow(/maxRatingDifference 以下/u);
+  });
+
+  it("既定値と省略時の既定段階を返す", () => {
+    const normalized = normalizeMatchmakingSearchPolicy();
+    expect(normalized.stages).toEqual(DEFAULT_MATCHMAKING_SEARCH_WIDTH_STAGES);
+    expect(normalized.maxRatingDifference).toBe(400);
+    expect(normalized.maxTicketsPerSearch).toBe(256);
+    expect(normalized.maxCandidatesPerSearch).toBe(8_192);
+    expect(normalized.maxMatchesPerSearch).toBe(32);
+  });
+});
+
+describe("検索幅と候補選択の境界", () => {
+  it("待機時間が不正な場合は RangeError、カスタム段階では clamp される", () => {
+    const custom = {
+      stages: [
+        { afterMs: 0, maxRatingDifference: 50 },
+        { afterMs: 10_000, maxRatingDifference: 80 },
+      ],
+    };
+    expect(getMatchmakingSearchWidth(custom, 0)).toBe(50);
+    expect(getMatchmakingSearchWidth(custom, 9_999)).toBe(50);
+    expect(getMatchmakingSearchWidth(custom, 10_000)).toBe(80);
+    // maxRatingDifference 未指定なら最終段階が上限になり、clamp は変化しない
+    expect(() => getMatchmakingSearchWidth(undefined, -1)).toThrow(RangeError);
+    expect(() => getMatchmakingSearchWidth(undefined, 1.5)).toThrow(RangeError);
+  });
+
+  it("maxMatches と評価上限で探索を打ち切る", () => {
+    const tickets = [
+      ticket("a", 1_500),
+      ticket("b", 1_500),
+      ticket("c", 1_500),
+      ticket("d", 1_500),
+    ];
+    const limited = selectMatchCandidates(tickets, {
+      now: NOW,
+      maxMatches: 2,
+    });
+    expect(limited).toHaveLength(2);
+
+    expect(() =>
+      selectMatchCandidates(tickets, { now: NOW, maxMatches: 0 }),
+    ).toThrow(RangeError);
+  });
+
+  it("プレイヤー集合が重なる組や同一チケットを候補から除外する", () => {
+    const duo: MatchmakingPool = { ...pool, teamSize: 2 };
+    const a = partyTicket("a", [1_500, 1_500], NOW, { pool: duo });
+    const b = partyTicket("b", [1_500, 1_500], NOW, { pool: duo });
+
+    // 同一チケット同士、teamSize 不一致はいずれも不成立
+    expect(evaluateMatchCandidate(a, a, { now: NOW })).toBeNull();
+    expect(
+      evaluateMatchCandidate(a, ticket("solo", 1_500), { now: NOW }),
+    ).toBeNull();
+
+    const selected = selectMatchCandidates([a, b], { now: NOW });
+    expect(selected).toHaveLength(1);
+    expect(selected[0]!.candidate.ticketIds).toEqual(["a", "b"]);
   });
 });

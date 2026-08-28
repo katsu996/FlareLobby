@@ -2,10 +2,18 @@ import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  createGatewayPrincipalEnvelope,
   defineFlareLobby,
   getRoomWebSocketTag,
+  issueJoinToken,
   RoomDurableObject,
 } from "../src/index.js";
+import type {
+  GatewayPrincipalEnvelope,
+  RoomInitializationOptions,
+  RoomScheduledOperation,
+} from "../src/index.js";
+import type { Participant } from "@flarelobby/core";
 
 const testLobby = defineFlareLobby({
   customRooms: {
@@ -140,29 +148,7 @@ async function connect(room: RoomResult): Promise<WebSocket> {
   return connectWithToken(room.roomId, room.joinToken);
 }
 
-async function connectWithToken(
-  roomId: string,
-  token: string,
-  lastRevision?: number,
-): Promise<WebSocket> {
-  const response = await testWorker.fetch(
-    createWebSocketRequest(
-      roomId,
-      token,
-      "flarelobby.v1",
-      lastRevision,
-    ) as unknown as Parameters<typeof testWorker.fetch>[0],
-    env,
-    {} as ExecutionContext,
-  );
-
-  expect(response.status).toBe(101);
-
-  if (response.webSocket === null) {
-    throw new Error("WebSocket が Upgrade 応答に含まれていません。");
-  }
-
-  const socket = response.webSocket;
+function registerSocketInbox(socket: WebSocket): WebSocket {
   const messages: WebSocketEvent[] = [];
   const waiters: Array<{
     readonly resolve: (message: WebSocketEvent) => void;
@@ -235,6 +221,31 @@ async function connectWithToken(
 
   socket.accept();
   return socket;
+}
+
+async function connectWithToken(
+  roomId: string,
+  token: string,
+  lastRevision?: number,
+): Promise<WebSocket> {
+  const response = await testWorker.fetch(
+    createWebSocketRequest(
+      roomId,
+      token,
+      "flarelobby.v1",
+      lastRevision,
+    ) as unknown as Parameters<typeof testWorker.fetch>[0],
+    env,
+    {} as ExecutionContext,
+  );
+
+  expect(response.status).toBe(101);
+
+  if (response.webSocket === null) {
+    throw new Error("WebSocket が Upgrade 応答に含まれていません。");
+  }
+
+  return registerSocketInbox(response.webSocket);
 }
 
 function waitForMessage(
@@ -751,6 +762,628 @@ describe("Room Hibernation WebSocket", () => {
       {} as ExecutionContext,
     );
     expect(tamperedResponse.status).toBe(401);
+
+    await closeSocket(socket);
+  });
+});
+
+function createDirectUpgradeRequest(
+  roomId: string,
+  token: string | undefined,
+  options: DirectUpgradeOptions = {},
+): Request {
+  const path =
+    options.rawPath ?? `/v1/custom-rooms/${encodeURIComponent(roomId)}/ws`;
+  const protocols = options.protocols ?? [
+    "flarelobby.v1",
+    ...(token === undefined
+      ? []
+      : [`flarelobby.auth.${encodeWebSocketToken(token)}`]),
+  ];
+
+  return new Request(`https://example.test${path}${options.query ?? ""}`, {
+    method: "GET",
+    headers: {
+      Upgrade: "websocket",
+      "Sec-WebSocket-Protocol": protocols.join(", "),
+      ...options.extraHeaders,
+    },
+  });
+}
+
+interface DirectUpgradeOptions {
+  rawPath?: string;
+  query?: string;
+  protocols?: string[];
+  extraHeaders?: Record<string, string>;
+}
+
+async function fetchUpgrade(
+  roomId: string,
+  token: string | undefined,
+  options: DirectUpgradeOptions = {},
+): Promise<Response> {
+  return env.FLARE_LOBBY_ROOMS.getByName(roomId).fetch(
+    createDirectUpgradeRequest(roomId, token, options),
+  );
+}
+
+async function connectViaStub(
+  roomId: string,
+  token: string,
+  extraHeaders: Record<string, string> = {},
+): Promise<WebSocket> {
+  const response = await fetchUpgrade(roomId, token, { extraHeaders });
+
+  expect(response.status).toBe(101);
+
+  if (response.webSocket === null) {
+    throw new Error("WebSocket が Upgrade 応答に含まれていません。");
+  }
+
+  return registerSocketInbox(response.webSocket);
+}
+
+async function createPrincipalEnvelope(
+  principalId: string,
+  playerId: string,
+): Promise<GatewayPrincipalEnvelope> {
+  const envelope = await createGatewayPrincipalEnvelope(
+    env.FLARE_LOBBY_TOKEN_SECRET,
+    { id: principalId, playerId },
+  );
+
+  if (!envelope.ok) {
+    throw new Error("Gateway 主体証明を作成できません。");
+  }
+
+  return envelope.value;
+}
+
+async function issuePlayerJoinToken(options: {
+  roomId: string;
+  participantId: string;
+  playerId: string;
+  principalId: string;
+}): Promise<string> {
+  const issued = await issueJoinToken(env.FLARE_LOBBY_TOKEN_SECRET, {
+    principal: { id: options.principalId, playerId: options.playerId },
+    roomId: options.roomId,
+    role: "player",
+    participantId: options.participantId,
+    expiresAt: Date.now() + 60_000,
+  });
+
+  if (!issued.ok) {
+    throw new Error("参加用トークンを発行できません。");
+  }
+
+  return issued.value;
+}
+
+async function initializeDirectRoom(
+  roomId: string,
+  overrides: {
+    disconnectGracePeriodMs?: number;
+    participants?: RoomInitializationOptions["participants"];
+  } = {},
+): Promise<void> {
+  await env.FLARE_LOBBY_ROOMS.getByName(roomId).initialize({
+    room: {
+      id: roomId,
+      kind: "custom",
+      invitationCode: "4F9K2D",
+      visibility: "unlisted",
+      settings: {},
+      metadata: {},
+    },
+    host: {
+      participantId: "participant-host",
+      playerId: "player-host",
+    },
+    participants: overrides.participants ?? [
+      {
+        kind: "player",
+        id: "participant-host",
+        player: { id: "player-host" },
+        teamId: null,
+        ready: false,
+      },
+    ],
+    teams: [],
+    maxPlayers: 4,
+    disconnectGracePeriodMs: overrides.disconnectGracePeriodMs,
+    finishedRoomRetentionMs: 60_000,
+  });
+}
+
+describe("Room Durable Object の WebSocket Upgrade とハンドラ検証", () => {
+  it("Upgrade 検証・トークン・lastRevision の異常を個別に拒否する", async () => {
+    const owner = await createRoom();
+
+    const notWebSocket = await env.FLARE_LOBBY_ROOMS.getByName(
+      owner.roomId,
+    ).fetch(
+      new Request(
+        `https://example.test/v1/custom-rooms/${encodeURIComponent(owner.roomId)}/ws`,
+        { method: "POST" },
+      ),
+    );
+    expect(notWebSocket.status).toBe(404);
+
+    for (const [description, request, expectedStatus, expectedCode] of [
+      [
+        "path に Room 識別子を含まない Upgrade",
+        await fetchUpgrade(owner.roomId, owner.joinToken, {
+          rawPath: "/v1/custom-rooms/ws",
+        }),
+        400,
+        "INVALID_MESSAGE",
+      ],
+      [
+        "不正なパーセントエンコーディング",
+        await fetchUpgrade(owner.roomId, owner.joinToken, {
+          rawPath: "/v1/custom-rooms/%zz/ws",
+        }),
+        400,
+        "INVALID_MESSAGE",
+      ],
+      [
+        "認証プロトコルを含まない Upgrade",
+        await fetchUpgrade(owner.roomId, undefined),
+        401,
+        "UNAUTHENTICATED",
+      ],
+      [
+        "検証に失敗するトークン",
+        await fetchUpgrade(owner.roomId, "not-a-token"),
+        401,
+        "UNAUTHENTICATED",
+      ],
+      [
+        "数値でない lastRevision",
+        await fetchUpgrade(owner.roomId, owner.joinToken, {
+          query: "?lastRevision=abc",
+        }),
+        400,
+        "INVALID_PAYLOAD",
+      ],
+      [
+        "query とヘッダーで不一致の lastRevision",
+        await fetchUpgrade(owner.roomId, owner.joinToken, {
+          query: "?lastRevision=1",
+          extraHeaders: { "x-flarelobby-last-revision": "2" },
+        }),
+        400,
+        "INVALID_PAYLOAD",
+      ],
+      [
+        "安全な整数範囲外の lastRevision",
+        await fetchUpgrade(owner.roomId, owner.joinToken, {
+          extraHeaders: {
+            "x-flarelobby-last-revision": "99999999999999999999",
+          },
+        }),
+        400,
+        "INVALID_PAYLOAD",
+      ],
+    ] as const) {
+      expect(request.status, description).toBe(expectedStatus);
+      await expect(request.json()).resolves.toMatchObject({
+        code: expectedCode,
+      });
+    }
+  });
+
+  it("未初期化 Room と終了済み Room への Upgrade を拒否する", async () => {
+    const principalId = `principal-finish-${crypto.randomUUID()}`;
+    const owner = await createRoom(principalId);
+
+    const uninitializedId = `room-never-${crypto.randomUUID()}`;
+    const uninitialized = await fetchUpgrade(
+      uninitializedId,
+      await issuePlayerJoinToken({
+        roomId: uninitializedId,
+        participantId: "participant-host",
+        playerId: "player-host",
+        principalId: `principal-never-${crypto.randomUUID()}`,
+      }),
+    );
+    expect(uninitialized.status).toBe(403);
+    await expect(uninitialized.json()).resolves.toMatchObject({
+      code: "FORBIDDEN",
+    });
+
+    const stub = env.FLARE_LOBBY_ROOMS.getByName(owner.roomId);
+    await runInDurableObject(stub, async (instance: RoomDurableObject) => {
+      await instance.close({
+        gatewayPrincipal: await createPrincipalEnvelope(
+          principalId,
+          `${principalId}-player`,
+        ),
+        participantId: owner.participantId,
+      });
+    });
+
+    const finished = await fetchUpgrade(owner.roomId, owner.joinToken);
+    expect(finished.status).toBe(400);
+    await expect(finished.json()).resolves.toMatchObject({
+      code: "ROOM_FINISHED",
+    });
+  });
+
+  it("メッセージ上限ヘッダーを反映し、超過送信を切断せずに拒否する", async () => {
+    const owner = await createRoom();
+    const socket = await connectViaStub(owner.roomId, owner.joinToken, {
+      "x-flarelobby-websocket-message-limit": "1",
+    });
+
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      kind: "event",
+      event: "room.snapshot",
+    });
+
+    sendCommand(socket, "room.set_ready", { ready: true }, "rate-limit-1");
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      kind: "event",
+      event: "room.snapshot",
+    });
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      kind: "success",
+      requestId: "rate-limit-1",
+    });
+
+    sendCommand(socket, "room.set_ready", { ready: false }, "rate-limit-2");
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      kind: "failure",
+      requestId: "rate-limit-2",
+      error: { code: "CONFLICT" },
+    });
+
+    await closeSocket(socket);
+  });
+
+  it("解釈できないメッセージには requestId のない失敗を返して接続を閉じる", async () => {
+    const owner = await createRoom();
+    const socket = await connect(owner);
+    await waitForMessage(socket);
+
+    socket.send("{{{not-json");
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      kind: "failure",
+      requestId: null,
+    });
+    await expect(waitForMessage(socket, 200)).rejects.toThrow();
+
+    await runInDurableObject(
+      env.FLARE_LOBBY_ROOMS.getByName(owner.roomId),
+      (_instance: RoomDurableObject, state) => {
+        expect(
+          state.getWebSockets(getRoomWebSocketTag(owner.roomId)),
+        ).toHaveLength(0);
+      },
+    );
+  });
+
+  it("attachment を持たない接続へのメッセージを 1008 で閉じる", async () => {
+    const owner = await createRoom();
+
+    await runInDurableObject(
+      env.FLARE_LOBBY_ROOMS.getByName(owner.roomId),
+      async (instance: RoomDurableObject) => {
+        const pair = new WebSocketPair();
+        const client = pair[0] as WebSocket;
+        const server = pair[1] as WebSocket;
+        const closeEvents: number[] = [];
+
+        client.addEventListener("close", (event: Event) => {
+          closeEvents.push((event as CloseEvent).code);
+        });
+        client.accept();
+        server.accept();
+        await instance.webSocketMessage(server as unknown as WebSocket, "ping");
+
+        await vi.waitFor(() => expect(closeEvents).toEqual([1008]));
+      },
+    );
+  });
+
+  it("WebSocket エラー時も切断状態だけを記録する", async () => {
+    const owner = await createRoom();
+    const socket = await connect(owner);
+    await waitForMessage(socket);
+
+    await runInDurableObject(
+      env.FLARE_LOBBY_ROOMS.getByName(owner.roomId),
+      async (instance: RoomDurableObject, state) => {
+        const serverSocket = state.getWebSockets(
+          getRoomWebSocketTag(owner.roomId),
+        )[0];
+
+        if (serverSocket === undefined) {
+          throw new Error("エラーを注入する接続が見つかりません。");
+        }
+
+        await instance.webSocketError(
+          serverSocket,
+          new Error("意図的なエラー"),
+        );
+      },
+    );
+
+    await waitForDisconnectedConnections(owner.roomId, 1);
+    await runInDurableObject(
+      env.FLARE_LOBBY_ROOMS.getByName(owner.roomId),
+      (_instance: RoomDurableObject, state) => {
+        expect(
+          state.storage.sql
+            .exec<{ count: number }>(
+              "SELECT COUNT(*) AS count FROM flarelobby_room_participants",
+            )
+            .one().count,
+        ).toBe(1);
+      },
+    );
+
+    await closeSocket(socket);
+  });
+
+  it("猶予期間中は切断しても参加者を削除せず、生きた接続があれば維持する", async () => {
+    const roomId = `room-ws-grace-live-${crypto.randomUUID()}`;
+    const principalId = `principal-grace-live-${crypto.randomUUID()}`;
+    await initializeDirectRoom(roomId, { disconnectGracePeriodMs: 0 });
+    const joinToken = await issuePlayerJoinToken({
+      roomId,
+      participantId: "participant-host",
+      playerId: "player-host",
+      principalId,
+    });
+    const socket = await connectViaStub(roomId, joinToken);
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      kind: "event",
+      event: "room.snapshot",
+    });
+
+    const stub = env.FLARE_LOBBY_ROOMS.getByName(roomId);
+    await runInDurableObject(stub, async (instance: RoomDurableObject) => {
+      await instance.disconnect({
+        gatewayPrincipal: await createPrincipalEnvelope(
+          principalId,
+          "player-host",
+        ),
+        participantId: "participant-host",
+      });
+    });
+
+    // 接続が生きている間は猶予切れの Alarm でも参加者を削除しない。
+    await runInDurableObject(stub, async (instance: RoomDurableObject) => {
+      await instance.alarm();
+    });
+    expect(
+      (await stub.getSnapshot())?.participants.map(
+        (participant: Participant) => participant.id,
+      ),
+    ).toEqual(["participant-host"]);
+
+    await closeSocket(socket);
+    await waitForDisconnectedConnections(roomId, 1);
+    await runInDurableObject(stub, async (instance: RoomDurableObject) => {
+      await instance.alarm();
+    });
+
+    const finished = await stub.getSnapshot();
+    expect(finished?.participants).toEqual([]);
+    expect(finished?.state.status).toBe("finished");
+  });
+
+  it("猶予期限切れの再開を拒否し、ホスト単独の Room を閉鎖する", async () => {
+    const roomId = `room-ws-grace-expired-${crypto.randomUUID()}`;
+    const principalId = `principal-grace-expired-${crypto.randomUUID()}`;
+    await initializeDirectRoom(roomId, { disconnectGracePeriodMs: 0 });
+    const joinToken = await issuePlayerJoinToken({
+      roomId,
+      participantId: "participant-host",
+      playerId: "player-host",
+      principalId,
+    });
+    const socket = await connectViaStub(roomId, joinToken);
+    const initial = await waitForMessage(socket);
+    const resumeToken = initial.payload?.resumeToken as string;
+
+    expect(typeof resumeToken).toBe("string");
+    await closeSocket(socket);
+    await waitForDisconnectedConnections(roomId, 1);
+
+    // 猶予 0ms のため切断と同時に猶予は失効する。Cleanup alarm の発火タイミング
+    // に依存しないよう、ここで確定的に Alarm を実行してホスト単独の Room を
+    // 閉鎖してから再開を検証する。
+    const stub = env.FLARE_LOBBY_ROOMS.getByName(roomId);
+    await runInDurableObject(stub, async (instance: RoomDurableObject) => {
+      await instance.alarm();
+    });
+
+    const snapshot = await stub.getSnapshot();
+    expect(snapshot?.state.status).toBe("finished");
+    expect(snapshot?.participants).toEqual([]);
+
+    // 閉鎖済み Room への再開は ROOM_FINISHED で拒否される。
+    const expired = await fetchUpgrade(roomId, resumeToken);
+    expect(expired.status).toBe(400);
+    await expect(expired.json()).resolves.toMatchObject({
+      code: "ROOM_FINISHED",
+    });
+    expect(
+      (await stub.listScheduledOperations()).map(
+        (operation: RoomScheduledOperation) => operation.kind,
+      ),
+    ).toEqual(["room_retention"]);
+  });
+
+  it("古い再開トークンは最新の切断時刻を基準に猶予を付け直して拒否する", async () => {
+    const roomId = `room-ws-resume-deferred-${crypto.randomUUID()}`;
+    const principalId = `principal-resume-deferred-${crypto.randomUUID()}`;
+    await initializeDirectRoom(roomId, { disconnectGracePeriodMs: 60_000 });
+    const stub = env.FLARE_LOBBY_ROOMS.getByName(roomId);
+    const firstToken = await issuePlayerJoinToken({
+      roomId,
+      participantId: "participant-host",
+      playerId: "player-host",
+      principalId,
+    });
+    const firstSocket = await connectViaStub(roomId, firstToken);
+    const initial = await waitForMessage(firstSocket);
+    const staleResumeToken = initial.payload?.resumeToken as string;
+
+    await closeSocket(firstSocket);
+    await waitForDisconnectedConnections(roomId, 1);
+
+    // 同一参加者が新しい接続（新しい resumeId）を張り、その接続も閉じる。
+    const secondToken = await issuePlayerJoinToken({
+      roomId,
+      participantId: "participant-host",
+      playerId: "player-host",
+      principalId,
+    });
+    const secondSocket = await connectViaStub(roomId, secondToken);
+    await waitForMessage(secondSocket);
+    await closeSocket(secondSocket);
+    await waitForDisconnectedConnections(roomId, 2);
+
+    // 古い接続の切断時刻だけを過去へ動かし、猶予は最新の切断時刻基準で
+    // まだ残っている状態を作る。
+    await runInDurableObject(stub, (_instance: RoomDurableObject, state) => {
+      state.storage.sql.exec(
+        `UPDATE flarelobby_room_connections
+         SET disconnected_at = ?
+         WHERE resume_id = (
+           SELECT resume_id
+           FROM flarelobby_room_connections
+           WHERE room_id = ? AND disconnected_at IS NOT NULL
+           ORDER BY connected_at ASC, resume_id ASC
+           LIMIT 1
+         )`,
+        "2026-01-01T00:00:00.000Z",
+        roomId,
+      );
+    });
+    const deferred = await fetchUpgrade(roomId, staleResumeToken);
+    expect(deferred.status).toBe(403);
+    await expect(deferred.json()).resolves.toMatchObject({
+      code: "FORBIDDEN",
+    });
+
+    const snapshot = await stub.getSnapshot();
+    expect(
+      snapshot?.participants.map((participant: Participant) => participant.id),
+    ).toEqual(["participant-host"]);
+    expect(
+      (await stub.listScheduledOperations()).some(
+        (operation: RoomScheduledOperation) =>
+          operation.kind === "noop" && operation.dueAt > Date.now(),
+      ),
+    ).toBe(true);
+  });
+
+  it("WebSocket コマンドの Payload 検証を個別に行う", async () => {
+    const owner = await createRoom();
+    const player = await joinRoom(owner.roomId);
+    const ownerSocket = await connect(owner);
+    const playerSocket = await connect(player);
+
+    await Promise.all([
+      waitForMessage(ownerSocket),
+      waitForMessage(playerSocket),
+    ]);
+
+    const invalidPayloads: Array<[string, unknown]> = [
+      ["room.select_team", { teamId: 5 }],
+      ["room.update_settings", { settings: "desert" }],
+      ["room.transfer_host", {}],
+      ["room.kick", { reason: 123 }],
+      ["room.start_match", { at: 5 }],
+      ["room.close", { at: 5 }],
+      ["room.unknown_command", {}],
+    ];
+
+    for (const [command, payload] of invalidPayloads) {
+      const requestId = `invalid-${crypto.randomUUID()}`;
+      sendCommand(ownerSocket, command, payload, requestId);
+      await expect(waitForMessage(ownerSocket)).resolves.toMatchObject({
+        kind: "failure",
+        requestId,
+        error: { code: "INVALID_PAYLOAD" },
+      });
+    }
+
+    sendCommand(playerSocket, "game.chat", { text: "1 回目" }, "game-once");
+    await expect(waitForMessage(ownerSocket)).resolves.toMatchObject({
+      kind: "event",
+      event: "game.message",
+    });
+    await expect(waitForMessage(playerSocket)).resolves.toMatchObject({
+      kind: "event",
+      event: "game.message",
+    });
+    await expect(waitForMessage(playerSocket)).resolves.toMatchObject({
+      kind: "success",
+      requestId: "game-once",
+    });
+
+    // 同一 requestId・同一 payload の再送は結果を再生するだけで再配信しない。
+    sendCommand(playerSocket, "game.chat", { text: "1 回目" }, "game-once");
+    await expect(waitForMessage(playerSocket)).resolves.toMatchObject({
+      kind: "success",
+      requestId: "game-once",
+    });
+    await expect(waitForMessage(ownerSocket, 100)).rejects.toThrow();
+
+    // 同一 requestId で異なる payload は競合として拒否する。
+    sendCommand(playerSocket, "game.chat", { text: "別の内容" }, "game-once");
+    await expect(waitForMessage(playerSocket)).resolves.toMatchObject({
+      kind: "failure",
+      requestId: "game-once",
+      error: { code: "CONFLICT" },
+    });
+
+    // 長すぎるゲームメッセージ名は拒否する。
+    sendCommand(playerSocket, "a".repeat(129), {}, "too-long-name");
+    await expect(waitForMessage(playerSocket)).resolves.toMatchObject({
+      kind: "failure",
+      requestId: "too-long-name",
+      error: { code: "INVALID_PAYLOAD" },
+    });
+
+    await Promise.all([closeSocket(ownerSocket), closeSocket(playerSocket)]);
+  });
+
+  it("閉鎖済み Room のゲームメッセージを ROOM_FINISHED で拒否する", async () => {
+    const principalId = `principal-closed-game-${crypto.randomUUID()}`;
+    const owner = await createRoom(principalId);
+    const socket = await connect(owner);
+    await waitForMessage(socket);
+
+    const stub = env.FLARE_LOBBY_ROOMS.getByName(owner.roomId);
+    await runInDurableObject(stub, async (instance: RoomDurableObject) => {
+      await instance.close({
+        gatewayPrincipal: await createPrincipalEnvelope(
+          principalId,
+          `${principalId}-player`,
+        ),
+        participantId: owner.participantId,
+      });
+    });
+
+    sendCommand(socket, "game.chat", { text: "閉鎖後" }, "after-close");
+    // 閉鎖時の snapshot イベントが先に配信される。
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      kind: "event",
+      event: "room.snapshot",
+    });
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      kind: "failure",
+      requestId: "after-close",
+      error: { code: "ROOM_FINISHED" },
+    });
 
     await closeSocket(socket);
   });

@@ -14,8 +14,10 @@ import {
   createMatchmakingMatchId,
   createMatchmakingPoolKey,
   createMatchmakingRoomId,
+  defineFlareLobby,
 } from "../src/index.js";
 import type {
+  FlareLobbyGatewayWorker,
   GatewayPrincipalEnvelope,
   MatchmakingMatchIntent,
   MatchmakingMatchRoomOptions,
@@ -182,6 +184,114 @@ function createMatchRoomInitialization(
     maxPlayers: 2,
     minimumPlayers: 2,
     requireAllPlayersReady: false,
+  };
+}
+const resultSoloPool: MatchmakingPool = {
+  id: "settlement-result-solo",
+  gameId: "settlement-result-game",
+  seasonId: "season-1",
+  mode: "ranked-1v1",
+  region: "jp",
+};
+
+const resultTeamPool: MatchmakingPool = {
+  id: "settlement-result-team",
+  gameId: "settlement-result-game",
+  seasonId: "season-1",
+  mode: "ranked-2v2",
+  region: "jp",
+  maxPartySize: 2,
+  teamSize: 2,
+};
+
+function createResultLobby(authorizeMatchResult: boolean) {
+  return defineFlareLobby({
+    customRooms: {
+      maxPlayers: 4,
+      defaultSettings: {},
+    },
+    matchmakingPools: [resultSoloPool, resultTeamPool],
+    authenticate: (request) => {
+      const principalId = request.headers.get("x-test-principal");
+      if (principalId !== null && principalId.length > 0) {
+        return { id: principalId, playerId: `${principalId}-player` };
+      }
+
+      return null;
+    },
+    inputLimits: {
+      maxHttpRequestBytes: 16 * 1024,
+      maxWebSocketMessageBytes: 8 * 1024,
+      maxMessagesPerMinute: 60,
+      maxRoomCreationsPerMinute: 10,
+    },
+    ...(authorizeMatchResult
+      ? { authorization: { authorizeMatchResult: () => true } }
+      : {}),
+  });
+}
+
+const resultWorker = createResultLobby(true).createGatewayWorker<Env>();
+const deniedWorker = createResultLobby(false).createGatewayWorker<Env>();
+
+async function fetchResultWorker(
+  worker: FlareLobbyGatewayWorker<Env>,
+  path: string,
+  principalId: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  headers.set("x-test-principal", principalId);
+  if (init.body !== undefined) {
+    headers.set("content-type", "application/json");
+  }
+
+  return worker.fetch(
+    new Request(`https://example.test${path}`, {
+      ...init,
+      headers,
+    }) as unknown as Parameters<typeof worker.fetch>[0],
+    env,
+    {} as ExecutionContext,
+  );
+}
+
+interface PartyUnderTest {
+  readonly partyId: string;
+  readonly leaderPrincipalId: string;
+  readonly memberPlayerIds: readonly [string, string];
+}
+
+/** リーダー + メンバー 1 人のパーティーを直接 DO 操作で作成します。 */
+async function createTestParty(prefix: string): Promise<PartyUnderTest> {
+  const partyId = `party_${crypto.randomUUID()}`;
+  const stub = env.FLARE_LOBBY_PARTIES.getByName(partyId);
+  const leaderPrincipalId = `${prefix}-leader-${crypto.randomUUID()}`;
+  const memberPrincipalId = `${prefix}-member-${crypto.randomUUID()}`;
+  const leaderPlayerId = `${leaderPrincipalId}-player`;
+  const memberPlayerId = `${memberPrincipalId}-player`;
+  const leader = await createGatewayPrincipal(leaderPrincipalId);
+  const member = await createGatewayPrincipal(memberPrincipalId);
+
+  await stub.createParty({
+    gatewayPrincipal: leader,
+    requestId: `request-${crypto.randomUUID()}`,
+  });
+  const invite = await stub.inviteMember({
+    gatewayPrincipal: leader,
+    requestId: `request-${crypto.randomUUID()}`,
+    playerId: memberPlayerId,
+  });
+  await stub.acceptInvite({
+    gatewayPrincipal: member,
+    requestId: `request-${crypto.randomUUID()}`,
+    token: invite.token,
+  });
+
+  return {
+    partyId,
+    leaderPrincipalId,
+    memberPlayerIds: [leaderPlayerId, memberPlayerId],
   };
 }
 
@@ -515,5 +625,233 @@ describe("Matchmaking match settlement", () => {
       nextAttemptAt: null,
     });
     expect(events.map((event) => event.type)).not.toContain("matched");
+  });
+});
+
+describe("Matchmaking Gateway 経由の試合結果登録", () => {
+  const ticketsPath = `/v1/matchmaking/pools/${encodeURIComponent(resultTeamPool.id)}/tickets`;
+  const resultPath = (matchId: string): string =>
+    `/v1/matchmaking/pools/${encodeURIComponent(resultTeamPool.id)}/matches/${encodeURIComponent(matchId)}/result`;
+
+  it("パーティー単位の成立から全員の結果をチームとして登録する", async () => {
+    await createInitializedPool(resultTeamPool);
+    const partyA = await createTestParty("result-a");
+    const partyB = await createTestParty("result-b");
+
+    let firstTicketId: string | null = null;
+    for (const party of [partyA, partyB]) {
+      const response = await fetchResultWorker(
+        resultWorker,
+        ticketsPath,
+        party.leaderPrincipalId,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            requestId: `request-${crypto.randomUUID()}`,
+            rating: 1_500,
+            partyId: party.partyId,
+          }),
+        },
+      );
+      expect(response.status).toBe(201);
+      const created = await response.json<{
+        readonly ticket: { readonly id: string };
+      }>();
+      if (firstTicketId === null) {
+        firstTicketId = created.ticket.id;
+      }
+    }
+
+    const poolStub = env.FLARE_LOBBY_MATCH_POOLS.getByName(
+      createMatchmakingPoolKey(resultTeamPool),
+    ) as unknown as MatchPoolDurableObject;
+    // 候補探索は 2 枚目のチケット作成時と processPendingMatches で決定的に進む。
+    await poolStub.processPendingMatches();
+    const matched = await poolStub.getTicket(firstTicketId!);
+    if (matched?.status !== "matched") {
+      throw new Error("パーティー チケットが成立しませんでした。");
+    }
+    const matchId = matched.result.matchId;
+
+    const resultId = `result_${crypto.randomUUID()}`;
+    const response = await fetchResultWorker(
+      resultWorker,
+      resultPath(matchId),
+      "result-authority",
+      {
+        method: "POST",
+        body: JSON.stringify({ resultId, result: 1 }),
+      },
+    );
+    expect(response.status).toBe(200);
+    const payload = await response.json<{
+      readonly match: {
+        readonly matchId: string;
+        readonly participants: readonly { readonly playerId: string }[];
+      };
+      readonly applied: boolean;
+    }>();
+    expect(payload.applied).toBe(true);
+
+    const replayed = await fetchResultWorker(
+      resultWorker,
+      resultPath(matchId),
+      "result-authority",
+      {
+        method: "POST",
+        body: JSON.stringify({ resultId, result: 1 }),
+      },
+    );
+    expect(replayed.status).toBe(200);
+    await expect(replayed.json<{ applied: boolean }>()).resolves.toMatchObject({
+      applied: false,
+    });
+  });
+
+  it("結果登録の検証エラーと未認可を拒否する", async () => {
+    await createInitializedPool(resultSoloPool);
+    const soloTicketsPath = `/v1/matchmaking/pools/${encodeURIComponent(resultSoloPool.id)}/tickets`;
+    const unauthorizedPath = `/v1/matchmaking/pools/${encodeURIComponent(resultSoloPool.id)}/matches/gateway-unauthorized-match/result`;
+
+    const unauthorized = await fetchResultWorker(
+      deniedWorker,
+      unauthorizedPath,
+      "result-authority",
+      {
+        method: "POST",
+        body: JSON.stringify({ resultId: "result-x", result: 1 }),
+      },
+    );
+    expect(unauthorized.status).toBe(403);
+    await expect(unauthorized.json<{ code: string }>()).resolves.toMatchObject({
+      code: "FORBIDDEN",
+    });
+
+    const invalidPayload = await fetchResultWorker(
+      resultWorker,
+      `${unauthorizedPath}`,
+      "result-authority",
+      { method: "POST", body: JSON.stringify({}) },
+    );
+    expect(invalidPayload.status).toBe(400);
+    await expect(
+      invalidPayload.json<{ code: string }>(),
+    ).resolves.toMatchObject({
+      code: "INVALID_PAYLOAD",
+    });
+
+    const unknownMatch = await fetchResultWorker(
+      resultWorker,
+      `/v1/matchmaking/pools/${encodeURIComponent(resultSoloPool.id)}/matches/settlement-unknown-match/result`,
+      "result-authority",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          resultId: `result_${crypto.randomUUID()}`,
+          result: 1,
+        }),
+      },
+    );
+    expect(unknownMatch.status).toBe(400);
+    await expect(unknownMatch.json<{ code: string }>()).resolves.toMatchObject({
+      code: "CONFLICT",
+    });
+
+    // チケット作成のパーティー参照も、認可済み Worker ではリーダーのみ許可される。
+    const missingParty = await fetchResultWorker(
+      resultWorker,
+      soloTicketsPath,
+      "result-authority",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          requestId: `request-${crypto.randomUUID()}`,
+          rating: 1_500,
+          partyId: "party_settlement-missing-party",
+        }),
+      },
+    );
+    expect(missingParty.status).toBe(403);
+  });
+
+  it("成立後接続で Room 状態が失われた要求を拒否する", async () => {
+    await createInitializedPool(resultSoloPool);
+    const ticketsPath = `/v1/matchmaking/pools/${encodeURIComponent(resultSoloPool.id)}/tickets`;
+    const connectionPath = (ticketId: string): string =>
+      `/v1/matchmaking/pools/${encodeURIComponent(resultSoloPool.id)}/tickets/${encodeURIComponent(ticketId)}/connection`;
+
+    const firstPrincipal = `solo-a-${crypto.randomUUID()}`;
+    const firstResponse = await fetchResultWorker(
+      resultWorker,
+      ticketsPath,
+      firstPrincipal,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          requestId: `request-${crypto.randomUUID()}`,
+          rating: 1_500,
+        }),
+      },
+    );
+    expect(firstResponse.status).toBe(201);
+    const first = await firstResponse.json<{
+      readonly ticket: { readonly id: string };
+    }>();
+
+    const waitingConnection = await fetchResultWorker(
+      resultWorker,
+      connectionPath(first.ticket.id),
+      firstPrincipal,
+    );
+
+    const secondPrincipal = `solo-b-${crypto.randomUUID()}`;
+    const secondResponse = await fetchResultWorker(
+      resultWorker,
+      ticketsPath,
+      secondPrincipal,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          requestId: `request-${crypto.randomUUID()}`,
+          rating: 1_500,
+        }),
+      },
+    );
+    expect(secondResponse.status).toBe(201);
+    const second = await secondResponse.json<{
+      readonly ticket: {
+        readonly id: string;
+        readonly status: string;
+        readonly result?: {
+          readonly matchId: string;
+          readonly room: { readonly id: string };
+        };
+      };
+    }>();
+    if (
+      second.ticket.status !== "matched" ||
+      second.ticket.result === undefined
+    ) {
+      throw new Error("成立済みチケットを期待しました。");
+    }
+
+    await removeRoomState(second.ticket.result.room.id);
+    const lostRoomConnection = await fetchResultWorker(
+      resultWorker,
+      connectionPath(second.ticket.id),
+      secondPrincipal,
+    );
+    expect(waitingConnection.status).toBe(400);
+    await expect(
+      waitingConnection.json<{ code: string }>(),
+    ).resolves.toMatchObject({
+      code: "CONFLICT",
+    });
+    expect(lostRoomConnection.status).toBe(400);
+    await expect(
+      lostRoomConnection.json<{ code: string }>(),
+    ).resolves.toMatchObject({
+      code: "CONFLICT",
+    });
   });
 });

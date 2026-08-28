@@ -6,6 +6,7 @@ import {
   createGatewayPrincipalEnvelope,
   createMatchmakingPoolKey,
   defineFlareLobby,
+  ensureRatingSchema,
   getMatchHistory,
   getRating,
   registerMatchResult,
@@ -556,5 +557,656 @@ describe("Glicko-2 レーティング永続化", () => {
       configuration,
     );
     expect(replayed.applied).toBe(false);
+  });
+
+  it("Glicko-2 の初期 RD・ボラティリティ設定を更新へ反映する", async () => {
+    const pool = createPool();
+    const configuration = {
+      algorithm: "glicko-2",
+      initialRating: 1_500,
+      initialRatingDeviation: 120,
+      volatility: 0.05,
+      tau: 0.4,
+    } as const;
+
+    const first = await registerMatchResult(
+      env.FLARE_LOBBY_DB,
+      pool,
+      createResultInput("match-glicko-cfg-1", "result-glicko-cfg-1"),
+      configuration,
+    );
+    expect(first.applied).toBe(true);
+    // 既定 RD (350) のときの既知値 162 よりも低 RD では変動が抑えられる。
+    const [winnerDelta, loserDelta] = first.match.participants.map(
+      (participant) => participant.delta,
+    );
+    expect(winnerDelta).toBeGreaterThan(0);
+    expect(winnerDelta).toBeLessThan(162);
+    expect(loserDelta).toBeLessThan(0);
+    expect(loserDelta).toBeGreaterThan(-162);
+
+    const winner = await readStoredRatingState(pool, "player-a");
+    expect(winner?.deviation).toBeLessThan(120);
+    expect(winner?.volatility).toBeGreaterThan(0.03);
+    expect(winner?.volatility).toBeLessThan(0.07);
+  });
+
+  it("Glicko-2 では有利な勝ちの変動が小さく、不利な勝ちの変動が大きい", async () => {
+    const pool = createPool();
+    const configuration = { algorithm: "glicko-2" } as const;
+
+    await getRating(env.FLARE_LOBBY_DB, pool, "player-a", {
+      initialRating: 1_800,
+      algorithm: "glicko-2",
+    });
+    await getRating(env.FLARE_LOBBY_DB, pool, "player-b", {
+      initialRating: 1_200,
+      algorithm: "glicko-2",
+    });
+
+    const favored = await registerMatchResult(
+      env.FLARE_LOBBY_DB,
+      pool,
+      createResultInput("match-glicko-cfg-2", "result-glicko-cfg-2"),
+      configuration,
+    );
+    expect(
+      favored.match.participants.map((participant) => participant.delta),
+    ).toEqual(expect.arrayContaining([expect.any(Number), expect.any(Number)]));
+    // レート差 600 の有利な勝ちは既知値 162 よりも小さい。
+    expect(favored.match.participants[0]?.delta).toBeGreaterThan(0);
+    expect(favored.match.participants[0]!.delta).toBeLessThan(162);
+    expect(favored.match.participants[1]?.delta).toBeLessThan(0);
+  });
+});
+
+describe("レーティング入力検証", () => {
+  it("同一プレイヤー間の試合結果と不正な結果値を拒否する", async () => {
+    const pool = createPool();
+
+    await expect(
+      registerMatchResult(env.FLARE_LOBBY_DB, pool, {
+        ...createResultInput("match-self", "result-self"),
+        playerBId: "player-a",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    await expect(
+      registerMatchResult(env.FLARE_LOBBY_DB, pool, {
+        ...createResultInput("match-bad-result", "result-bad-result"),
+        result: 0.7,
+      } as never),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    await expect(
+      registerMatchResult(
+        env.FLARE_LOBBY_DB,
+        pool,
+        "not-an-object" as unknown as Parameters<typeof registerMatchResult>[2],
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+  });
+
+  it("リトライ回数の指定を検証する", async () => {
+    const pool = createPool();
+
+    for (const maxRetries of [-1, 9, 1.5]) {
+      await expect(
+        registerMatchResult(
+          env.FLARE_LOBBY_DB,
+          pool,
+          createResultInput(
+            `match-retry-${maxRetries}`,
+            `result-retry-${maxRetries}`,
+          ),
+          {},
+          maxRetries,
+        ),
+      ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+    }
+  });
+
+  it("主体と Pool の識別子を検証する", async () => {
+    const pool = createPool();
+
+    await expect(getRating(env.FLARE_LOBBY_DB, pool, "")).rejects.toMatchObject(
+      { code: "INVALID_PAYLOAD" },
+    );
+
+    await expect(
+      getRating(
+        env.FLARE_LOBBY_DB,
+        { id: "", gameId: "g", seasonId: "s", mode: "m", region: "r" },
+        "player-a",
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    await expect(
+      getRating(
+        env.FLARE_LOBBY_DB,
+        "not-a-pool" as unknown as MatchmakingPool,
+        "player-a",
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+  });
+
+  it("レーティング設定の不明キー・不正値・不正な型を拒否する", async () => {
+    const pool = createPool();
+
+    await expect(
+      getRating(env.FLARE_LOBBY_DB, pool, "player-a", null as never),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    await expect(
+      getRating(env.FLARE_LOBBY_DB, pool, "player-a", {
+        algorithm: "trueskill",
+      } as never),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    await expect(
+      getRating(env.FLARE_LOBBY_DB, pool, "player-a", {
+        unknownKey: 1,
+      } as never),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    await expect(
+      getRating(env.FLARE_LOBBY_DB, pool, "player-a", {
+        initialRating: "1500",
+      } as never),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    await expect(
+      getRating(env.FLARE_LOBBY_DB, pool, "player-a", {
+        initialRating: Number.NaN,
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    await expect(
+      getRating(env.FLARE_LOBBY_DB, pool, "player-a", {
+        algorithm: "glicko-2",
+        initialRatingDeviation: 0,
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+  });
+
+  it("チーム入力の重複・欠落・不正結果・不正型を拒否する", async () => {
+    const pool = createPool();
+    const base = {
+      matchId: "match-team-invalid",
+      resultId: "result-team-invalid",
+      teamAId: "team-a",
+      teamBId: "team-b",
+      playerAIds: ["shared-player"],
+      playerBIds: ["shared-player"],
+      result: 1,
+    } as const;
+
+    await expect(
+      registerTeamMatchResult(env.FLARE_LOBBY_DB, pool, base),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    await expect(
+      registerTeamMatchResult(env.FLARE_LOBBY_DB, pool, {
+        ...base,
+        matchId: "match-team-result",
+        resultId: "result-team-result",
+        playerAIds: ["team-a-1"],
+        playerBIds: ["team-b-1"],
+        result: 0.25,
+      } as never),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    await expect(
+      registerTeamMatchResult(env.FLARE_LOBBY_DB, pool, {
+        ...base,
+        matchId: "match-team-empty",
+        resultId: "result-team-empty",
+        playerAIds: [],
+        playerBIds: ["team-b-1"],
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    await expect(
+      registerTeamMatchResult(env.FLARE_LOBBY_DB, pool, {
+        ...base,
+        matchId: "match-team-dup",
+        resultId: "result-team-dup",
+        playerAIds: ["team-a-1", "team-a-1"],
+        playerBIds: ["team-b-1"],
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    await expect(
+      registerTeamMatchResult(
+        env.FLARE_LOBBY_DB,
+        pool,
+        42 as unknown as Parameters<typeof registerTeamMatchResult>[2],
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+  });
+
+  it("試合履歴のページング指定を検証し、履歴が無い Pool を空で返す", async () => {
+    const pool = createPool();
+
+    await expect(
+      getMatchHistory(env.FLARE_LOBBY_DB, { pool, limit: 0 }),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+    await expect(
+      getMatchHistory(env.FLARE_LOBBY_DB, { pool, limit: 101 }),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+    await expect(
+      getMatchHistory(env.FLARE_LOBBY_DB, {
+        pool,
+        cursor: "not-a-cursor",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+    await expect(
+      getMatchHistory(env.FLARE_LOBBY_DB, {
+        pool,
+        cursor: encodeURIComponent(JSON.stringify({ appliedAt: "x" })),
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    const empty = await getMatchHistory(env.FLARE_LOBBY_DB, { pool });
+    expect(empty.matches).toEqual([]);
+    expect(empty.nextCursor).toBeNull();
+  });
+});
+
+describe("レーティング版競合", () => {
+  /**
+   * 試合行の書き込み batch を外部から解放できる D1 プロキシです。
+   * 先に別の試合結果を確定させることで、楽観的版ガードの競合を決定的に再現します。
+   */
+  function createGatedWriteDatabase(matchInsertSql: string): {
+    readonly database: D1Database;
+    readonly writeGated: Promise<void>;
+    readonly openWrite: () => void;
+  } {
+    const real = env.FLARE_LOBBY_DB;
+    const writeGated = Promise.withResolvers<void>();
+    const opened = Promise.withResolvers<void>();
+    let pendingWriteBatch = false;
+    const database = new Proxy(real, {
+      get(target, property) {
+        if (property === "prepare") {
+          return (sql: string) => {
+            if (sql.includes(matchInsertSql)) {
+              pendingWriteBatch = true;
+            }
+            return (
+              Reflect.get(target, "prepare", target) as (
+                text: string,
+              ) => unknown
+            ).call(target, sql);
+          };
+        }
+        if (property === "batch") {
+          return async (statements: unknown[]) => {
+            if (pendingWriteBatch) {
+              pendingWriteBatch = false;
+              writeGated.resolve();
+              await opened.promise;
+            }
+            return await (
+              Reflect.get(target, "batch", target) as (
+                ...args: unknown[]
+              ) => Promise<D1Result<unknown>[]>
+            ).call(target, statements);
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function"
+          ? (value as (...args: unknown[]) => unknown).bind(target)
+          : value;
+      },
+    }) as unknown as D1Database;
+    return {
+      database,
+      writeGated: writeGated.promise,
+      openWrite: opened.resolve,
+    };
+  }
+
+  it("単対戦では版競合の再試行が上限に達したとき競合として拒否する", async () => {
+    const pool = createPool();
+    const { database, writeGated, openWrite } = createGatedWriteDatabase(
+      "INSERT INTO flarelobby_rating_matches",
+    );
+
+    const gated = registerMatchResult(
+      database,
+      pool,
+      createResultInput("match-gate-single-a", "result-gate-single-a"),
+      {},
+      0,
+    );
+    await writeGated;
+    await registerMatchResult(
+      env.FLARE_LOBBY_DB,
+      pool,
+      createResultInput("match-gate-single-b", "result-gate-single-b"),
+    );
+    openWrite();
+
+    await expect(gated).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("チーム対戦では版競合を再試行して失わない", async () => {
+    const pool = createPool();
+    const { database, writeGated, openWrite } = createGatedWriteDatabase(
+      "INSERT INTO flarelobby_team_rating_matches",
+    );
+    const input = {
+      matchId: "match-gate-team-a",
+      resultId: "result-gate-team-a",
+      teamAId: "gate-team-a",
+      teamBId: "gate-team-b",
+      playerAIds: ["gate-a1", "gate-a2"],
+      playerBIds: ["gate-b1", "gate-b2"],
+      result: 1,
+    } as const;
+
+    const gated = registerTeamMatchResult(database, pool, input, {}, 5);
+    await writeGated;
+    await registerTeamMatchResult(env.FLARE_LOBBY_DB, pool, {
+      ...input,
+      matchId: "match-gate-team-b",
+      resultId: "result-gate-team-b",
+    });
+    openWrite();
+
+    const registration = await gated;
+    expect(registration.applied).toBe(true);
+    expect(registration.match.matchId).toBe(input.matchId);
+    expect(registration.match.participants.map((p) => p.versionAfter)).toEqual([
+      2, 2, 2, 2,
+    ]);
+  });
+
+  it("チーム対戦では版競合の再試行が上限に達したとき競合として拒否する", async () => {
+    const pool = createPool();
+    const { database, writeGated, openWrite } = createGatedWriteDatabase(
+      "INSERT INTO flarelobby_team_rating_matches",
+    );
+    const input = {
+      matchId: "match-gate-team-c",
+      resultId: "result-gate-team-c",
+      teamAId: "gate-team-c",
+      teamBId: "gate-team-d",
+      playerAIds: ["gate-a3", "gate-a4"],
+      playerBIds: ["gate-b3", "gate-b4"],
+      result: 0.5,
+    } as const;
+
+    const gated = registerTeamMatchResult(database, pool, input, {}, 0);
+    await writeGated;
+    await registerTeamMatchResult(env.FLARE_LOBBY_DB, pool, {
+      ...input,
+      matchId: "match-gate-team-d",
+      resultId: "result-gate-team-d",
+    });
+    openWrite();
+
+    await expect(gated).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("同一試合・同一チーム試合への異なる結果の再送を競合として拒否する", async () => {
+    const pool = createPool();
+    const singleInput = createResultInput(
+      "match-replay-diff",
+      "result-replay-diff",
+    );
+    await registerMatchResult(env.FLARE_LOBBY_DB, pool, singleInput);
+
+    await expect(
+      registerMatchResult(env.FLARE_LOBBY_DB, pool, {
+        ...singleInput,
+        result: 0.5,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const teamInput = {
+      matchId: "match-replay-team",
+      resultId: "result-replay-team",
+      teamAId: "team-a",
+      teamBId: "team-b",
+      playerAIds: ["replay-a1"],
+      playerBIds: ["replay-b1"],
+      result: 1,
+    } as const;
+    await registerTeamMatchResult(env.FLARE_LOBBY_DB, pool, teamInput);
+
+    await expect(
+      registerTeamMatchResult(env.FLARE_LOBBY_DB, pool, {
+        ...teamInput,
+        result: 0,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("Season の方式と一致しないチーム結果の適用を拒否する", async () => {
+    const pool = createPool();
+    const teamInput = {
+      matchId: "match-team-alg-1",
+      resultId: "result-team-alg-1",
+      teamAId: "team-a",
+      teamBId: "team-b",
+      playerAIds: ["alg-a1"],
+      playerBIds: ["alg-b1"],
+      result: 1,
+    } as const;
+    await registerTeamMatchResult(env.FLARE_LOBBY_DB, pool, teamInput, {
+      algorithm: "glicko-2",
+    });
+
+    await expect(
+      registerTeamMatchResult(env.FLARE_LOBBY_DB, pool, {
+        ...teamInput,
+        matchId: "match-team-alg-2",
+        resultId: "result-team-alg-2",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+});
+
+describe("レーティング D1 障害経路", () => {
+  interface FakePreparedStatement {
+    readonly text: string;
+    bind(): FakePreparedStatement;
+    all(): Promise<{ results: readonly { name: string }[] }>;
+    first(): Promise<null>;
+    run(): Promise<{ meta: { changes: number } }>;
+  }
+
+  class FakeSchemaDatabase {
+    readonly executedStatements: string[] = [];
+    readonly columns = new Set<string>();
+    #failBatchWith: Error | null = null;
+
+    failNextBatchWith(error: Error): void {
+      this.#failBatchWith = error;
+    }
+
+    prepare(text: string): FakePreparedStatement {
+      const statement: FakePreparedStatement = {
+        text,
+        bind: () => statement,
+        all: async () => {
+          if (/^PRAGMA table_info/iu.test(text)) {
+            return {
+              results: [...this.columns].map((name) => ({ name })),
+            };
+          }
+          return { results: [] };
+        },
+        first: async () => null,
+        run: async () => ({ meta: { changes: 0 } }),
+      };
+      return statement;
+    }
+
+    async batch(statements: readonly { text: string }[]): Promise<unknown[]> {
+      if (this.#failBatchWith !== null) {
+        const error = this.#failBatchWith;
+        this.#failBatchWith = null;
+        throw error;
+      }
+      for (const statement of statements) {
+        this.executedStatements.push(statement.text);
+        const addedColumn = /^ALTER TABLE\s+\S+\s+ADD COLUMN\s+(\S+)/iu.exec(
+          statement.text,
+        );
+        if (addedColumn !== null && addedColumn[1] !== undefined) {
+          this.columns.add(addedColumn[1].replace(/[^a-z_]/giu, ""));
+        }
+      }
+      return statements.map(() => ({ meta: { changes: 0 } }));
+    }
+  }
+
+  it("初期化が失敗した D1 では CONNECTION_FAILED を返し、再呼び出しで再試行する", async () => {
+    const database = new FakeSchemaDatabase();
+    const failure = new Error("d1 unavailable");
+
+    database.failNextBatchWith(failure);
+    await expect(
+      ensureRatingSchema(database as unknown as D1Database),
+    ).rejects.toMatchObject({ code: "CONNECTION_FAILED" });
+
+    // 失敗した初期化はキャッシュから破棄され、次回呼び出しで再試行されます。
+    await expect(
+      ensureRatingSchema(database as unknown as D1Database),
+    ).resolves.toBeUndefined();
+    expect(database.executedStatements.length).toBeGreaterThan(0);
+  });
+
+  it("列が欠落した旧スキーマへ不足列を追加する", async () => {
+    const database = new FakeSchemaDatabase();
+
+    await expect(
+      ensureRatingSchema(database as unknown as D1Database),
+    ).resolves.toBeUndefined();
+    const alters = database.executedStatements.filter((text) =>
+      /^ALTER TABLE/iu.test(text),
+    );
+    expect(alters.join("\n")).toContain("ADD COLUMN algorithm");
+    expect(alters.join("\n")).toContain("ADD COLUMN rating_deviation");
+    expect(alters.join("\n")).toContain("ADD COLUMN rating_volatility");
+  });
+
+  it("同時実行の duplicate column 競合を無視して続行する", async () => {
+    const database = new FakeSchemaDatabase();
+
+    await expect(
+      ensureRatingSchema(database as unknown as D1Database),
+    ).resolves.toBeUndefined();
+
+    const raced = new FakeSchemaDatabase();
+    // 列は追加済みだが ALTER が duplicate column エラーで負けた状況を再現します。
+    raced.batch = async function batch(
+      statements: readonly { text: string }[],
+    ): Promise<unknown[]> {
+      const isAlterBatch = statements.some((statement) =>
+        /^ALTER TABLE/iu.test(statement.text),
+      );
+      for (const statement of statements) {
+        const addedColumn = /^ALTER TABLE\s+\S+\s+ADD COLUMN\s+(\S+)/iu.exec(
+          statement.text,
+        );
+        if (addedColumn !== null && addedColumn[1] !== undefined) {
+          raced.columns.add(addedColumn[1].replace(/[^a-z_]/giu, ""));
+        }
+      }
+      if (isAlterBatch) {
+        throw new Error("duplicate column name: rating_deviation");
+      }
+      return statements.map(() => ({ meta: { changes: 0 } }));
+    };
+    await expect(
+      ensureRatingSchema(raced as unknown as D1Database),
+    ).resolves.toBeUndefined();
+  });
+
+  it("列の追加後も存在確認が取れない場合は CONNECTION_FAILED", async () => {
+    const database = new FakeSchemaDatabase();
+    // 列を追加しても PRAGMA の結果を空のままにします。
+    database.batch = async function batch(statements) {
+      database.executedStatements.push(
+        ...statements.map((statement) => statement.text),
+      );
+      return statements.map(() => ({ meta: { changes: 0 } }));
+    };
+
+    await expect(
+      ensureRatingSchema(database as unknown as D1Database),
+    ).rejects.toMatchObject({ code: "CONNECTION_FAILED" });
+  });
+
+  function withFirstOverride(
+    override: (sql: string) => Promise<unknown>,
+  ): D1Database {
+    const real = env.FLARE_LOBBY_DB;
+    const wrapStatement = (statement: unknown, sql: string): unknown =>
+      new Proxy(statement as object, {
+        get(target, property) {
+          if (property === "first") {
+            return () => override(sql);
+          }
+          const value = Reflect.get(target as object, property, target);
+          if (property === "bind" && typeof value === "function") {
+            return (...args: unknown[]) =>
+              wrapStatement(
+                (value as (...bindArgs: unknown[]) => unknown).apply(
+                  target,
+                  args,
+                ),
+                sql,
+              );
+          }
+          return typeof value === "function"
+            ? (value as (...callArgs: unknown[]) => unknown).bind(target)
+            : value;
+        },
+      });
+    return new Proxy(real, {
+      get(target, property) {
+        if (property === "prepare") {
+          return (sql: string) =>
+            wrapStatement(
+              (
+                Reflect.get(target, property, target) as (
+                  text: string,
+                ) => unknown
+              ).call(target, sql),
+              sql,
+            );
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function"
+          ? (value as (...callArgs: unknown[]) => unknown).bind(target)
+          : value;
+      },
+    }) as unknown as D1Database;
+  }
+
+  it("初回参照でレーティング行が読み取れない場合は CONNECTION_FAILED", async () => {
+    const pool = createPool();
+    const database = withFirstOverride(() => Promise.resolve(null));
+
+    await expect(
+      getRating(database, pool, `vanish-${crypto.randomUUID()}`),
+    ).rejects.toMatchObject({ code: "CONNECTION_FAILED" });
+  });
+
+  it("D1 の読み取り障害は CONNECTION_FAILED へ正規化する", async () => {
+    const pool = createPool();
+    const database = withFirstOverride(() =>
+      Promise.reject(new Error("storage read failed")),
+    );
+
+    await expect(
+      getRating(database, pool, `broken-${crypto.randomUUID()}`),
+    ).rejects.toMatchObject({ code: "CONNECTION_FAILED" });
   });
 });
