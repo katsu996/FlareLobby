@@ -488,13 +488,48 @@ interface NormalizedCancellation {
   readonly requestPayloadJson: string;
 }
 
+/** Gateway が Match Pool Durable Object へ転送する操作のスタブ契約です。 */
+export interface MatchPoolGatewayStub {
+  initialize(
+    input: MatchPoolInitializationOptions | MatchmakingPool,
+  ): Promise<MatchmakingPool>;
+  getMatchIntent(
+    matchIdOrCandidateId:
+      | string
+      | { readonly matchId?: string; readonly candidateId?: string },
+  ): Promise<MatchmakingMatchIntent | null>;
+  createTicket(options: {
+    readonly gatewayPrincipal: GatewayPrincipalEnvelope;
+    readonly requestId: string;
+    readonly rating: number | Partial<{ readonly value: number }>;
+    readonly region?: string;
+    readonly inputMethod?: string;
+    readonly inputMode?: string;
+    readonly pool?: MatchmakingPool;
+    readonly party?: { readonly partyId: string };
+    readonly observability?: FlareLobbyObservabilityContext;
+  }): Promise<MatchmakingTicketRecord>;
+  getTicket(ticketId: string): Promise<MatchmakingTicketRecord | null>;
+  cancelTicket(options: {
+    readonly gatewayPrincipal: GatewayPrincipalEnvelope;
+    readonly ticketId: string;
+    readonly requestId?: string;
+    readonly requestPayload?: JsonValue;
+    readonly observability?: FlareLobbyObservabilityContext;
+  }): Promise<MatchmakingTicketRecord>;
+  fetch(request: Request): Promise<Response>;
+}
+
 /**
  * 1 マッチングプールを 1 Durable Object として扱う SQLite-backed Durable Object です。
  *
  * 候補評価は純粋関数へ委譲し、候補探索の起動、確保、成立意図、対戦 Room の
  * 初期化、チケットの状態遷移、冪等性、期限処理、状態通知を強整合に管理します。
  */
-export class MatchPoolDurableObject extends DurableObject<Env> {
+export class MatchPoolDurableObject
+  extends DurableObject<Env>
+  implements MatchPoolGatewayStub
+{
   private readonly inFlightCreateRequests = new Map<
     string,
     InFlightCreateRequest

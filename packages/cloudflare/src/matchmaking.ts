@@ -36,7 +36,7 @@ import {
 } from "./observability.js";
 import type { FlareLobbyObservabilityContext } from "./observability.js";
 import type {
-  MatchPoolInitializationOptions,
+  MatchPoolGatewayStub,
   MatchmakingMatchIntent,
   MatchmakingTicketRecord,
 } from "./match-pool.js";
@@ -63,37 +63,6 @@ export interface MatchmakingRoomConnection {
 export interface MatchmakingTicketGatewayResponse {
   readonly ticket: MatchmakingTicketRecord;
   readonly connection?: MatchmakingRoomConnection;
-}
-
-interface MatchPoolGatewayStub {
-  initialize(
-    input: MatchPoolInitializationOptions | MatchmakingPool,
-  ): Promise<MatchmakingPool>;
-  getMatchIntent(
-    matchIdOrCandidateId:
-      | string
-      | { readonly matchId?: string; readonly candidateId?: string },
-  ): Promise<MatchmakingMatchIntent | null>;
-  createTicket(options: {
-    readonly gatewayPrincipal: AuthenticatedGatewayRequest["gatewayPrincipal"];
-    readonly requestId: string;
-    readonly rating: number | Partial<{ readonly value: number }>;
-    readonly region?: string;
-    readonly inputMethod?: string;
-    readonly inputMode?: string;
-    readonly pool?: MatchmakingPool;
-    readonly party?: { readonly partyId: string };
-    readonly observability?: FlareLobbyObservabilityContext;
-  }): Promise<MatchmakingTicketRecord>;
-  getTicket(ticketId: string): Promise<MatchmakingTicketRecord | null>;
-  cancelTicket(options: {
-    readonly gatewayPrincipal: AuthenticatedGatewayRequest["gatewayPrincipal"];
-    readonly ticketId: string;
-    readonly requestId?: string;
-    readonly requestPayload?: JsonValue;
-    readonly observability?: FlareLobbyObservabilityContext;
-  }): Promise<MatchmakingTicketRecord>;
-  fetch(request: Request): Promise<Response>;
 }
 
 interface MatchRoomGatewayStub {
