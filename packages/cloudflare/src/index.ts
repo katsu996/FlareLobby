@@ -144,6 +144,7 @@ export type {
 } from "@flarelobby/core";
 export type {
   MatchmakingPoolKeyInput,
+  MatchPoolGatewayStub,
   MatchPoolInitializationOptions,
   MatchPoolSnapshot,
   MatchmakingAttributeObject,
