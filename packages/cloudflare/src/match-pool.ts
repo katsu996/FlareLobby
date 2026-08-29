@@ -502,9 +502,11 @@ export interface MatchPoolGatewayStub {
     readonly gatewayPrincipal: GatewayPrincipalEnvelope;
     readonly requestId: string;
     readonly rating: number | Partial<{ readonly value: number }>;
-    readonly region?: string;
     readonly inputMethod?: string;
     readonly inputMode?: string;
+    readonly searchAttributes?: JsonObject;
+    readonly expiresAt?: number | Timestamp;
+    readonly ttlMs?: number;
     readonly pool?: MatchmakingPool;
     readonly party?: { readonly partyId: string };
     readonly observability?: FlareLobbyObservabilityContext;
