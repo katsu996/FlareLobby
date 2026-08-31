@@ -5,8 +5,8 @@ export {
   PartyMembershipDurableObject,
   RateLimitDurableObject,
   RoomDurableObject,
+  type IRoomDurableObject,
 } from "./durable-objects.js";
-
 /**
  * リポジトリの Miniflare 検証に使う最小構成です。
  *
