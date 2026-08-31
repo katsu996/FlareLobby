@@ -1971,28 +1971,15 @@ export class RoomDurableObject
 
   /** 内部メソッド: テスト用の直接呼び出し（内部結合状態で退出処理） */
   public async internalLeaveParticipant(
-    room: RoomRow,
-    participantId: string,
+    _room: RoomRow,
+    _participantId: string,
     options: RoomParticipantLeaveOptions,
   ): Promise<RoomSnapshot> {
-    const normalized = normalizeParticipantLeaveOptions(options);
-    const existing = this.readProcessedCommand(normalized.requestId ?? "");
-
-    if (existing !== null) {
-      return existing.value as unknown as RoomSnapshot;
-    }
-
-    const snapshot = this.readRequiredSnapshot();
-    this.storeOperationResult(
-      {
-        requestId: normalized.requestId ?? "",
-        payload: {},
-        payloadJson: "{}",
-      },
-      ROOM_SET_READY_COMMAND,
-      snapshot,
-    );
-    return snapshot;
+    // 共有の leave フローへ委譲し、参加者削除・ホスト移譲・リビジョン更新・
+    // custom_room.leave の冪等性記録を単一経路で行います。requestId の省略を
+    // 空文字へフォールバックしたり、誤ったコマンドを記録したりしません。
+    const result = await this.leave(options);
+    return result.snapshot;
   }
 
   /** 型参照用 */

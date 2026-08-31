@@ -1,11 +1,11 @@
 import { FlareLobbyError } from "@flarelobby/core";
 import type {
   CustomRoom,
-  RoomStatus,
   JsonValue,
   MatchRoom,
   ProtocolMessage,
   RoomSnapshot,
+  RoomStatus,
   ServerEventEnvelope,
   Timestamp,
 } from "@flarelobby/core";
@@ -32,7 +32,6 @@ import {
   parseJsonValue,
   deepFreeze as deepFreezeUtil,
 } from "../room.js";
-
 /**
  * Room 永続化操作の依存インターフェース。
  * Durable Object のストレージアクセスを抽象化し、テスタビリティを確保。
@@ -412,7 +411,7 @@ export class RoomPersistence {
       kind,
       playerId,
       teamId,
-      kind === "player" ? 1 : 0,
+      ready,
       joinedAt,
     );
   }

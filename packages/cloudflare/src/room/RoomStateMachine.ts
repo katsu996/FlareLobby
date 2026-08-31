@@ -5,7 +5,6 @@ import {
   type RoomStateTransitionOptions,
   type RoomRow,
 } from "../room.js";
-
 /**
  * Room 状態遷移の純粋ロジックをまとめたモジュール。
  *
