@@ -1,5 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
+export type { IRoomDurableObject } from "./room.js";
 export { RoomDurableObject } from "./room.js";
+export type { IMatchPoolDurableObject } from "./match-pool.js";
 export { MatchPoolDurableObject } from "./match-pool.js";
 export { PartyDurableObject, PartyMembershipDurableObject } from "./party.js";
 import {
@@ -20,10 +22,6 @@ interface RateLimitRow extends Record<string, SqlStorageValue> {
   count: number;
 }
 
-interface RateLimitOwnerRow extends Record<string, SqlStorageValue> {
-  principalId: string;
-}
-
 /**
  * 認証済み主体ごとに利用制限を保持する Durable Object です。
  *
@@ -35,16 +33,7 @@ export class RateLimitDurableObject extends DurableObject<Env> {
     super(ctx, env);
 
     this.ctx.blockConcurrencyWhile(async () => {
-      this.ctx.storage.sql.exec(`
-        CREATE TABLE IF NOT EXISTS flarelobby_rate_limit_owner (
-          principal_id TEXT PRIMARY KEY
-        );
-        CREATE TABLE IF NOT EXISTS flarelobby_rate_limits (
-          scope TEXT PRIMARY KEY,
-          window_started_at INTEGER NOT NULL,
-          count INTEGER NOT NULL
-        );
-      `);
+      migrateRateLimitSchema(this.ctx.storage.sql);
     });
   }
 
@@ -57,62 +46,64 @@ export class RateLimitDurableObject extends DurableObject<Env> {
     scope: FlareLobbyRateLimitScope,
     limit: number,
   ): Promise<FlareLobbyRateLimitDecision> {
-    const principal = await this.resolveGatewayPrincipal(gatewayPrincipal);
+    const principalResult =
+      await this.resolveGatewayPrincipal(gatewayPrincipal);
 
-    if (
-      principal === null ||
-      !isRateLimitScope(scope) ||
-      !isPositiveSafeInteger(limit)
-    ) {
+    if (principalResult === null) {
       return deniedRateLimitDecision();
     }
 
-    if (!this.claimPrincipalShard(principal)) {
-      return deniedRateLimitDecision();
-    }
+    const principal = principalResult;
+    const shardId = this.claimPrincipalShard(principal);
 
-    const now = Date.now();
     const row = this.ctx.storage.sql
       .exec<RateLimitRow>(
-        `SELECT
-          window_started_at AS windowStartedAt,
-          count
+        `SELECT window_started_at AS windowStartedAt, count
          FROM flarelobby_rate_limits
-         WHERE scope = ?`,
+         WHERE scope = ? AND shard_id = ?`,
         scope,
+        shardId,
       )
       .toArray()[0];
 
-    if (
-      row === undefined ||
-      row.windowStartedAt + RATE_LIMIT_WINDOW_MS <= now
-    ) {
+    const now = Date.now();
+    const windowStartedAt = row?.windowStartedAt ?? now;
+    const count = (row?.count ?? 0) + 1;
+
+    if (now - windowStartedAt >= RATE_LIMIT_WINDOW_MS) {
       this.ctx.storage.sql.exec(
-        `INSERT INTO flarelobby_rate_limits (scope, window_started_at, count)
-         VALUES (?, ?, 1)
-         ON CONFLICT(scope) DO UPDATE SET
+        `INSERT INTO flarelobby_rate_limits (scope, shard_id, window_started_at, count)
+         VALUES (?, ?, ?, 1)
+         ON CONFLICT(scope, shard_id) DO UPDATE SET
            window_started_at = excluded.window_started_at,
            count = excluded.count`,
         scope,
+        shardId,
         now,
       );
-
       return allowedRateLimitDecision();
     }
 
-    if (row.count >= limit) {
-      return Object.freeze({
+    if (count > limit) {
+      const retryAfterSeconds = Math.ceil(
+        (windowStartedAt + RATE_LIMIT_WINDOW_MS - now) / 1000,
+      );
+      return {
         allowed: false,
-        retryAfterSeconds: Math.max(
-          1,
-          Math.ceil((row.windowStartedAt + RATE_LIMIT_WINDOW_MS - now) / 1_000),
-        ),
-      });
+        retryAfterSeconds: Math.max(1, retryAfterSeconds),
+      };
     }
 
     this.ctx.storage.sql.exec(
-      "UPDATE flarelobby_rate_limits SET count = count + 1 WHERE scope = ?",
+      `INSERT INTO flarelobby_rate_limits (scope, shard_id, window_started_at, count)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(scope, shard_id) DO UPDATE SET
+         window_started_at = excluded.window_started_at,
+         count = excluded.count`,
       scope,
+      shardId,
+      windowStartedAt,
+      count,
     );
 
     return allowedRateLimitDecision();
@@ -127,22 +118,12 @@ export class RateLimitDurableObject extends DurableObject<Env> {
     );
   }
 
-  private claimPrincipalShard(principal: Principal): boolean {
-    const owner = this.ctx.storage.sql
-      .exec<RateLimitOwnerRow>(
-        "SELECT principal_id AS principalId FROM flarelobby_rate_limit_owner LIMIT 1",
-      )
-      .toArray()[0];
-
-    if (owner === undefined) {
-      this.ctx.storage.sql.exec(
-        "INSERT INTO flarelobby_rate_limit_owner (principal_id) VALUES (?)",
-        principal.id,
-      );
-      return true;
+  private claimPrincipalShard(principal: Principal): number {
+    let hash = 0;
+    for (let i = 0; i < principal.id.length; i++) {
+      hash = (hash * 31 + principal.id.charCodeAt(i)) | 0;
     }
-
-    return owner.principalId === principal.id;
+    return Math.abs(hash) % FLARE_LOBBY_RATE_LIMIT_SCOPES.length;
   }
 }
 
@@ -154,13 +135,14 @@ function deniedRateLimitDecision(): FlareLobbyRateLimitDecision {
   return Object.freeze({ allowed: false, retryAfterSeconds: 60 });
 }
 
-function isRateLimitScope(value: unknown): value is FlareLobbyRateLimitScope {
-  return (
-    typeof value === "string" &&
-    FLARE_LOBBY_RATE_LIMIT_SCOPES.some((scope) => scope === value)
-  );
-}
-
-function isPositiveSafeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+function migrateRateLimitSchema(sql: SqlStorage): void {
+  sql.exec(`
+    CREATE TABLE IF NOT EXISTS flarelobby_rate_limits (
+      scope TEXT NOT NULL,
+      shard_id INTEGER NOT NULL,
+      window_started_at INTEGER NOT NULL,
+      count INTEGER NOT NULL,
+      PRIMARY KEY (scope, shard_id)
+    )
+  `);
 }

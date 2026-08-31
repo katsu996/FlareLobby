@@ -406,7 +406,7 @@ interface SchemaMigrationRow extends Record<string, SqlStorageValue> {
   version: number;
 }
 
-interface ProcessedCommandRow extends Record<string, SqlStorageValue> {
+export interface ProcessedCommandRow extends Record<string, SqlStorageValue> {
   requestId: string;
   command: string;
   playerId: string;
@@ -450,7 +450,7 @@ interface ProgressRow extends Record<string, SqlStorageValue> {
   ticketCount: number;
 }
 
-interface NormalizedCreation {
+export interface NormalizedCreation {
   readonly requestId: string;
   readonly requestPayloadJson: string;
   readonly ratingValue: number;
@@ -482,7 +482,7 @@ interface InFlightCreateRequest {
   readonly promise: Promise<MatchmakingTicketRecord>;
 }
 
-interface NormalizedCancellation {
+export interface NormalizedCancellation {
   readonly ticketId: string;
   readonly requestId: string | null;
   readonly requestPayloadJson: string;
@@ -522,6 +522,9 @@ export interface MatchPoolGatewayStub {
   fetch(request: Request): Promise<Response>;
 }
 
+import type { IMatchPoolDurableObject } from "./match-pool/IMatchPool.js";
+export type { IMatchPoolDurableObject } from "./match-pool/IMatchPool.js";
+
 /**
  * 1 マッチングプールを 1 Durable Object として扱う SQLite-backed Durable Object です。
  *
@@ -530,7 +533,7 @@ export interface MatchPoolGatewayStub {
  */
 export class MatchPoolDurableObject
   extends DurableObject<Env>
-  implements MatchPoolGatewayStub
+  implements MatchPoolGatewayStub, IMatchPoolDurableObject
 {
   private readonly inFlightCreateRequests = new Map<
     string,
@@ -2940,6 +2943,10 @@ export class MatchPoolDurableObject
     if (current === null || current !== next) {
       await this.ctx.storage.setAlarm(next);
     }
+  }
+  /** 型参照用 */
+  public get [Symbol.toStringTag](): "IMatchPoolDurableObject" {
+    return "IMatchPoolDurableObject";
   }
 }
 

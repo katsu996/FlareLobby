@@ -79,6 +79,7 @@ export {
   PartyMembershipDurableObject,
   RateLimitDurableObject,
   RoomDurableObject,
+  type IRoomDurableObject,
 } from "./durable-objects.js";
 export {
   DEFAULT_PARTY_IDLE_TTL_MS,

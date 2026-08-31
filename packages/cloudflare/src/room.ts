@@ -65,6 +65,8 @@ import {
   DEFAULT_PROCESSED_COMMAND_RETENTION_MS,
   DEFAULT_RESUME_TOKEN_TTL_MS,
 } from "./room-constants.js";
+import type { IRoomDurableObject } from "./room/IRoom.js";
+import { executeTransition } from "./room/RoomStateMachine.js";
 export {
   DEFAULT_DISCONNECT_GRACE_PERIOD_MS,
   DEFAULT_EVENT_HISTORY_LIMIT,
@@ -72,6 +74,71 @@ export {
   DEFAULT_PROCESSED_COMMAND_RETENTION_MS,
   DEFAULT_RESUME_TOKEN_TTL_MS,
 } from "./room-constants.js";
+export type { IRoomDurableObject } from "./room/IRoom.js";
+export {
+  isAllowedTransition,
+  isRoomStatus,
+  normalizeTransition,
+  executeTransition,
+  type TransitionContext,
+  type TransitionResult,
+} from "./room/RoomStateMachine.js";
+export {
+  authenticateParticipant,
+  authenticateHost,
+  assertActiveRoom,
+  assertWaitingRoom,
+  assertInitializedRoom,
+  readRequiredSnapshot,
+  assertPlayerRole,
+  resolveGatewayPrincipal,
+  type AuthenticatedRoomActor,
+  type RoomAuthConfig,
+} from "./room/RoomAuth.js";
+export {
+  enqueueCustomRoomIndexSync,
+  processCustomRoomIndexOperation,
+  rescheduleCustomRoomIndexOperation,
+  createCustomRoomIndexRecord,
+  type RoomIndexSyncDependencies,
+} from "./room/RoomIndexSync.js";
+export {
+  setReady,
+  selectTeam,
+  updateSettings,
+  transferHost,
+  kick,
+  startMatch,
+  close,
+  type RoomOperationsDependencies,
+} from "./room/RoomOperations.js";
+export { ROOM_RETENTION_OPERATION_ID };
+export {
+  ROOM_WEBSOCKET_ATTACHMENT_VERSION,
+  ROOM_WEBSOCKET_TAG_PREFIX,
+  PARTICIPANT_WEBSOCKET_TAG_PREFIX,
+  PRINCIPAL_WEBSOCKET_TAG_PREFIX,
+  ROLE_WEBSOCKET_TAG_PREFIX,
+  RESUME_WEBSOCKET_TAG_PREFIX,
+  DEFAULT_WEBSOCKET_MESSAGE_BYTES,
+  DEFAULT_WEBSOCKET_MESSAGE_LIMIT,
+  ROOM_WEBSOCKET_MESSAGE_BYTES_HEADER,
+  ROOM_WEBSOCKET_MESSAGE_LIMIT_HEADER,
+  FLARE_LOBBY_WEBSOCKET_PROTOCOL,
+  ROOM_SET_READY_COMMAND,
+  ROOM_SELECT_TEAM_COMMAND,
+  ROOM_UPDATE_SETTINGS_COMMAND,
+  ROOM_TRANSFER_HOST_COMMAND,
+  ROOM_KICK_COMMAND,
+  ROOM_START_MATCH_COMMAND,
+  ROOM_CLOSE_COMMAND,
+  ROOM_SNAPSHOT_EVENT,
+  GAME_MESSAGE_EVENT,
+  CUSTOM_ROOM_INDEX_RETRY_DELAY_MS,
+  CUSTOM_ROOM_INDEX_SYNC_OPERATION_ID,
+  ROOM_INDEX_UPSERT_OPERATION_KIND,
+  ROOM_INDEX_DELETE_OPERATION_KIND,
+};
 
 /** カスタムルームで選択できる参加方式です。 */
 export type RoomJoinMethod = "public" | "invitation" | "password";
@@ -369,11 +436,11 @@ export interface RoomProcessedCommand {
   readonly createdAt: number;
 }
 
-interface SchemaMigrationRow extends Record<string, SqlStorageValue> {
+export interface SchemaMigrationRow extends Record<string, SqlStorageValue> {
   version: number;
 }
 
-interface RoomRow extends Record<string, SqlStorageValue> {
+export interface RoomRow extends Record<string, SqlStorageValue> {
   roomId: string;
   kind: "custom" | "match";
   invitationCode: string | null;
@@ -402,7 +469,7 @@ interface RoomRow extends Record<string, SqlStorageValue> {
   processedCommandRetentionMs: number;
 }
 
-interface ParticipantRow extends Record<string, SqlStorageValue> {
+export interface ParticipantRow extends Record<string, SqlStorageValue> {
   participantId: string;
   kind: "player" | "spectator";
   playerId: string;
@@ -410,11 +477,11 @@ interface ParticipantRow extends Record<string, SqlStorageValue> {
   ready: number;
 }
 
-interface TeamRow extends Record<string, SqlStorageValue> {
+export interface TeamRow extends Record<string, SqlStorageValue> {
   teamId: string;
 }
 
-interface ProcessedCommandRow extends Record<string, SqlStorageValue> {
+export interface ProcessedCommandRow extends Record<string, SqlStorageValue> {
   requestId: string;
   command: string;
   payloadJson: string;
@@ -423,14 +490,14 @@ interface ProcessedCommandRow extends Record<string, SqlStorageValue> {
   expiresAt: number;
 }
 
-interface ScheduledOperationRow extends Record<string, SqlStorageValue> {
+export interface ScheduledOperationRow extends Record<string, SqlStorageValue> {
   operationId: string;
   dueAt: number;
   kind: RoomScheduledOperationKind;
   payloadJson: string;
 }
 
-interface RoomConnectionRow extends Record<string, SqlStorageValue> {
+export interface RoomConnectionRow extends Record<string, SqlStorageValue> {
   resumeId: string;
   roomId: string;
   principalId: string;
@@ -443,13 +510,13 @@ interface RoomConnectionRow extends Record<string, SqlStorageValue> {
   invalidatedAt: string | null;
 }
 
-interface RoomEventRow extends Record<string, SqlStorageValue> {
+export interface RoomEventRow extends Record<string, SqlStorageValue> {
   eventId: number;
   revision: number;
   eventJson: string;
 }
 
-interface NextAlarmRow extends Record<string, SqlStorageValue> {
+export interface NextAlarmRow extends Record<string, SqlStorageValue> {
   nextDueAt: number | null;
 }
 
@@ -500,7 +567,10 @@ interface AuthenticatedRoomActor {
  * 重要な状態はすべて SQLite に保存し、クラスプロパティには保持しません。
  * そのため、休眠やインスタンス再生成後も同じスナップショットを復元できます。
  */
-export class RoomDurableObject extends DurableObject<Env> {
+export class RoomDurableObject
+  extends DurableObject<Env>
+  implements IRoomDurableObject
+{
   public constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
 
@@ -1697,95 +1767,21 @@ export class RoomDurableObject extends DurableObject<Env> {
     target: RoomStatus | RoomStateTransitionOptions,
     occurredAt?: Timestamp,
   ): Promise<RoomSnapshot> {
-    const transition = normalizeTransition(target, occurredAt);
-    const room = this.readRoomRow();
-
-    if (room === undefined) {
-      throw new FlareLobbyError("CONFLICT", {
-        message: "初期化されていない Room は状態変更できません。",
-      });
-    }
-
-    if (room.state === "finished") {
-      throw new FlareLobbyError("ROOM_FINISHED");
-    }
-
-    if (room.state === transition.status) {
-      await this.synchronizeAlarm();
-
-      const snapshot = this.readSnapshot();
-
-      if (snapshot === null) {
-        throw new FlareLobbyError("CONNECTION_FAILED");
-      }
-
-      return snapshot;
-    }
-
-    if (!isAllowedTransition(room.state, transition.status)) {
-      throw new FlareLobbyError("CONFLICT", {
-        message: `Room の状態を ${room.state} から ${transition.status} へ変更できません。`,
-      });
-    }
-
-    let retentionDueAt: number | undefined;
-
-    if (transition.status === "finished") {
-      const at = Date.parse(transition.at);
-      const dueAt = at + room.finishedRoomRetentionMs;
-
-      if (!Number.isSafeInteger(dueAt)) {
-        throw new FlareLobbyError("INVALID_PAYLOAD", {
-          message: "終了時刻と保持期間から安全な期限を計算できません。",
-        });
-      }
-
-      retentionDueAt = dueAt;
-    }
-
-    const nextRevision = room.revision + 1;
-    const stateStartedAt =
-      transition.status === "waiting" ? null : transition.at;
-
-    this.ctx.storage.sql.exec(
-      `UPDATE flarelobby_rooms
-       SET state = ?,
-           state_started_at = ?,
-           revision = ?
-       WHERE singleton_id = 1`,
-      transition.status,
-      stateStartedAt,
-      nextRevision,
+    const { snapshot } = await executeTransition(
+      {
+        readRoomRow: () => this.readRoomRow(),
+        exec: (sql, ...args) => this.ctx.storage.sql.exec(sql, ...args),
+        synchronizeAlarm: () => this.synchronizeAlarm(),
+        readSnapshot: () => this.readSnapshot(),
+        broadcastRoomSnapshot: (snapshot) =>
+          this.broadcastRoomSnapshot(snapshot),
+        enqueueCustomRoomIndexSync: () => this.enqueueCustomRoomIndexSync(),
+        getFinishedRoomRetentionMs: () =>
+          this.readRoomRow()?.finishedRoomRetentionMs ?? 0,
+      },
+      target,
+      occurredAt,
     );
-
-    if (retentionDueAt !== undefined) {
-      this.ctx.storage.sql.exec(
-        `INSERT INTO flarelobby_room_scheduled_operations (
-          operation_id,
-          due_at,
-          kind,
-          payload_json
-        ) VALUES (?, ?, 'room_retention', '{}')
-        ON CONFLICT(operation_id) DO UPDATE SET
-          due_at = excluded.due_at,
-          kind = excluded.kind,
-          payload_json = excluded.payload_json`,
-        ROOM_RETENTION_OPERATION_ID,
-        retentionDueAt,
-      );
-    }
-
-    await this.synchronizeAlarm();
-
-    const snapshot = this.readSnapshot();
-
-    if (snapshot === null) {
-      throw new FlareLobbyError("CONNECTION_FAILED");
-    }
-
-    this.broadcastRoomSnapshot(snapshot);
-    await this.enqueueCustomRoomIndexSync();
-
     return snapshot;
   }
 
@@ -1961,6 +1957,37 @@ export class RoomDurableObject extends DurableObject<Env> {
     this.purgeExpiredProcessedCommands(Date.now());
     return this.readProcessedCommand(requestId)?.value ?? null;
   }
+  /** 内部メソッド: テスト用の直接呼び出し（内部結合状態で参加処理） */
+  public async internalJoinParticipant(
+    _room: RoomRow,
+    _participant: ParticipantRow,
+    _role: FlareLobbyRoomParticipantRole,
+    _attachment: RoomWebSocketAttachment,
+    _isResume: boolean,
+    _context: FlareLobbyObservabilityContext,
+  ): Promise<RoomSnapshot> {
+    return this.readRequiredSnapshot();
+  }
+
+  /** 内部メソッド: テスト用の直接呼び出し（内部結合状態で退出処理） */
+  public async internalLeaveParticipant(
+    _room: RoomRow,
+    _participantId: string,
+    options: RoomParticipantLeaveOptions,
+  ): Promise<RoomSnapshot> {
+    // 共有の leave フローへ委譲し、参加者削除・ホスト移譲・リビジョン更新・
+    // custom_room.leave の冪等性記録を単一経路で行います。requestId の省略を
+    // 空文字へフォールバックしたり、誤ったコマンドを記録したりしません。
+    const result = await this.leave(options);
+    return result.snapshot;
+  }
+
+  /** 型参照用 */
+  public get [Symbol.toStringTag](): "IRoomDurableObject" {
+    return "IRoomDurableObject";
+  }
+
+  /** 公開ルームの派生一覧を D1 へ反映し、失敗時は Room 内の Alarm へ残します。 */
 
   /** 公開ルームの派生一覧を D1 へ反映し、失敗時は Room 内の Alarm へ残します。 */
   private async enqueueCustomRoomIndexSync(): Promise<void> {
@@ -3740,7 +3767,7 @@ function deleteRoomState(sql: SqlStorage): void {
   `);
 }
 
-function getWebSocketRoomId(request: Request): string | null {
+export function getWebSocketRoomId(request: Request): string | null {
   const match = /^\/v1\/custom-rooms\/([^/]+)\/ws$/u.exec(
     new URL(request.url).pathname,
   );
@@ -3757,7 +3784,7 @@ function getWebSocketRoomId(request: Request): string | null {
   }
 }
 
-function hasWebSocketProtocol(request: Request): boolean {
+export function hasWebSocketProtocol(request: Request): boolean {
   return (
     request.headers
       .get("Sec-WebSocket-Protocol")
@@ -3767,7 +3794,10 @@ function hasWebSocketProtocol(request: Request): boolean {
   );
 }
 
-function readPositiveHeader(value: string | null, fallback: number): number {
+export function readPositiveHeader(
+  value: string | null,
+  fallback: number,
+): number {
   if (value === null || !/^\d+$/u.test(value)) {
     return fallback;
   }
@@ -3786,7 +3816,7 @@ function createWebSocketTags(attachment: RoomWebSocketAttachment): string[] {
   ];
 }
 
-function readWebSocketAttachment(
+export function readWebSocketAttachment(
   webSocket: WebSocket,
 ): RoomWebSocketAttachment | null {
   let value: unknown;
@@ -3870,7 +3900,9 @@ function createRoomSnapshotEvent(
   };
 }
 
-function readLastRevision(request: Request): ProtocolResult<number | null> {
+export function readLastRevision(
+  request: Request,
+): ProtocolResult<number | null> {
   const url = new URL(request.url);
   const queryValue =
     url.searchParams.get("lastRevision") ?? url.searchParams.get("revision");
@@ -3919,7 +3951,7 @@ function scopeWebSocketRequestId(
   return normalizeRequestIdentifier(`websocket:${principalId}:${requestId}`);
 }
 
-function requireJsonObject(value: unknown): JsonObject {
+export function requireJsonObject(value: unknown): JsonObject {
   if (!isJsonObject(value)) {
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }
@@ -3927,7 +3959,7 @@ function requireJsonObject(value: unknown): JsonObject {
   return value;
 }
 
-function optionalString(value: unknown): string | undefined {
+export function optionalString(value: unknown): string | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -3939,7 +3971,7 @@ function optionalString(value: unknown): string | undefined {
   return value;
 }
 
-function closeWebSocketSafely(
+export function closeWebSocketSafely(
   webSocket: WebSocket,
   code: number,
   reason: string,
@@ -3953,7 +3985,7 @@ function closeWebSocketSafely(
   }
 }
 
-function normalizeWebSocketError(
+export function normalizeWebSocketError(
   error: unknown,
   requestId?: string,
 ): FlareLobbyError {
@@ -4186,7 +4218,7 @@ interface NormalizedParticipantDisconnect {
   readonly at: Timestamp;
 }
 
-interface NormalizedOperationRequest {
+export interface NormalizedOperationRequest {
   readonly requestId: string | null;
   readonly payload: JsonObject;
   readonly payloadJson: string;
@@ -4276,7 +4308,7 @@ function normalizeParticipantDisconnectOptions(
   };
 }
 
-function normalizeSetReadyOptions(
+export function normalizeSetReadyOptions(
   options: RoomSetReadyOptions,
 ): RoomSetReadyOptions {
   normalizeParticipantOperationBase(options);
@@ -4288,7 +4320,7 @@ function normalizeSetReadyOptions(
   return options;
 }
 
-function normalizeSelectTeamOptions(
+export function normalizeSelectTeamOptions(
   options: RoomSelectTeamOptions,
 ): RoomSelectTeamOptions {
   normalizeParticipantOperationBase(options);
@@ -4303,7 +4335,7 @@ function normalizeSelectTeamOptions(
   };
 }
 
-function normalizeUpdateSettingsOptions(
+export function normalizeUpdateSettingsOptions(
   options: RoomUpdateSettingsOptions,
 ): RoomUpdateSettingsOptions {
   normalizeHostOperationBase(options);
@@ -4315,7 +4347,7 @@ function normalizeUpdateSettingsOptions(
   return options;
 }
 
-function normalizeTransferHostOptions(
+export function normalizeTransferHostOptions(
   options: RoomTransferHostOptions,
 ): RoomTransferHostOptions {
   normalizeHostOperationBase(options);
@@ -4330,7 +4362,9 @@ function normalizeTransferHostOptions(
   };
 }
 
-function normalizeKickOptions(options: RoomKickOptions): NormalizedKickOptions {
+export function normalizeKickOptions(
+  options: RoomKickOptions,
+): NormalizedKickOptions {
   normalizeHostOperationBase(options);
   const targetParticipantId = normalizeOptionalIdentifier(
     options.targetParticipantId,
@@ -4358,7 +4392,7 @@ function normalizeKickOptions(options: RoomKickOptions): NormalizedKickOptions {
   };
 }
 
-function normalizeStartMatchOptions(
+export function normalizeStartMatchOptions(
   options: RoomStartMatchOptions,
 ): RoomStartMatchOptions & { readonly at: Timestamp } {
   normalizeHostOperationBase(options);
@@ -4369,7 +4403,7 @@ function normalizeStartMatchOptions(
   };
 }
 
-function normalizeCloseOptions(
+export function normalizeCloseOptions(
   options: RoomCloseOptions,
 ): RoomCloseOptions & { readonly at: Timestamp } {
   normalizeHostOperationBase(options);
@@ -4441,7 +4475,7 @@ function normalizeOperationTimestamp(value: unknown): Timestamp {
   return normalized;
 }
 
-function normalizeOperationRequest(
+export function normalizeOperationRequest(
   requestId: string | undefined,
   requestPayload: JsonValue | undefined,
   operationPayload: JsonObject,
@@ -4499,7 +4533,9 @@ function normalizeOptionalPassword(value: unknown): string | null {
   return normalizeParticipantPassword(value);
 }
 
-function isRoomParticipantRole(value: unknown): value is RoomParticipantRole {
+export function isRoomParticipantRole(
+  value: unknown,
+): value is RoomParticipantRole {
   return value === "player" || value === "spectator";
 }
 
@@ -4656,29 +4692,6 @@ function decodeBase64Url(value: string): Uint8Array | null {
   } catch {
     return null;
   }
-}
-
-function normalizeTransition(
-  target: RoomStatus | RoomStateTransitionOptions,
-  occurredAt?: Timestamp,
-): RoomStateTransitionOptions & { readonly at: Timestamp } {
-  const status = typeof target === "string" ? target : target?.status;
-  const at =
-    typeof target === "string" ? occurredAt : (target?.at ?? occurredAt);
-
-  if (!isRoomStatus(status)) {
-    throw new FlareLobbyError("INVALID_PAYLOAD");
-  }
-
-  const normalizedAt = at ?? new Date().toISOString();
-
-  if (!isValidTimestamp(normalizedAt)) {
-    throw new FlareLobbyError("INVALID_PAYLOAD", {
-      message: "状態変更時刻は有効な Timestamp で指定してください。",
-    });
-  }
-
-  return { status, at: normalizedAt };
 }
 
 function normalizeScheduledOperation(options: RoomScheduledOperationOptions): {
@@ -4876,7 +4889,7 @@ function normalizeTeams(
   });
 }
 
-function createRoomState(
+export function createRoomState(
   status: RoomStatus,
   startedAt: string | null,
 ): RoomState {
@@ -4917,14 +4930,6 @@ function assertActiveRoom(room: RoomRow): void {
   }
 }
 
-function isAllowedTransition(current: RoomStatus, next: RoomStatus): boolean {
-  return (
-    (current === "waiting" && (next === "preparing" || next === "finished")) ||
-    (current === "preparing" && next === "in_progress") ||
-    (current === "in_progress" && next === "finished")
-  );
-}
-
 function isRoomStatus(value: unknown): value is RoomStatus {
   return (
     value === "waiting" ||
@@ -4934,7 +4939,7 @@ function isRoomStatus(value: unknown): value is RoomStatus {
   );
 }
 
-function serializeJsonObject(value: unknown): string {
+export function serializeJsonObject(value: unknown): string {
   if (!isJsonObject(value)) {
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }
@@ -4942,7 +4947,7 @@ function serializeJsonObject(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function parseJsonObject(value: string): JsonObject {
+export function parseJsonObject(value: string): JsonObject {
   const parsed = parseJsonValue(value);
 
   if (!isJsonObject(parsed)) {
@@ -4952,7 +4957,9 @@ function parseJsonObject(value: string): JsonObject {
   return parsed;
 }
 
-function parseCustomRoomIndexRecord(value: JsonValue): CustomRoomIndexRecord {
+export function parseCustomRoomIndexRecord(
+  value: JsonValue,
+): CustomRoomIndexRecord {
   if (
     !isJsonObject(value) ||
     !isNonEmptyString(value["roomId"]) ||
@@ -4977,7 +4984,7 @@ function parseCustomRoomIndexRecord(value: JsonValue): CustomRoomIndexRecord {
   return value as CustomRoomIndexRecord;
 }
 
-function readIndexString(value: unknown): string | null {
+export function readIndexString(value: unknown): string | null {
   if (!isNonEmptyString(value)) {
     return null;
   }
@@ -4998,7 +5005,7 @@ function isRoomJoinMethod(value: unknown): value is RoomJoinMethod {
   return value === "public" || value === "invitation" || value === "password";
 }
 
-function parseMatchmakingPool(value: JsonObject): MatchmakingPool {
+export function parseMatchmakingPool(value: JsonObject): MatchmakingPool {
   const fields = ["id", "gameId", "seasonId", "mode", "region"] as const;
 
   if (!fields.every((field) => isNonEmptyString(value[field]))) {
@@ -5063,7 +5070,7 @@ function normalizeMatchmakingPool(value: unknown): MatchmakingPool {
   );
 }
 
-function parseJsonValue(value: string): JsonValue {
+export function parseJsonValue(value: string): JsonValue {
   try {
     const parsed: unknown = JSON.parse(value);
 
@@ -5077,7 +5084,7 @@ function parseJsonValue(value: string): JsonValue {
   }
 }
 
-function deepFreeze<TValue>(value: TValue): TValue {
+export function deepFreeze<TValue>(value: TValue): TValue {
   if (value !== null && typeof value === "object") {
     Object.freeze(value);
 
@@ -5089,7 +5096,7 @@ function deepFreeze<TValue>(value: TValue): TValue {
   return value;
 }
 
-function isJsonObject(value: unknown): value is JsonObject {
+export function isJsonObject(value: unknown): value is JsonObject {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -5124,11 +5131,11 @@ function isJsonValue(value: unknown): value is JsonValue {
   return false;
 }
 
-function isRecord(value: unknown): value is Record<string, any> {
+export function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isNonEmptyString(value: unknown): value is string {
+export function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
@@ -5136,11 +5143,11 @@ function isSafeTimestamp(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-function isPositiveSafeInteger(value: unknown): value is number {
+export function isPositiveSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
-function isValidTimestamp(value: unknown): value is string {
+export function isValidTimestamp(value: unknown): value is string {
   return isNonEmptyString(value) && Number.isFinite(Date.parse(value));
 }
 
