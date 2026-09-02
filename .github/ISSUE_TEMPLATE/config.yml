@@ -1,5 +1,0 @@
-blank_issues_enabled: false
-contact_links:
-  - name: 設計の正本 #1
-    url: https://github.com/katsu996/FlareLobby/issues/1
-    about: 公開 API やアーキテクチャの変更を提案する前に確認してください。

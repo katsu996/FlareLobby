@@ -1,8 +1,0 @@
-# CodeRabbit configuration
-# https://docs.coderabbit.ai/reference/configuration-template
-reviews:
-  auto_review:
-    enabled: true
-    # デフォルトブランチ(main)以外のbaseブランチ宛てPRも自動レビュー対象にする
-    base_branches:
-      - ".*"

@@ -1,9 +1,0 @@
-{
-  "files": [],
-  "references": [
-    { "path": "./packages/core" },
-    { "path": "./packages/cloudflare" },
-    { "path": "./packages/client" },
-    { "path": "./packages/testing" }
-  ]
-}
