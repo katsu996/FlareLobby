@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -72,7 +72,7 @@ function exportedNames(entryPath) {
     const target = match[1];
     if (target !== undefined && target.endsWith(".js")) {
       files.push(
-        read(resolve(dirname(entryPath), target.replace(/\.js$/u, ".ts"))),
+        read(join(dirname(entryPath), target.replace(/\.js$/u, ".ts"))),
       );
     }
   }
@@ -134,7 +134,7 @@ function sourceStringValues(relativePath, constantName) {
   ).exec(content);
   return match === null
     ? []
-    : [...(match[1] ?? "").matchAll(/"([^"\\n]+)"/gu)].map((value) => value[1]);
+    : [...(match[1] ?? "").matchAll(/"([^"\n]+)"/gu)].map((value) => value[1]);
 }
 
 for (const code of [

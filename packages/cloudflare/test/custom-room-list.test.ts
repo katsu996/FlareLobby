@@ -473,11 +473,11 @@ describe("公開カスタムルーム一覧", () => {
   });
 
   it("カーソルは空・形式・署名・ペイロードの各経路で拒否される", async () => {
-    // 空の cursor は秘密鍵検証の失敗として CONNECTION_FAILED になります。
+    // 空の cursor はクライアント入力不正として INVALID_PAYLOAD になります。
     const empty = await fetchListResponse("?cursor=");
     expect(empty.status).toBe(400);
     await expect(empty.json()).resolves.toMatchObject({
-      code: "CONNECTION_FAILED",
+      code: "INVALID_PAYLOAD",
     });
 
     // ドット区切りでない値。
@@ -704,7 +704,7 @@ describe("公開ルーム索引の直接操作", () => {
 
     await expect(
       resolveCustomRoomInvitation(env.FLARE_LOBBY_DB, invitationCode),
-    ).resolves.toMatchObject(/^room_first_/u);
+    ).resolves.toMatch(/^room_first_/u);
   });
 
   function createIndexRecord(

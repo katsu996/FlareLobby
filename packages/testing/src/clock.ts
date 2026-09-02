@@ -1,5 +1,8 @@
 import type { Timestamp } from "@flarelobby/core";
 
+/** `toEpochMilliseconds` が受理する ISO 8601 UTC の文法です。 */
+const ISO_8601_UTC_TIMESTAMP_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u;
 /** 時刻を外部時計なしで読み取るための最小契約です。 */
 export interface Clock {
   /** Unix epoch milliseconds を返します。 */
@@ -84,9 +87,12 @@ export function toEpochMilliseconds(value: number | Timestamp): number {
     );
   }
 
-  if (!value.endsWith("Z")) {
+  // 許可する文法は `YYYY-MM-DDTHH:MM:SS` + 任意の `.sss` + `Z` のみです。
+  // `Date.parse` は `2024-01-01 00:00:00Z` のような非標準表記も受理するため、
+  // 先に文法一致を検証します。
+  if (!ISO_8601_UTC_TIMESTAMP_PATTERN.test(value)) {
     throw new RangeError(
-      "時刻の文字列は UTC を表す ISO 8601 形式（末尾が Z）で指定してください。",
+      "時刻の文字列は YYYY-MM-DDTHH:MM:SS(.sss)Z 形式の ISO 8601 UTC で指定してください。",
     );
   }
 

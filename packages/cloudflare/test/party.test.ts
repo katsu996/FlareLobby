@@ -588,14 +588,13 @@ describe("Party Durable Object", () => {
 
     expect(firstLeave).not.toBeNull();
 
-    // メンバーの再送はエラーになりません。リーダーによる再利用は競合です。
-    // 注: 記録された結果は { dissolved: false } のため、初回のスナップショットと
-    // 同一にはならない (製品側の冪等性の不整合として報告)。
+    // メンバーの再送は記録済みスナップショットを返します。
+    // リーダーによる同じ requestId の再利用は競合です。
     const replayedLeave = await stub.leaveParty({
       gatewayPrincipal: await createGatewayPrincipal(members[1]!.principalId),
       requestId,
     });
-    expect(replayedLeave).not.toBeNull();
+    expect(replayedLeave).toEqual(firstLeave);
     expect(
       await errorOf(stub.leaveParty({ gatewayPrincipal: leader, requestId })),
     ).toBe("CONFLICT");

@@ -280,6 +280,7 @@ async function joinRankedQueue(): Promise<void> {
     const room = await ticket.waitForMatch();
     stopProgress();
     activeTicket = undefined;
+    rankedJoin.disabled = false;
     rankedCancel.classList.add("hidden");
     await openRoom(room, "ranked");
     setNotice("対戦Roomへ接続しました。手を選んでください。", "success");

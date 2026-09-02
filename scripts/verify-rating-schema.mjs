@@ -112,7 +112,9 @@ if (sourceStatements.length === 0) {
 }
 
 if (migrationStatements.length === 0) {
-  errors.push("migrations/0002_rating.sql に CREATE 文が含まれていません。");
+  errors.push(
+    "migrations/0002_rating.sql・0004_team_rating.sql に CREATE 文が含まれていません。",
+  );
 }
 
 if (
@@ -121,7 +123,7 @@ if (
   sourceStatements.length !== migrationStatements.length
 ) {
   errors.push(
-    `ステートメント数が一致しません: src/rating.ts=${sourceStatements.length}, migrations/0002_rating.sql=${migrationStatements.length}`,
+    `ステートメント数が一致しません: src/rating.ts=${sourceStatements.length}, migrations/0002_rating.sql・0004_team_rating.sql=${migrationStatements.length}`,
   );
 }
 
@@ -132,7 +134,7 @@ const statementCount = Math.min(
 for (let index = 0; index < statementCount; index += 1) {
   if (sourceStatements[index] !== migrationStatements[index]) {
     errors.push(
-      `${index + 1} 番目のステートメントが一致しません:\n  src/rating.ts: ${sourceStatements[index]}\n  migration : ${migrationStatements[index]}`,
+      `${index + 1} 番目のステートメントが一致しません:\n  src/rating.ts: ${sourceStatements[index]}\n  migrations/0002_rating.sql・0004_team_rating.sql: ${migrationStatements[index]}`,
     );
   }
 }
@@ -143,6 +145,6 @@ if (errors.length > 0) {
   process.exitCode = 1;
 } else {
   console.log(
-    "RATING_SCHEMA_STATEMENTS と migrations/0002_rating.sql は一致しています。",
+    "RATING_SCHEMA_STATEMENTS と migrations/0002_rating.sql・0004_team_rating.sql、RATING_SCHEMA_UPGRADES と migrations/0005_rating_algorithm.sql は一致しています。",
   );
 }

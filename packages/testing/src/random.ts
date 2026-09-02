@@ -47,6 +47,9 @@ export class SeededRandom implements RandomSource {
     }
 
     const sampleSpace = 0x1_0000_0000;
+    if (maxExclusive > sampleSpace) {
+      throw new RangeError("乱数の上限は 2^32 以下で指定してください。");
+    }
     const acceptedLimit = sampleSpace - (sampleSpace % maxExclusive);
     let sample: number;
 
