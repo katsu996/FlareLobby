@@ -3,5 +3,8 @@
   "printWidth": 80,
   "proseWrap": "preserve",
   "sortPackageJson": false,
-  "ignorePatterns": ["packages/cloudflare/worker-configuration.d.ts"]
+  "ignorePatterns": [
+    "graphify-out",
+    "packages/cloudflare/worker-configuration.d.ts"
+  ]
 }
