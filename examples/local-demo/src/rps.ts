@@ -39,7 +39,7 @@ export {
 } from "./rps-game.js";
 export type { RpsMove, RpsOutcome } from "./rps-game.js";
 
-/** サンプルで利用するじゃんけんの手です。 */
+/** ローカルサンプルのランク戦で利用するマッチメイキングプール ID です。 */
 export const DEMO_RANKED_POOL_ID = "ranked-jp";
 
 interface MatchPoolGatewayStub {

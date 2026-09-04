@@ -672,7 +672,7 @@ export class RoomPersistence {
     const resultJson = JSON.stringify(result);
 
     this.deps.storage.sql.exec(
-      `INSERT INTO flarelobby_processed_commands (
+      `INSERT INTO flarelobby_room_processed_commands (
         request_id, command, payload_json, result_json, created_at, expires_at
       ) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(request_id) DO UPDATE SET
@@ -711,7 +711,7 @@ export class RoomPersistence {
           result_json AS resultJson,
           created_at AS createdAt,
           expires_at AS expiresAt
-         FROM flarelobby_processed_commands
+         FROM flarelobby_room_processed_commands
          WHERE request_id = ?`,
         requestId,
       )
@@ -723,7 +723,7 @@ export class RoomPersistence {
 
     if (row.expiresAt <= this.deps.now()) {
       this.deps.storage.sql.exec(
-        "DELETE FROM flarelobby_processed_commands WHERE request_id = ?",
+        "DELETE FROM flarelobby_room_processed_commands WHERE request_id = ?",
         requestId,
       );
       return null;
@@ -744,7 +744,7 @@ export class RoomPersistence {
   /** 期限切れ処理済みコマンドを削除 */
   public purgeExpiredProcessedCommands(now: number): void {
     this.deps.storage.sql.exec(
-      "DELETE FROM flarelobby_processed_commands WHERE expires_at <= ?",
+      "DELETE FROM flarelobby_room_processed_commands WHERE expires_at <= ?",
       now,
     );
   }
@@ -1020,8 +1020,8 @@ export class RoomPersistence {
       .exec<{ total: number; players: number; spectators: number }>(
         `SELECT
            COUNT(*) AS total,
-           SUM(CASE WHEN kind = 'player' THEN 1 ELSE 0 END) AS players,
-           SUM(CASE WHEN kind = 'spectator' THEN 1 ELSE 0 END) AS spectators
+           COALESCE(SUM(CASE WHEN kind = 'player' THEN 1 ELSE 0 END), 0) AS players,
+           COALESCE(SUM(CASE WHEN kind = 'spectator' THEN 1 ELSE 0 END), 0) AS spectators
          FROM flarelobby_room_participants`,
       )
       .one();

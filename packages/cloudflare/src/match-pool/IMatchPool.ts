@@ -206,5 +206,5 @@ export interface IMatchPoolDurableObject {
   ): Promise<readonly MatchmakingTicketEvent[]>;
 
   // 型参照用
-  readonly [Symbol.toStringTag]: "IMatchPoolDurableObject";
+  readonly [Symbol.toStringTag]?: "IMatchPoolDurableObject";
 }

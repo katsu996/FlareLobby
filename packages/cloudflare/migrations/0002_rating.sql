@@ -72,8 +72,14 @@ CREATE INDEX IF NOT EXISTS idx_flarelobby_rating_matches_pool_time
     game_id, season_id, pool_id, applied_at DESC, match_id DESC
   );
 
-CREATE INDEX IF NOT EXISTS idx_flarelobby_rating_matches_player_time
+CREATE INDEX IF NOT EXISTS idx_flarelobby_rating_matches_player_a_time
   ON flarelobby_rating_matches (
-    game_id, season_id, pool_id, player_a_id, player_b_id,
+    game_id, season_id, pool_id, player_a_id,
+    applied_at DESC, match_id DESC
+  );
+
+CREATE INDEX IF NOT EXISTS idx_flarelobby_rating_matches_player_b_time
+  ON flarelobby_rating_matches (
+    game_id, season_id, pool_id, player_b_id,
     applied_at DESC, match_id DESC
   );

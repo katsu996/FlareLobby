@@ -175,12 +175,24 @@ describe("シミュレーション分布の追加境界", () => {
           id: "a",
           player: { id: "other" },
           rating: 1,
-          joinedAt: "invalid",
+          joinedAt: "2026-01-01T00:00:00.000Z",
           region: "jp",
           inputMethod: "pad",
         },
       ]),
     ).toThrow(TypeError);
+    expect(() =>
+      normalizeSimulationPlayers([
+        {
+          id: "a",
+          player: { id: "a" },
+          rating: 1,
+          joinedAt: "invalid",
+          region: "jp",
+          inputMethod: "pad",
+        },
+      ]),
+    ).toThrow(RangeError);
   });
 });
 describe("シミュレーション分布の形式検証", () => {

@@ -603,6 +603,7 @@ async function refreshRating(): Promise<void> {
 async function leaveRoom(showNotice = true): Promise<void> {
   stopRankedPolling();
   const room = activeRoom;
+  const mode = activeMode;
   activeRoom = undefined;
   activeMode = undefined;
   for (const unsubscribe of roomUnsubscribers) {
@@ -620,6 +621,9 @@ async function leaveRoom(showNotice = true): Promise<void> {
 
   customRoomInfo.classList.add("hidden");
   rankedRoomInfo.classList.add("hidden");
+  if (room !== undefined && mode === "ranked") {
+    rankedJoin.disabled = false;
+  }
   if (showNotice) {
     setNotice("ルームを退出しました。", "success");
   }

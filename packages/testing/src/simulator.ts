@@ -1016,14 +1016,19 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
-function deepFreeze<T>(value: T): T {
-  if (typeof value !== "object" || value === null || Object.isFrozen(value)) {
+function deepFreeze<T>(value: T, visited = new WeakSet<object>()): T {
+  if (typeof value !== "object" || value === null) {
     return value;
   }
 
+  if (visited.has(value)) {
+    return value;
+  }
+
+  visited.add(value);
   Object.freeze(value);
   for (const child of Object.values(value as Record<string, unknown>)) {
-    deepFreeze(child);
+    deepFreeze(child, visited);
   }
   return value;
 }

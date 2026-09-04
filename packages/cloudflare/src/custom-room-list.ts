@@ -474,8 +474,14 @@ async function decodeCursor(
   tokenSecret: string,
   expectedFingerprint: string,
 ): Promise<{ readonly createdAt: number; readonly roomId: string }> {
-  if (!isNonEmptyString(tokenSecret) || !isNonEmptyString(cursor)) {
+  if (!isNonEmptyString(tokenSecret)) {
     throw new FlareLobbyError("CONNECTION_FAILED");
+  }
+
+  if (!isNonEmptyString(cursor)) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message: "cursor が正しくありません。",
+    });
   }
 
   const [encodedPayload, encodedSignature, extra] = cursor.split(".");

@@ -210,8 +210,7 @@ export class TicketQueueDO {
               message: "Party member IDs not available.",
             });
           }
-          // @ts-expect-error - narrowed by check above
-          if (partyMemberIds.length > this.config.pool.maxPartySize) {
+          if (partyMemberIds.length > (this.config.pool.maxPartySize ?? 1)) {
             throw new FlareLobbyError("INVALID_PAYLOAD", {
               message: "Party size exceeds pool maxPartySize.",
             });
@@ -297,18 +296,16 @@ export class TicketQueueDO {
             ticketId,
           );
 
-          for (const memberId of memberIds) {
-            if (memberId !== ownerId) {
-              this.storage.exec(
-                `UPDATE flarelobby_matchmaking_tickets
-                 SET status = 'waiting', queued_at = ?
-                 WHERE owner_player_id = ? AND party_id = ? AND ticket_id != ?`,
-                createdAt,
-                ownerId,
-                partyId,
-                ticketId,
-              );
-            }
+          if (partyId !== null && memberIds.length > 1) {
+            this.storage.exec(
+              `UPDATE flarelobby_matchmaking_tickets
+               SET status = 'waiting', queued_at = ?
+               WHERE owner_player_id = ? AND party_id = ? AND ticket_id != ?`,
+              createdAt,
+              ownerId,
+              partyId,
+              ticketId,
+            );
           }
 
           const finalTicket = this.readTicket(ticketId);

@@ -186,5 +186,5 @@ export interface IRoomDurableObject {
   ): Promise<RoomSnapshot>;
 
   // 型参照用
-  readonly [Symbol.toStringTag]: "IRoomDurableObject";
+  readonly [Symbol.toStringTag]?: "IRoomDurableObject";
 }
