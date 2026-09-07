@@ -382,6 +382,7 @@ class FlareLobbyClientImpl<
     );
     const authenticationToken =
       token === undefined ? await this.readAccessToken() : token;
+    this.assertActive();
     throwIfAborted(options.signal);
 
     const protocols = createWebSocketProtocols(
@@ -398,7 +399,14 @@ class FlareLobbyClientImpl<
     this.connections.add(connection);
 
     try {
+      if (this.disposedState) {
+        connection.close(1000, "client disposed");
+        this.connections.delete(connection);
+        throw new FlareLobbyError("CANCELLED");
+      }
+
       await connection.waitForOpen(options.signal);
+      this.assertActive();
       return connection as FlareLobbyWebSocketConnection<TApp>;
     } catch (error) {
       connection.close();
@@ -420,13 +428,20 @@ class FlareLobbyClientImpl<
 
     const url = resolveWebSocketUrl(this.endpointUrl, path);
     const authenticationToken = await this.readAccessToken();
+    this.assertActive();
     throwIfAborted(options.signal);
 
     const protocols = createWebSocketProtocols(undefined, authenticationToken);
     const socket = this.createWebSocket(url, protocols);
     const connection = new RawJsonEventConnectionImpl(socket);
     try {
+      if (this.disposedState) {
+        connection.close(1000, "client disposed");
+        throw new FlareLobbyError("CANCELLED");
+      }
+
       await connection.waitForOpen(options.signal);
+      this.assertActive();
       return connection;
     } catch (error) {
       connection.close();
@@ -512,6 +527,7 @@ class FlareLobbyClientImpl<
     }
 
     this.disposedState = true;
+    this.matchmakingApi.dispose();
     this.partyApi.dispose();
     for (const connection of this.connections) {
       connection.close(1000, "client disposed");

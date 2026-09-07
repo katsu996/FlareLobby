@@ -137,6 +137,9 @@ FlareLobbyError }` です。`FlareLobbyError` の constructor は
 | `client.getRating(pool, options?)`                    | Pool ID/Pool、signal                                                                               | `Promise<Rating>`                            |
 | `client.dispose()` / `destroy()`                      | なし                                                                                               | `void`。接続と購読を解放し以後は `CANCELLED` |
 
+`client.dispose()` と `destroy()` はマッチング Ticket の待機・接続・購読・再接続タイマーも
+ローカルで解放します。サーバー上の Ticket の取消要求は送信しません。
+
 `ClientRequestOptions` は `method?`、`headers?`、JSON `body?`、`signal?`、
 `idempotent?`、`requestId?`、`ClientWebSocketOptions` は `signal?`、protocols、
 `knownEventTypes?`、`lastRevision?`、`ClientCommandOptions` は `signal?`、`requestId?`
