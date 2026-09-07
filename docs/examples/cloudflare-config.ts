@@ -25,6 +25,9 @@ const lobby = defineFlareLobby<ExampleApp>({
     maxMessagesPerMinute: 60,
     maxRoomCreationsPerMinute: 10,
   },
+  cors: {
+    allowedOrigins: ["https://game.example"],
+  },
 });
 
 declare function verifyApplicationToken(

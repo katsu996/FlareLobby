@@ -68,6 +68,9 @@ const fullConfiguration = defineFlareLobby<ExampleApp>({
     maxMessagesPerMinute: 60,
     maxRoomCreationsPerMinute: 10,
   },
+  cors: {
+    allowedOrigins: ["https://game.example"],
+  },
 });
 
 const minimalWorker = minimumConfiguration.createGatewayWorker<Env>();

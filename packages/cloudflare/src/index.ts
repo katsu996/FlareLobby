@@ -9,6 +9,14 @@ export {
   defineFlareLobby,
 } from "./config.js";
 export {
+  CORS_SUPPORTED_METHODS,
+  applyCorsHeaders,
+  handleCorsPreflight,
+  isAllowedCorsOrigin,
+  isCorsPreflightRequest,
+  isValidCorsOrigin,
+} from "./cors.js";
+export {
   createCustomRoom,
   joinCustomRoom,
   leaveCustomRoom,
@@ -48,6 +56,7 @@ export type {
   FlareLobbyInputLimits,
   MatchmakingPoolConfiguration,
 } from "./config.js";
+export type { FlareLobbyCorsConfiguration } from "./cors.js";
 export type { RatingConfiguration } from "./rating.js";
 export type {
   CustomRoomCreationInput,
