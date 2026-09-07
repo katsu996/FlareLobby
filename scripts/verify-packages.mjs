@@ -23,6 +23,17 @@ const packages = [
     directory: "packages/cloudflare",
     name: "@flarelobby/cloudflare",
     dependencies: ["@flarelobby/core"],
+    requiredManifestPatterns: [
+      "migrations",
+      "!migrations/0003_local_demo_rps.sql",
+    ],
+    requiredPackedFiles: [
+      "migrations/0001_custom_room_index.sql",
+      "migrations/0002_rating.sql",
+      "migrations/0004_team_rating.sql",
+      "migrations/0005_rating_algorithm.sql",
+    ],
+    forbiddenPackedFiles: ["migrations/0003_local_demo_rps.sql"],
   },
   {
     directory: "packages/client",
@@ -202,7 +213,13 @@ for (const packageDefinition of packages) {
   const filePatterns = new Set(
     Array.isArray(manifest.files) ? manifest.files : [],
   );
-  for (const pattern of ["dist", "!.tsbuildinfo", "README.md", "LICENSE"]) {
+  for (const pattern of [
+    "dist",
+    "!.tsbuildinfo",
+    "README.md",
+    "LICENSE",
+    ...(packageDefinition.requiredManifestPatterns ?? []),
+  ]) {
     if (!filePatterns.has(pattern)) {
       errors.push(
         `${manifestPath} の files に必要な許可パターンがありません: ${pattern}`,
@@ -282,6 +299,7 @@ for (const packageDefinition of packages) {
     "package.json",
     "dist/index.js",
     "dist/index.d.ts",
+    ...(packageDefinition.requiredPackedFiles ?? []),
   ]) {
     if (!packedFiles.includes(requiredPath)) {
       errors.push(
@@ -295,9 +313,20 @@ for (const packageDefinition of packages) {
       packedPath,
     );
     const allowedDistFile = packedPath.startsWith("dist/");
-    if (!allowedRootFile && !allowedDistFile) {
+    const allowedMigrationFile =
+      packageDefinition.requiredPackedFiles?.some((requiredPath) =>
+        packedPath.startsWith(
+          `${requiredPath.slice(0, requiredPath.indexOf("/") + 1)}`,
+        ),
+      ) && packedPath.endsWith(".sql");
+    if (!allowedRootFile && !allowedDistFile && !allowedMigrationFile) {
       errors.push(
         `${packageDefinition.name} の npm package に不要なファイルがあります: ${packedPath}`,
+      );
+    }
+    if (packageDefinition.forbiddenPackedFiles?.includes(packedPath)) {
+      errors.push(
+        `${packageDefinition.name} の npm package に除外対象のファイルがあります: ${packedPath}`,
       );
     }
     if (

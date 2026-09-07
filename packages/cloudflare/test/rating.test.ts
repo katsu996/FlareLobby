@@ -1095,6 +1095,21 @@ describe("レーティング D1 障害経路", () => {
     expect(alters.join("\n")).toContain("ADD COLUMN rating_volatility");
   });
 
+  it("Migration 適用済みで不足列がない場合は重複 ALTER を実行しない", async () => {
+    const database = new FakeSchemaDatabase();
+    database.columns.add("algorithm");
+    database.columns.add("rating_deviation");
+    database.columns.add("rating_volatility");
+
+    await expect(
+      ensureRatingSchema(database as unknown as D1Database),
+    ).resolves.toBeUndefined();
+
+    expect(
+      database.executedStatements.filter((text) => /^ALTER TABLE/iu.test(text)),
+    ).toEqual([]);
+  });
+
   it("同時実行の duplicate column 競合を無視して続行する", async () => {
     const database = new FakeSchemaDatabase();
 

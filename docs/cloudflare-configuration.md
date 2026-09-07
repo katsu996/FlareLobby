@@ -51,6 +51,42 @@ D1 スキーマは [`packages/cloudflare/migrations`](../packages/cloudflare/mig
 | `0004_team_rating.sql`       | チーム対応の試合結果テーブルと索引               |
 | `0005_rating_algorithm.sql`  | レーティング方式と RD・ボラティリティの列追加    |
 
+`0003_local_demo_rps.sql` はモノレポのローカルデモ用にリポジトリへ残しますが、
+`@flarelobby/cloudflare` の公開 package には含めません。公開 package の Migration は
+`0001`、`0002`、`0004`、`0005` の4本です。既存データベースの
+`d1_migrations` に `0003_local_demo_rps.sql` がある場合は、履歴とテーブルを削除せず
+そのまま保持します。
+
+### 公開 package を利用するプロジェクト
+
+公開 package をモノレポ外で利用する場合は、Migration を手作業でコピーせず、利用者側の
+Wrangler 設定からインストール済み package のディレクトリを直接指定します。`migrations_dir`
+は Wrangler 設定ファイルからの相対パスです。
+
+```jsonc
+{
+  "d1_databases": [
+    {
+      "binding": "FLARE_LOBBY_DB",
+      "database_name": "my-flarelobby",
+      "migrations_dir": "node_modules/@flarelobby/cloudflare/migrations",
+    },
+  ],
+}
+```
+
+新規環境では、Worker を起動・デプロイする前に Migration を適用します。
+
+```sh
+pnpm add @flarelobby/cloudflare @flarelobby/core
+pnpm add -D wrangler
+pnpm wrangler d1 migrations apply my-flarelobby --local
+pnpm wrangler dev
+```
+
+モノレポ内のローカルデモは `../../packages/cloudflare/migrations` を参照するため、
+デモ用の `0003_local_demo_rps.sql` も引き続き適用されます。
+
 適用は Wrangler の migration コマンドを使います。
 
 ```sh
@@ -66,6 +102,76 @@ pnpm --filter @flarelobby/cloudflare exec wrangler d1 migrations apply flarelobb
 と同じスキーマを宣言しています。両者は
 `pnpm check:rating-schema`（`scripts/verify-rating-schema.mjs`）で整合性を
 検証するため、片方だけを変更すると検証が失敗します。
+
+### 実行時初期化済みデータベースの引き継ぎ
+
+過去のバージョンでは、Worker の `ensureRatingSchema` が D1 のテーブル・列を先に
+作成していても、Wrangler の `d1_migrations` に履歴がない場合があります。この状態で
+`0005_rating_algorithm.sql` を無条件に実行すると、既存列への重複 `ALTER TABLE` になります。
+既存環境では、Migration 適用前にスキーマと履歴の差を読み取ってください。
+`d1_migrations` テーブル自体がない場合は、Wrangler の履歴がない状態として扱います。
+
+```sql
+SELECT type, name, tbl_name
+FROM sqlite_master
+WHERE type IN ('table', 'index')
+  AND name NOT LIKE 'sqlite_%'
+ORDER BY type, name;
+
+PRAGMA table_info(flarelobby_rating_seasons);
+PRAGMA table_info(flarelobby_ratings);
+```
+
+`d1_migrations` テーブルが存在する場合だけ、次の履歴確認用の `SELECT` を実行します。
+テーブルが存在しない場合はこの `SELECT` を実行せず、そのまま次の履歴補正の手順へ進んでください。
+
+```sql
+SELECT id, name, applied_at
+FROM d1_migrations
+ORDER BY id;
+```
+
+次の対応関係を確認し、テーブル・索引・列がすべて実在する Migration だけを「適用済み」
+として履歴へ補正します。既存の行、履歴、`0003` のデモテーブルを削除したり、DBを
+作り直したりしないでください。
+
+| 実行時に確認する内容                                    | 対応する履歴                 |
+| ------------------------------------------------------- | ---------------------------- |
+| カスタムルーム一覧テーブルと2つの索引                   | `0001_custom_room_index.sql` |
+| 単体レーティングの4テーブルと索引                       | `0002_rating.sql`            |
+| チームレーティングの2テーブルと索引                     | `0004_team_rating.sql`       |
+| `algorithm`、`rating_deviation`、`rating_volatility` 列 | `0005_rating_algorithm.sql`  |
+
+例えば、実行時初期化で `0002`、`0004`、`0005` の内容がすべて揃っていると確認できた
+場合の補正例は次のとおりです。実際の状態にない名前は追加しません。
+
+```sql
+CREATE TABLE IF NOT EXISTS d1_migrations (
+  id INTEGER PRIMARY KEY,
+  name TEXT,
+  applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO d1_migrations (name)
+SELECT '0002_rating.sql'
+WHERE NOT EXISTS (
+  SELECT 1 FROM d1_migrations WHERE name = '0002_rating.sql'
+);
+INSERT INTO d1_migrations (name)
+SELECT '0004_team_rating.sql'
+WHERE NOT EXISTS (
+  SELECT 1 FROM d1_migrations WHERE name = '0004_team_rating.sql'
+);
+INSERT INTO d1_migrations (name)
+SELECT '0005_rating_algorithm.sql'
+WHERE NOT EXISTS (
+  SELECT 1 FROM d1_migrations WHERE name = '0005_rating_algorithm.sql'
+);
+```
+
+履歴を補正した後に、通常の `d1 migrations apply` を実行します。新たに存在しない
+`0001` だけが適用され、既存列へ `0005` の `ALTER` が重ねて実行されることはありません。
+履歴補正後も Worker 起動時の `ensureRatingSchema` は列を再確認するため、冪等に動作します。
 
 公開ルーム一覧と招待コード解決の派生テーブルは、Room Durable Object からの
 初回同期時に Worker が冪等に作成します。D1 Migration の適用後に自動で揃うため、
@@ -113,6 +219,10 @@ pnpm --filter @flarelobby/cloudflare exec wrangler deploy --env production
 おいてください。デプロイ前の一括検証は `pnpm release:check` が
 Workers 型、パッケージ公開内容、ドライランを含めて確認します。
 Node.js と pnpm のバージョンは [mise.toml](../mise.toml) に固定されています。
+
+公開 package の tarball、外部プロジェクトからの `migrations_dir` 解決、空DBへの初回適用、
+同じ Migration の再適用、旧スキーマのデータ保持、実行時初期化済みDBの履歴補正は
+`pnpm check:packages` でローカル D1 を使って検証します。
 
 ## アプリケーション設定との関係
 

@@ -34,6 +34,8 @@
   "files": [
     "dist",
     "!.tsbuildinfo",
+    "migrations",
+    "!migrations/0003_local_demo_rps.sql",
     "README.md",
     "LICENSE"
   ],
