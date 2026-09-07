@@ -79,6 +79,7 @@ Wrangler 設定からインストール済み package のディレクトリを�
 
 ```sh
 pnpm add @flarelobby/cloudflare @flarelobby/core
+pnpm add -D wrangler
 pnpm wrangler d1 migrations apply my-flarelobby --local
 pnpm wrangler dev
 ```
@@ -119,7 +120,12 @@ ORDER BY type, name;
 
 PRAGMA table_info(flarelobby_rating_seasons);
 PRAGMA table_info(flarelobby_ratings);
+```
 
+`d1_migrations` テーブルが存在する場合だけ、次の履歴確認用の `SELECT` を実行します。
+テーブルが存在しない場合はこの `SELECT` を実行せず、そのまま次の履歴補正の手順へ進んでください。
+
+```sql
 SELECT id, name, applied_at
 FROM d1_migrations
 ORDER BY id;
