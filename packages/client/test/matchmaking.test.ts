@@ -318,6 +318,200 @@ describe("@flarelobby/client matchmaking", () => {
     expect(room.snapshot.room.kind).toBe("match");
   });
 
+  it("client.dispose は複数 Ticket の全 waiter を CANCELLED で終了し通信を送らない", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+      requestIdFactory: () => `request-${FakeWebSocket.instances.length}`,
+    });
+    const tickets = await Promise.all([
+      client.joinMatchmaking(pool),
+      client.joinMatchmaking(pool),
+    ]);
+    const waits = tickets.flatMap((ticket) => [
+      ticket.waitForMatch(),
+      ticket.waitForMatch(),
+    ]);
+
+    client.dispose();
+
+    for (const wait of waits) {
+      await expect(wait).rejects.toMatchObject({ code: "CANCELLED" });
+    }
+    for (const ticket of tickets) {
+      expect(ticket.connectionStatus).toBe("disconnected");
+      await expect(ticket.waitForMatch()).rejects.toMatchObject({
+        code: "CANCELLED",
+      });
+    }
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(
+      FakeWebSocket.instances.every((socket) => socket.readyState === 3),
+    ).toBe(true);
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) =>
+          /\/(?:cancel|leave)$/u.test(input.toString()),
+        ),
+    ).toHaveLength(0);
+  });
+
+  it("client.dispose は再接続待ちの Ticket を停止し、destroy と二重終了も安全に扱う", async () => {
+    const { fetch } = createFetch();
+    vi.useFakeTimers();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+      requestIdFactory: () => `request-${FakeWebSocket.instances.length}`,
+    });
+    const ticket = await client.joinMatchmaking(pool, {
+      reconnect: { jitterRatio: 0 },
+    });
+    const wait = ticket.waitForMatch();
+    FakeWebSocket.instances[0]?.drop();
+
+    client.dispose();
+    client.dispose();
+    client.destroy();
+    await expect(wait).rejects.toMatchObject({ code: "CANCELLED" });
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(ticket.connectionStatus).toBe("disconnected");
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) =>
+          /\/(?:cancel|leave)$/u.test(input.toString()),
+        ),
+    ).toHaveLength(0);
+  });
+
+  it("成立後の Room 接続待ちも client.dispose で CANCELLED にする", async () => {
+    let resolveConnection!: (response: Response) => void;
+    const connectionResponse = new Promise<Response>((resolve) => {
+      resolveConnection = resolve;
+    });
+    const fetch: FetchImplementation = vi.fn(async (input) => {
+      const url = input.toString();
+      if (url.endsWith("/tickets")) {
+        return Response.json({ ticket: waitingTicket() });
+      }
+      if (url.endsWith("/connection")) {
+        return connectionResponse;
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+      requestIdFactory: () => "request-disposed-room",
+    });
+    const ticket = await client.joinMatchmaking(pool);
+    const wait = ticket.waitForMatch();
+    FakeWebSocket.instances[0]?.receive(event(matchedTicket(), 1));
+
+    client.dispose();
+    await expect(wait).rejects.toMatchObject({ code: "CANCELLED" });
+
+    resolveConnection(
+      Response.json({
+        ticket: matchedTicket(),
+        connection: {
+          roomId: "room_match-1",
+          participantId: "participant_match-1_1",
+          role: "player",
+          joinToken: "join-token",
+          websocketUrl: "wss://example.test/v1/custom-rooms/room_match-1/ws",
+          snapshot: matchRoomSnapshot(),
+        },
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) =>
+          /\/(?:cancel|leave)$/u.test(input.toString()),
+        ),
+    ).toHaveLength(0);
+  });
+
+  it("dispose 中に joinMatchmaking が継続しても後から Ticket や接続を登録しない", async () => {
+    let resolveCreate!: (response: Response) => void;
+    const createResponse = new Promise<Response>((resolve) => {
+      resolveCreate = resolve;
+    });
+    const fetch: FetchImplementation = vi.fn(async (input) => {
+      if (input.toString().endsWith("/tickets")) {
+        return createResponse;
+      }
+      throw new Error(`unexpected request: ${input.toString()}`);
+    });
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+      requestIdFactory: () => "request-disposed-join",
+    });
+    const joining = client.joinMatchmaking(pool);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    client.dispose();
+    await expect(joining).rejects.toMatchObject({ code: "CANCELLED" });
+
+    resolveCreate(Response.json({ ticket: waitingTicket() }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) =>
+          /\/(?:cancel|leave)$/u.test(input.toString()),
+        ),
+    ).toHaveLength(0);
+  });
+
+  it("dispose 中に findMatch の WebSocket 接続が完了しても waiter を残さない", async () => {
+    FakeWebSocket.autoOpen = false;
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+      requestIdFactory: () => "request-disposed-find",
+    });
+    const finding = client.findMatch(pool);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    client.dispose();
+
+    await expect(finding).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(FakeWebSocket.instances[0]?.readyState).toBe(3);
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) =>
+          /\/(?:cancel|leave)$/u.test(input.toString()),
+        ),
+    ).toHaveLength(0);
+  });
+
   it("waitForMatch の AbortSignal でサーバー側キャンセルを要求する", async () => {
     const { fetch } = createFetch();
     const client = createFlareLobbyClient({

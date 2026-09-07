@@ -128,6 +128,12 @@ await waiting; // 中止時は CANCELLED
 ショットを同期してから返します。チケットイベントの一時切断時は最後に受信した
 イベント番号から履歴を再取得して再接続するため、既存チケットの状態を引き継げます。
 
+`client.dispose()` と別名の `client.destroy()` はローカル終了です。保有中のマッチング
+Ticket、`waitForMatch()` の待機、イベント購読、再接続タイマー、WebSocket を解放し、
+待機中の Promise は `CANCELLED` で終了します。サーバー上の Ticket や、利用者へ渡された
+対戦 Room は変更しません。サーバー上の Ticket も取り消す場合は、ローカル終了の前に
+既存の `ticket.cancel()` を呼び出してください。
+
 ## パーティー
 
 `createParty()` でパーティーを作成すると、作成者をリーダーとした接続済みの

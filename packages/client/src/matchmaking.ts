@@ -229,29 +229,77 @@ export interface NormalizedReconnectOptions {
   readonly jitterRatio: number;
 }
 
+interface PendingMatchmakingOperation {
+  readonly reject: (error: FlareLobbyError) => void;
+}
+
 /** クライアント本体からマッチング API を組み立てます。 */
 export function createMatchmakingApi<
   TApp extends AnyFlareLobbyApp = FlareLobbyApp,
 >(transport: MatchmakingTransport<TApp>): MatchmakingClientApi<TApp> {
   const tickets = new Set<MatchmakingTicketImpl<TApp>>();
+  const pendingOperations = new Set<PendingMatchmakingOperation>();
+  let disposed = false;
 
-  const registerTicket = (ticket: MatchmakingTicketImpl<TApp>): void => {
+  const registerTicket = (ticket: MatchmakingTicketImpl<TApp>): boolean => {
+    if (disposed) {
+      ticket.dispose();
+      return false;
+    }
+
     tickets.add(ticket);
     // 端末状態へ到達したチケットは Set から取り除き、参照を保持し続けません。
     ticket.onTerminal = (): void => {
       tickets.delete(ticket);
     };
+    return true;
+  };
+
+  const joinTicket = (
+    pool: MatchmakingPoolReference,
+    options: MatchmakingJoinOptions,
+  ): Promise<MatchmakingTicketImpl<TApp>> => {
+    if (disposed) {
+      return Promise.reject(new FlareLobbyError("CANCELLED"));
+    }
+
+    let rejectDisposed: (error: FlareLobbyError) => void = (): void =>
+      undefined;
+    const disposedPromise = new Promise<MatchmakingTicketImpl<TApp>>(
+      (_resolve, reject) => {
+        rejectDisposed = (error): void => reject(error);
+      },
+    );
+    const operation: PendingMatchmakingOperation = {
+      reject: rejectDisposed,
+    };
+    pendingOperations.add(operation);
+
+    return Promise.race([
+      joinMatchmaking<TApp>(transport, pool, options, registerTicket),
+      disposedPromise,
+    ]).finally(() => {
+      pendingOperations.delete(operation);
+    });
   };
 
   return {
     joinMatchmaking: async (pool, options = {}) => {
-      const ticket = await joinMatchmaking<TApp>(transport, pool, options);
-      registerTicket(ticket);
+      const ticket = await joinTicket(pool, options);
+      if (disposed) {
+        ticket.dispose();
+        throw new FlareLobbyError("CANCELLED");
+      }
+
       return ticket;
     },
     findMatch: async (pool, options = {}) => {
-      const ticket = await joinMatchmaking<TApp>(transport, pool, options);
-      registerTicket(ticket);
+      const ticket = await joinTicket(pool, options);
+      if (disposed) {
+        ticket.dispose();
+        throw new FlareLobbyError("CANCELLED");
+      }
+
       return ticket.waitForMatch(
         options.signal === undefined
           ? {}
@@ -260,8 +308,24 @@ export function createMatchmakingApi<
             },
       );
     },
-    getRating: (pool, options = {}) => getRating(transport, pool, options),
+    getRating: (pool, options = {}) => {
+      if (disposed) {
+        return Promise.reject(new FlareLobbyError("CANCELLED"));
+      }
+
+      return getRating(transport, pool, options);
+    },
     dispose: () => {
+      if (disposed) {
+        return;
+      }
+
+      disposed = true;
+      for (const operation of pendingOperations) {
+        operation.reject(new FlareLobbyError("CANCELLED"));
+      }
+      pendingOperations.clear();
+
       for (const ticket of tickets) {
         ticket.dispose();
       }
@@ -274,6 +338,7 @@ async function joinMatchmaking<TApp extends AnyFlareLobbyApp>(
   transport: MatchmakingTransport<TApp>,
   poolReference: MatchmakingPoolReference,
   options: MatchmakingJoinOptions,
+  onTicketCreated: (ticket: MatchmakingTicketImpl<TApp>) => boolean,
 ): Promise<MatchmakingTicketImpl<TApp>> {
   throwIfAborted(options.signal);
   const pool = normalizePoolReference(poolReference);
@@ -331,6 +396,10 @@ async function joinMatchmaking<TApp extends AnyFlareLobbyApp>(
   );
 
   try {
+    if (!onTicketCreated(ticket)) {
+      throw new FlareLobbyError("CANCELLED");
+    }
+
     await ticket.start(options.signal);
     throwIfAborted(options.signal);
     return ticket;
@@ -511,16 +580,27 @@ class MatchmakingTicketImpl<
   }
 
   public async start(signal?: AbortSignal): Promise<void> {
-    if (this.stopped || isTerminalStatus(this.status)) {
+    if (this.stopped) {
+      throw new FlareLobbyError("CANCELLED");
+    }
+
+    if (isTerminalStatus(this.status)) {
       return;
     }
 
     await this.connect(signal);
+    if (this.stopped) {
+      throw new FlareLobbyError("CANCELLED");
+    }
   }
 
   public async refresh(
     options: MatchmakingTicketRequestOptions = {},
   ): Promise<MatchmakingTicketSnapshot<TApp>> {
+    if (this.stopped) {
+      throw new FlareLobbyError("CANCELLED");
+    }
+
     throwIfAborted(options.signal);
     const raw = await this.transport.request<unknown>(
       createTicketPath(this.poolId, this.id),
@@ -535,6 +615,10 @@ class MatchmakingTicketImpl<
   public cancel(
     options: MatchmakingTicketCancelOptions = {},
   ): Promise<MatchmakingTicketSnapshot<TApp>> {
+    if (this.stopped) {
+      return Promise.reject(new FlareLobbyError("CANCELLED"));
+    }
+
     if (this.cancelPromise !== undefined) {
       return this.cancelPromise;
     }
@@ -574,12 +658,12 @@ class MatchmakingTicketImpl<
   public waitForMatch(
     options: MatchmakingWaitForMatchOptions = {},
   ): Promise<PlayerRoom<TApp>> {
-    if (options.signal?.aborted === true) {
-      return this.cancelForAbort(options.signal);
+    if (this.stopped) {
+      return Promise.reject(new FlareLobbyError("CANCELLED"));
     }
 
-    if (this.status === "matched") {
-      return this.ensureMatchRoom(options.signal);
+    if (options.signal?.aborted === true) {
+      return this.cancelForAbort(options.signal);
     }
 
     if (this.status === "cancelled" || this.status === "expired") {
@@ -632,9 +716,14 @@ class MatchmakingTicketImpl<
     this.rejectWaiters(new FlareLobbyError("CANCELLED"));
     this.progressListeners.clear();
     this.statusListeners.clear();
+    this.onTerminal?.();
   }
 
   private async connect(signal?: AbortSignal): Promise<void> {
+    if (this.stopped) {
+      throw new FlareLobbyError("CANCELLED");
+    }
+
     this.setConnectionStatus("connecting");
     const connection = await this.transport.connect(
       this.createEventPath(),
@@ -643,12 +732,15 @@ class MatchmakingTicketImpl<
 
     if (this.stopped) {
       connection.close(1000, "ticket closed");
-      return;
+      throw new FlareLobbyError("CANCELLED");
     }
 
     this.attachConnection(connection);
     this.reconnectAttempt = 0;
     this.setConnectionStatus("connected");
+    if (this.stopped) {
+      throw new FlareLobbyError("CANCELLED");
+    }
   }
 
   private eventConnectionOptions(signal?: AbortSignal): ClientWebSocketOptions {
@@ -800,9 +892,8 @@ class MatchmakingTicketImpl<
       void this.resolveWaiters();
     } else {
       this.rejectWaitersForTerminal();
+      this.onTerminal?.();
     }
-
-    this.onTerminal?.();
   }
 
   private async resolveWaiters(): Promise<void> {
@@ -819,9 +910,15 @@ class MatchmakingTicketImpl<
           waiter.resolve(room);
         }
       }
+      if (this.waiters.size === 0) {
+        this.onTerminal?.();
+      }
     } catch (error) {
       const normalized = normalizeClientError(error);
       this.rejectWaiters(normalized);
+      if (this.waiters.size === 0) {
+        this.onTerminal?.();
+      }
     }
   }
 

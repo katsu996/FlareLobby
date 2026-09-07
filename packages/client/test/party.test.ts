@@ -897,6 +897,28 @@ describe("@flarelobby/client party", () => {
     client.dispose();
   });
 
+  it("client.dispose は起動中のイベント接続を CANCELLED で終了する", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+
+    FakeWebSocket.autoOpen = false;
+    const partyPromise = client.createParty();
+    await flushAsync();
+
+    const socket = FakeWebSocket.instances[0];
+    expect(socket?.readyState).toBe(0);
+
+    client.dispose();
+
+    await expect(partyPromise).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(socket?.readyState).toBe(3);
+  });
+
   it("解釈できないイベントは履歴不整合として接続を作り直す", async () => {
     const { fetch } = createFetch();
     const client = createFlareLobbyClient({

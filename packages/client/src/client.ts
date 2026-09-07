@@ -230,6 +230,8 @@ class FlareLobbyClientImpl<
   private readonly matchmakingApi: MatchmakingClientApi<TApp>;
   private readonly partyApi: PartyClientApi<TApp>;
   private readonly connections = new Set<FlareLobbyWebSocketConnectionImpl>();
+  private readonly eventStreamConnections =
+    new Set<RawJsonEventConnectionImpl>();
   private disposedState = false;
 
   public constructor(options: FlareLobbyClientOptions<TApp>) {
@@ -382,6 +384,7 @@ class FlareLobbyClientImpl<
     );
     const authenticationToken =
       token === undefined ? await this.readAccessToken() : token;
+    this.assertActive();
     throwIfAborted(options.signal);
 
     const protocols = createWebSocketProtocols(
@@ -398,7 +401,14 @@ class FlareLobbyClientImpl<
     this.connections.add(connection);
 
     try {
+      if (this.disposedState) {
+        connection.close(1000, "client disposed");
+        this.connections.delete(connection);
+        throw new FlareLobbyError("CANCELLED");
+      }
+
       await connection.waitForOpen(options.signal);
+      this.assertActive();
       return connection as FlareLobbyWebSocketConnection<TApp>;
     } catch (error) {
       connection.close();
@@ -420,13 +430,23 @@ class FlareLobbyClientImpl<
 
     const url = resolveWebSocketUrl(this.endpointUrl, path);
     const authenticationToken = await this.readAccessToken();
+    this.assertActive();
     throwIfAborted(options.signal);
 
     const protocols = createWebSocketProtocols(undefined, authenticationToken);
     const socket = this.createWebSocket(url, protocols);
-    const connection = new RawJsonEventConnectionImpl(socket);
+    const connection = new RawJsonEventConnectionImpl(socket, () =>
+      this.eventStreamConnections.delete(connection),
+    );
+    this.eventStreamConnections.add(connection);
     try {
+      if (this.disposedState) {
+        connection.close(1000, "client disposed");
+        throw new FlareLobbyError("CANCELLED");
+      }
+
       await connection.waitForOpen(options.signal);
+      this.assertActive();
       return connection;
     } catch (error) {
       connection.close();
@@ -512,7 +532,12 @@ class FlareLobbyClientImpl<
     }
 
     this.disposedState = true;
+    this.matchmakingApi.dispose();
     this.partyApi.dispose();
+    for (const connection of this.eventStreamConnections) {
+      connection.close(1000, "client disposed");
+    }
+    this.eventStreamConnections.clear();
     for (const connection of this.connections) {
       connection.close(1000, "client disposed");
     }
@@ -970,6 +995,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
  */
 class RawJsonEventConnectionImpl implements RawJsonEventConnection {
   private readonly socket: WebSocket;
+  private readonly onClosed: () => void;
   private readonly messageListeners = new Set<(value: JsonValue) => void>();
   private readonly closeListeners = new Set<(error: FlareLobbyError) => void>();
   private readonly queuedMessages: JsonValue[] = [];
@@ -981,8 +1007,9 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
   private closedByClient = false;
   private closedError: FlareLobbyError | undefined;
 
-  public constructor(socket: WebSocket) {
+  public constructor(socket: WebSocket, onClosed: () => void) {
     this.socket = socket;
+    this.onClosed = onClosed;
     this.openPromise = new Promise<void>((resolve, reject) => {
       this.resolveOpen = resolve;
       this.rejectOpen = reject;
@@ -1175,6 +1202,7 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
     }
     this.closeListeners.clear();
     this.messageListeners.clear();
+    this.onClosed();
 
     if (this.socket.readyState !== WEBSOCKET_CLOSED) {
       try {
