@@ -30,7 +30,7 @@
     "test:integration": "pnpm --filter @flarelobby/cloudflare run test:integration && pnpm --filter @flarelobby/example-local-demo run test:integration",
     "check:esm": "pnpm build && node scripts/verify-esm.mjs",
     "check:docs": "pnpm build && node scripts/verify-docs.mjs && tsc -p docs/tsconfig.json --noEmit",
-    "check:packages": "node scripts/verify-packages.mjs",
+    "check:packages": "node scripts/verify-packages.mjs && node scripts/verify-package-migrations.mjs",
     "check:deploy": "node scripts/verify-cloudflare-deploy.mjs",
     "check:rating-schema": "node scripts/verify-rating-schema.mjs",
     "release:check": "pnpm lint && pnpm format:check && pnpm build && pnpm typecheck && pnpm test:unit && pnpm test:integration && node scripts/verify-docs.mjs && tsc -p docs/tsconfig.json --noEmit && node scripts/verify-esm.mjs && pnpm check:worker-types && pnpm check:packages && pnpm check:deploy && pnpm check:rating-schema",
