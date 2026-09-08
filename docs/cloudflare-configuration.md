@@ -10,14 +10,16 @@ Worker が要求する Binding 契約は
 [`packages/cloudflare/src/config.ts`](../packages/cloudflare/src/config.ts)
 の `FlareLobbyBindings` に定義されています。
 
-| Binding                    | 種別                     | 必須 | 役割                                   |
-| -------------------------- | ------------------------ | ---- | -------------------------------------- |
-| `FLARE_LOBBY_ROOMS`        | Durable Object Namespace | 必須 | Room の正本状態（SQLite）              |
-| `FLARE_LOBBY_MATCH_POOLS`  | Durable Object Namespace | 必須 | 1 対 1 マッチングの待ちキュー          |
-| `FLARE_LOBBY_RATE_LIMITS`  | Durable Object Namespace | 必須 | 主体ごとの分散レート制限               |
-| `FLARE_LOBBY_DB`           | D1 Database              | 必須 | 公開ルーム一覧・レーティング・試合履歴 |
-| `FLARE_LOBBY_ANALYTICS`    | Analytics Engine Dataset | 任意 | 構造化ログと品質メトリックの出力先     |
-| `FLARE_LOBBY_TOKEN_SECRET` | Secret（文字列）         | 必須 | join / resume トークンの署名鍵         |
+| Binding                         | 種別                     | 必須 | 役割                                   |
+| ------------------------------- | ------------------------ | ---- | -------------------------------------- |
+| `FLARE_LOBBY_ROOMS`             | Durable Object Namespace | 必須 | Room の正本状態（SQLite）              |
+| `FLARE_LOBBY_MATCH_POOLS`       | Durable Object Namespace | 必須 | 1 対 1 マッチングの待ちキュー          |
+| `FLARE_LOBBY_PARTIES`           | Durable Object Namespace | 必須 | パーティーの正本状態（SQLite）         |
+| `FLARE_LOBBY_PARTY_MEMBERSHIPS` | Durable Object Namespace | 必須 | 主体ごとの所属不変条件の検査           |
+| `FLARE_LOBBY_RATE_LIMITS`       | Durable Object Namespace | 必須 | 主体ごとの分散レート制限               |
+| `FLARE_LOBBY_DB`                | D1 Database              | 必須 | 公開ルーム一覧・レーティング・試合履歴 |
+| `FLARE_LOBBY_ANALYTICS`         | Analytics Engine Dataset | 任意 | 構造化ログと品質メトリックの出力先     |
+| `FLARE_LOBBY_TOKEN_SECRET`      | Secret（文字列）         | 必須 | join / resume トークンの署名鍵         |
 
 Binding 名を変更すると実装と一致しなくなるため、`wrangler.jsonc` 側も
 同じ名前を保ってください。
