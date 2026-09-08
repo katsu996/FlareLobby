@@ -80,6 +80,7 @@ export const FLARE_LOBBY_BINDINGS = {
   matchPool: "FLARE_LOBBY_MATCH_POOLS",
   parties: "FLARE_LOBBY_PARTIES",
   partyMemberships: "FLARE_LOBBY_PARTY_MEMBERSHIPS",
+  rateLimits: "FLARE_LOBBY_RATE_LIMITS",
   database: "FLARE_LOBBY_DB",
   analytics: "FLARE_LOBBY_ANALYTICS",
   tokenSecret: "FLARE_LOBBY_TOKEN_SECRET",
@@ -165,6 +166,7 @@ export const FLARE_LOBBY_CONFIGURATION_ERROR_CODES = [
   "MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING",
   "PARTY_DURABLE_OBJECT_BINDING_MISSING",
   "PARTY_MEMBERSHIP_DURABLE_OBJECT_BINDING_MISSING",
+  "RATE_LIMIT_DURABLE_OBJECT_BINDING_MISSING",
   "TOKEN_SECRET_MISSING",
   "INVALID_CUSTOM_ROOM_CONFIGURATION",
   "INVALID_MATCHMAKING_POOL",
@@ -191,6 +193,8 @@ const defaultConfigurationErrorMessages: Readonly<
     "FlareLobby の Party Durable Object Binding（FLARE_LOBBY_PARTIES）が設定されていません。",
   PARTY_MEMBERSHIP_DURABLE_OBJECT_BINDING_MISSING:
     "FlareLobby の Party Membership Durable Object Binding（FLARE_LOBBY_PARTY_MEMBERSHIPS）が設定されていません。",
+  RATE_LIMIT_DURABLE_OBJECT_BINDING_MISSING:
+    "FlareLobby の Rate Limit Durable Object Binding（FLARE_LOBBY_RATE_LIMITS）が設定されていません。",
   TOKEN_SECRET_MISSING:
     "FlareLobby の Secret（FLARE_LOBBY_TOKEN_SECRET）が設定されていません。",
   INVALID_CUSTOM_ROOM_CONFIGURATION: "カスタムルーム設定が正しくありません。",
@@ -247,7 +251,7 @@ export interface DefinedFlareLobby<
  * 利用者の設定を検証し、共有する可変状態を持たない Gateway Worker 定義を作ります。
  *
  * `createGatewayWorker<Env>()` の `Env` には、Wrangler が生成したグローバルの
- * `Env` 型を指定してください。D1、3 種類の Durable Object Binding、トークン用の
+ * `Env` 型を指定してください。D1、5 種類の Durable Object Binding、トークン用の
  * Secret Binding がない型はこの時点で拒否されます。
  */
 export function defineFlareLobby<TApp extends AnyFlareLobbyApp = FlareLobbyApp>(
@@ -893,35 +897,56 @@ function assertInputLimits(limits: FlareLobbyInputLimits): void {
 }
 
 function assertRequiredBindings(env: FlareLobbyBindings): void {
-  if (env.FLARE_LOBBY_DB === undefined) {
+  if (env.FLARE_LOBBY_DB === undefined || env.FLARE_LOBBY_DB === null) {
     throw new FlareLobbyConfigurationError("D1_BINDING_MISSING");
   }
 
-  if (env.FLARE_LOBBY_ROOMS === undefined) {
+  if (env.FLARE_LOBBY_ROOMS === undefined || env.FLARE_LOBBY_ROOMS === null) {
     throw new FlareLobbyConfigurationError(
       "ROOM_DURABLE_OBJECT_BINDING_MISSING",
     );
   }
 
-  if (env.FLARE_LOBBY_MATCH_POOLS === undefined) {
+  if (
+    env.FLARE_LOBBY_MATCH_POOLS === undefined ||
+    env.FLARE_LOBBY_MATCH_POOLS === null
+  ) {
     throw new FlareLobbyConfigurationError(
       "MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING",
     );
   }
 
-  if (env.FLARE_LOBBY_PARTIES === undefined) {
+  if (
+    env.FLARE_LOBBY_PARTIES === undefined ||
+    env.FLARE_LOBBY_PARTIES === null
+  ) {
     throw new FlareLobbyConfigurationError(
       "PARTY_DURABLE_OBJECT_BINDING_MISSING",
     );
   }
 
-  if (env.FLARE_LOBBY_PARTY_MEMBERSHIPS === undefined) {
+  if (
+    env.FLARE_LOBBY_PARTY_MEMBERSHIPS === undefined ||
+    env.FLARE_LOBBY_PARTY_MEMBERSHIPS === null
+  ) {
     throw new FlareLobbyConfigurationError(
       "PARTY_MEMBERSHIP_DURABLE_OBJECT_BINDING_MISSING",
     );
   }
 
-  if (env.FLARE_LOBBY_TOKEN_SECRET === undefined) {
+  if (
+    env.FLARE_LOBBY_RATE_LIMITS === undefined ||
+    env.FLARE_LOBBY_RATE_LIMITS === null
+  ) {
+    throw new FlareLobbyConfigurationError(
+      "RATE_LIMIT_DURABLE_OBJECT_BINDING_MISSING",
+    );
+  }
+
+  if (
+    typeof env.FLARE_LOBBY_TOKEN_SECRET !== "string" ||
+    env.FLARE_LOBBY_TOKEN_SECRET.trim().length === 0
+  ) {
     throw new FlareLobbyConfigurationError("TOKEN_SECRET_MISSING");
   }
 }
