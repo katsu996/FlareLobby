@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FlareLobby Standalone</title>
+  </head>
+  <body>
+    <main>
+      <h1>FlareLobby Standalone</h1>
+      <p>
+        Worker (<code>http://localhost:8787</code>) とは別オリジンで動作します。
+      </p>
+
+      <section>
+        <h2>認証トークン</h2>
+        <label for="token">アクセストークン</label>
+        <input
+          id="token"
+          type="text"
+          autocomplete="off"
+          placeholder="ログイン済みトークン"
+        />
+      </section>
+
+      <section>
+        <h2>カスタムルーム</h2>
+        <button id="create-room" type="button">ルーム作成</button>
+        <label for="invitation-code">招待コード</label>
+        <input id="invitation-code" type="text" autocomplete="off" />
+        <button id="join-room" type="button">ルーム参加</button>
+        <button id="leave-room" type="button">退出</button>
+        <button id="close-room" type="button">終了（ホスト）</button>
+      </section>
+
+      <section>
+        <h2>1v1 マッチング</h2>
+        <button id="join-queue" type="button">キュー参加</button>
+        <button id="cancel-queue" type="button">キュー取消</button>
+      </section>
+
+      <section>
+        <h2>ログ</h2>
+        <div id="log" aria-live="polite"></div>
+      </section>
+    </main>
+    <script type="module" src="/src/browser.ts"></script>
+  </body>
+</html>
