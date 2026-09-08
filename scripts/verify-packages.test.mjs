@@ -99,6 +99,9 @@ const CORE_PACKED_FILES = [
   "dist/index.d.ts",
 ];
 
+const MIT_LICENSE_TEXT =
+  "MIT License\n\nCopyright (c) 2026 katsu996\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\n";
+
 const BASE_PACKED_FILES = [
   "LICENSE",
   "README.md",
@@ -116,6 +119,9 @@ describe("isValidSemver", () => {
     assert.equal(isValidSemver("0.1.0"), true);
     assert.equal(isValidSemver("0.2.0"), true);
     assert.equal(isValidSemver("1.10.3-alpha.1"), true);
+    assert.equal(isValidSemver("1.0.0-alpha"), true);
+    assert.equal(isValidSemver("1.0.0-0.3.7"), true);
+    assert.equal(isValidSemver("1.0.0+build.1"), true);
   });
 
   it("非 semver を拒否する", () => {
@@ -124,6 +130,9 @@ describe("isValidSemver", () => {
     assert.equal(isValidSemver("v1.0.0"), false);
     assert.equal(isValidSemver(""), false);
     assert.equal(isValidSemver(undefined), false);
+    assert.equal(isValidSemver("1.0.0-01"), false);
+    assert.equal(isValidSemver("1.0.0-alpha..1"), false);
+    assert.equal(isValidSemver("1.0.0-"), false);
   });
 });
 
@@ -274,11 +283,31 @@ describe("不正な配布物の検出", () => {
   it("ライセンス欠落を検出する", () => {
     const errors = checkSupplementalFiles({
       definition: CORE_DEFINITION,
-      rootLicense: "MIT license text",
+      rootLicense: MIT_LICENSE_TEXT,
       packageLicense: "",
       packageReadme: "@flarelobby/core\n\npnpm add @flarelobby/core\n",
     });
     assert.match(errors.join("\n"), /LICENSE/);
+  });
+
+  it("ルートの LICENSE が MIT 本文でなければ package と一致しても検出する", () => {
+    const errors = checkSupplementalFiles({
+      definition: CORE_DEFINITION,
+      rootLicense: "Apache License text",
+      packageLicense: "Apache License text",
+      packageReadme: "@flarelobby/core\n\npnpm add @flarelobby/core\n",
+    });
+    assert.match(errors.join("\n"), /ルートの LICENSE/);
+  });
+
+  it("MIT 本文がルートと package で一致すれば成功する", () => {
+    const errors = checkSupplementalFiles({
+      definition: CORE_DEFINITION,
+      rootLicense: MIT_LICENSE_TEXT,
+      packageLicense: MIT_LICENSE_TEXT,
+      packageReadme: "@flarelobby/core\n\npnpm add @flarelobby/core\n",
+    });
+    assert.deepEqual(errors, []);
   });
 
   it("秘密・内部ファイル混入と除外対象 SQL を検出する", () => {

@@ -6,7 +6,7 @@
 // fixture で検証できるよう、判定に必要な値はすべて引数で受け取る。
 
 export const SEMVER_PATTERN =
-  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u;
 
 export function isValidSemver(version) {
   return typeof version === "string" && SEMVER_PATTERN.test(version);
@@ -190,6 +190,13 @@ export function checkSupplementalFiles({
   packageReadme,
 }) {
   const errors = [];
+  if (
+    typeof rootLicense !== "string" ||
+    !rootLicense.includes("MIT License") ||
+    !rootLicense.includes("Permission is hereby granted")
+  ) {
+    errors.push("ルートの LICENSE が MIT License の本文ではありません");
+  }
   if (packageLicense !== rootLicense) {
     errors.push(
       `${definition.directory}/LICENSE がルートの MIT License と一致しません`,
