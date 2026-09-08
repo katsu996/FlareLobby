@@ -434,7 +434,7 @@ describe("CORS と認証・再接続の両立", () => {
       {} as ExecutionContext,
     );
 
-    expect([200, 201, 400, 403]).toContain(response.status);
+    expect(response.status).toBe(201);
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
       ALLOWED_ORIGIN,
     );
