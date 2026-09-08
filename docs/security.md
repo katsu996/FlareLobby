@@ -100,6 +100,15 @@ const verified = await verifyResumeToken(env.FLARE_LOBBY_TOKEN_SECRET, token, {
 
 発行・検証は `ProtocolResult` を返します。期限切れ、用途違い、署名改ざん、別主体、別ルームのトークンはすべて `UNAUTHENTICATED` として拒否します。トークンの内容をエラー文へ反映してはいけません。
 
+## CORS とプリフライト処理
+
+別オリジンのブラウザから HTTP API を利用する場合は `defineFlareLobby()` に `cors` を指定します。詳細は Cloudflare 設定を参照してください。
+
+- 許可 Origin は正規の http/https 文字列だけを受け付け、完全一致で照合します。
+- 有効なプリフライトは認証と DO/D1 より先に 204 で応答します。
+- 許可 Origin の通常応答には成功と 401/403/429/500 に CORS ヘッダーを付けます。
+- CORS はサーバー側認可の代替ではありません。操作の可否は認可 Hook で判定します。
+
 ## 秘密値と運用上の前提
 
 - `FLARE_LOBBY_TOKEN_SECRET` は Wrangler Secret として環境ごとに設定し、ソース、設定ファイル、ログへ書かない。

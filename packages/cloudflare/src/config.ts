@@ -22,6 +22,13 @@ import { resolveRatingConfiguration } from "./rating.js";
 import type { RatingConfiguration } from "./rating.js";
 import type { MatchmakingMatchRoomOptions } from "./match-pool.js";
 import {
+  applyCorsHeaders,
+  handleCorsPreflight,
+  isCorsPreflightRequest,
+  isValidCorsOrigin,
+} from "./cors.js";
+import type { FlareLobbyCorsConfiguration } from "./cors.js";
+import {
   attachObservabilityHeaders,
   createObservabilityContext,
   createObservabilitySink,
@@ -145,6 +152,8 @@ export interface FlareLobbyConfiguration<
   /** 未設定時はすべての保護対象操作を拒否します。 */
   readonly authorization?: FlareLobbyAuthorizationHooks;
   readonly inputLimits: FlareLobbyInputLimits;
+  /** ブラウザからのクロスオリジン利用を許可する CORS 設定です。 */
+  readonly cors?: FlareLobbyCorsConfiguration;
   /** ログと Analytics Engine のサンプリング設定です。 */
   readonly observability?: FlareLobbyObservabilityConfiguration;
 }
@@ -161,6 +170,7 @@ export const FLARE_LOBBY_CONFIGURATION_ERROR_CODES = [
   "INVALID_MATCHMAKING_POOL",
   "INVALID_INPUT_LIMITS",
   "INVALID_AUTHENTICATION_HOOK",
+  "INVALID_CORS_CONFIGURATION",
   "INVALID_OBSERVABILITY_CONFIGURATION",
 ] as const;
 
@@ -187,6 +197,7 @@ const defaultConfigurationErrorMessages: Readonly<
   INVALID_MATCHMAKING_POOL: "マッチングプール設定が正しくありません。",
   INVALID_INPUT_LIMITS: "入力制限の設定が正しくありません。",
   INVALID_AUTHENTICATION_HOOK: "認証 Hook の設定が正しくありません。",
+  INVALID_CORS_CONFIGURATION: "CORS の許可 Origin 設定が正しくありません。",
   INVALID_OBSERVABILITY_CONFIGURATION:
     "観測サンプリング設定が正しくありません。",
 };
@@ -276,8 +287,9 @@ export function createGatewayWorker<
         env.FLARE_LOBBY_ANALYTICS,
         normalizedConfiguration.observability,
       );
+      const corsConfiguration = normalizedConfiguration.cors;
 
-      return observeHttpOperation(
+      const response = await observeHttpOperation(
         sink,
         context,
         getObservabilityOperationName(observedRequest),
@@ -293,6 +305,18 @@ export function createGatewayWorker<
           }
 
           request = observedRequest as typeof request;
+
+          // 有効な CORS プリフライトは通常の認証と DO/D1 アクセスより先に
+          // 処理します。CORS 未設定時や Origin なしは既存挙動を維持します。
+          if (
+            corsConfiguration !== undefined &&
+            isCorsPreflightRequest(request)
+          ) {
+            return handleCorsPreflight(
+              request,
+              corsConfiguration.allowedOrigins,
+            );
+          }
 
           const pathname = new URL(request.url).pathname;
 
@@ -426,6 +450,8 @@ export function createGatewayWorker<
           return new Response("Not Found", { status: 404 });
         },
       );
+
+      return applyCorsHeaders(response, observedRequest, corsConfiguration);
     },
   };
 }
@@ -602,6 +628,7 @@ function normalizeConfiguration<TApp extends AnyFlareLobbyApp>(
   assertCustomRoomConfiguration(configuration.customRooms);
   assertMatchmakingPools(configuration.matchmakingPools);
   assertInputLimits(configuration.inputLimits);
+  assertCorsConfiguration(configuration.cors);
   assertObservabilityConfiguration(configuration.observability);
 
   if (typeof configuration.authenticate !== "function") {
@@ -650,6 +677,15 @@ function normalizeConfiguration<TApp extends AnyFlareLobbyApp>(
     ),
     authenticate: configuration.authenticate,
     inputLimits: Object.freeze({ ...configuration.inputLimits }),
+    ...(configuration.cors === undefined
+      ? {}
+      : {
+          cors: Object.freeze({
+            allowedOrigins: Object.freeze([
+              ...configuration.cors.allowedOrigins,
+            ]),
+          }),
+        }),
     observability: Object.freeze({
       logSampleRate: configuration.observability?.logSampleRate ?? 1,
       analyticsSampleRate:
@@ -677,6 +713,34 @@ function assertObservabilityConfiguration(
       throw new FlareLobbyConfigurationError(
         "INVALID_OBSERVABILITY_CONFIGURATION",
         `observability.${fieldName} は 0 以上 1 以下で指定してください。`,
+      );
+    }
+  }
+}
+
+function assertCorsConfiguration(
+  configuration: FlareLobbyCorsConfiguration | undefined,
+): void {
+  if (configuration === undefined) {
+    return;
+  }
+
+  if (
+    typeof configuration !== "object" ||
+    configuration === null ||
+    !Array.isArray(configuration.allowedOrigins)
+  ) {
+    throw new FlareLobbyConfigurationError(
+      "INVALID_CORS_CONFIGURATION",
+      "cors.allowedOrigins は正規の http/https Origin 文字列の配列で指定してください。",
+    );
+  }
+
+  for (const origin of configuration.allowedOrigins) {
+    if (!isValidCorsOrigin(origin)) {
+      throw new FlareLobbyConfigurationError(
+        "INVALID_CORS_CONFIGURATION",
+        "cors.allowedOrigins は正規の http/https Origin 文字列（scheme/host/任意 port）に限定し、パス・query・fragment・userinfo・wildcard・文字列 null を指定できません。",
       );
     }
   }
