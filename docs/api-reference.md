@@ -217,10 +217,13 @@ FlareLobbyError }` です。`FlareLobbyError` の constructor は
 `ROOM_DURABLE_OBJECT_BINDING_MISSING`、`MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING`、
 `PARTY_DURABLE_OBJECT_BINDING_MISSING`、
 `PARTY_MEMBERSHIP_DURABLE_OBJECT_BINDING_MISSING`、
-`TOKEN_SECRET_MISSING`、
+`RATE_LIMIT_DURABLE_OBJECT_BINDING_MISSING`、`TOKEN_SECRET_MISSING`、
 `INVALID_CUSTOM_ROOM_CONFIGURATION`、`INVALID_MATCHMAKING_POOL`、
 `INVALID_INPUT_LIMITS`、`INVALID_AUTHENTICATION_HOOK`、`INVALID_CORS_CONFIGURATION`、
-`INVALID_OBSERVABILITY_CONFIGURATION`）で判定します。
+`INVALID_OBSERVABILITY_CONFIGURATION`）で判定します。必須 Binding は `undefined`/`null`
+を不備とし、Secret は `undefined`/`null`・非文字列・空文字・空白だけを不備として
+`TOKEN_SECRET_MISSING` で報告します。値の強制変換や `trim` した値の署名利用はしません。
+エラー本文とログには Secret や Binding 実体を出力しません。
 
 別オリジンのブラウザから利用する場合は `cors: { allowedOrigins: ["https://game.example"] }`
 を指定します。許可 Origin は完全一致で照合し、パス・query・fragment・userinfo・
@@ -260,6 +263,10 @@ CORS はサーバー側認可の代替ではありません。認可は `authori
 エンドポイントの `poolId`、`roomId`、`ticketId`、`matchId` は URL エンコードします。
 一覧は D1 の投影で一時的に古くなるため、参加の定員・状態は Room Durable Object が
 再判定します。WebSocket の token は URL や Query へ入れません。
+`GET /` の `{ status: "ready" }` は必須設定検証の結果であり、DB 疎通・Migration 適用済み・
+外部認証サービスの正常性の保証ではありません。必須 Binding・Secret の不備がある場合は
+認証不要の `GET /` を含む全要求の処理開始前に `500` と対応する設定エラーを返します。
+新たな `/health` は追加しません。
 
 ### カスタムルーム関数・型
 
@@ -466,7 +473,10 @@ Room の既定値は `DEFAULT_DISCONNECT_GRACE_PERIOD_MS`、`DEFAULT_EVENT_HISTO
 ### Gateway 設定エラー
 
 `D1_BINDING_MISSING`、`ROOM_DURABLE_OBJECT_BINDING_MISSING`、
-`MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING`、`TOKEN_SECRET_MISSING`、`INVALID_CUSTOM_ROOM_CONFIGURATION`、
+`MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING`、
+`PARTY_DURABLE_OBJECT_BINDING_MISSING`、
+`PARTY_MEMBERSHIP_DURABLE_OBJECT_BINDING_MISSING`、
+`RATE_LIMIT_DURABLE_OBJECT_BINDING_MISSING`、`TOKEN_SECRET_MISSING`、`INVALID_CUSTOM_ROOM_CONFIGURATION`、
 `INVALID_MATCHMAKING_POOL`、`INVALID_INPUT_LIMITS`、`INVALID_AUTHENTICATION_HOOK`、
 `INVALID_CORS_CONFIGURATION`、`INVALID_OBSERVABILITY_CONFIGURATION` は、Worker 起動または設定正規化時に
 `FlareLobbyConfigurationError` として返ります。Binding 名、値域、Hook の関数型、

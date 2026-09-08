@@ -85,6 +85,11 @@ type EnvWithoutD1 = Omit<Env, "FLARE_LOBBY_DB">;
 // @ts-expect-error D1 Binding を持たない Env では Gateway Worker を生成できません。
 minimumConfiguration.createGatewayWorker<EnvWithoutD1>();
 
+type EnvWithoutRateLimits = Omit<Env, "FLARE_LOBBY_RATE_LIMITS">;
+
+// @ts-expect-error Rate Limit Binding を持たない Env では Gateway Worker を生成できません。
+minimumConfiguration.createGatewayWorker<EnvWithoutRateLimits>();
+
 const invalidSettings = defineFlareLobby<ExampleApp>({
   customRooms: {
     maxPlayers: 2,

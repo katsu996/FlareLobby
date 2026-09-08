@@ -134,7 +134,7 @@ upload は次の staging/production 手順で所有者の承認後に行いま�
 3. `wrangler secret put FLARE_LOBBY_TOKEN_SECRET --env staging`（または `production`）で環境固有の秘密値を登録する。
 4. `pnpm generate:worker-types` を実行し、生成された `Env` と Binding の差分を確認する。
 5. `wrangler deploy --env staging`（または `production`）で Worker と Durable Object Migration を公開する。
-6. 公開 URL の `GET /health` が `{ "status": "ready" }` を返すこと、認証 Hook が実際の主体を返すことを確認する。
+6. 公開 URL の `GET /` が `{ "status": "ready" }` を返すこと、認証 Hook が実際の主体を返すことを確認する。`ready` は必須設定検証の結果であり、DB 疎通・Migration 適用済み・外部認証サービスの正常性の保証ではない。
 
 ```sh
 pnpm --filter @flarelobby/cloudflare exec wrangler d1 migrations apply FLARE_LOBBY_DB --remote --env staging

@@ -30,8 +30,8 @@ Binding 名を変更すると実装と一致しなくなるため、`wrangler.js
 
 - `main`: Worker のエントリポイント（ローカル検証用の `src/dev-worker.ts`）
 - `compatibility_date`: 動作確認済みの日付に固定
-- `durable_objects.bindings`: 3 つの Durable Object Namespace
-- `migrations`: Durable Object の SQLite 移行タグ（`v1`、`v2`）
+- `durable_objects.bindings`: 5 つの Durable Object Namespace
+- `migrations`: Durable Object の SQLite 移行タグ（`v1`、`v2`、`v3`）
 - `d1_databases`: `FLARE_LOBBY_DB` と `migrations_dir: "migrations"`
 - `env.production.analytics_engine_datasets`: 任意の `FLARE_LOBBY_ANALYTICS`
 
@@ -196,12 +196,20 @@ FLARE_LOBBY_TOKEN_SECRET=local-only-secret
 値は推測困難な十分に長いランダム文字列を使い、環境ごとに別の値を発行して
 ください。ローテーションすると既存の再開トークンが無効になります。
 
-Binding と Secret の不備は起動時に検証されます。`FLARE_LOBBY_TOKEN_SECRET`
-が設定されていない Worker は、安定した設定エラーコード
+Binding と Secret の不備は処理開始前に検証されます。必須 Binding は `undefined`/`null`
+を不備とし、`FLARE_LOBBY_TOKEN_SECRET` は `undefined`/`null`・非文字列・空文字・
+空白だけを不備として安定した設定エラーコード
 `TOKEN_SECRET_MISSING`（`FlareLobbyConfigurationError`）で報告されます。
+値の強制変換や `trim` した値の署名利用はしません。`FLARE_LOBBY_ANALYTICS` は
+引き続き任意です。エラー本文とログには Secret や Binding 実体を出力しません。
 その他の設定エラーコードは
 [`packages/cloudflare/src/config.ts`](../packages/cloudflare/src/config.ts)
 の `FLARE_LOBBY_CONFIGURATION_ERROR_CODES` を参照してください。
+
+認証不要の `GET /` が返す `{ status: "ready" }` は必須設定検証の結果であり、
+DB 疎通・Migration 適用済み・外部認証サービスの正常性の保証ではありません。
+必須設定の不備がある場合は `GET /` を含む全要求を処理開始前に `500` で拒否します。
+新たな `/health` は追加しません。
 
 ## CORS（ブラウザからの利用）
 

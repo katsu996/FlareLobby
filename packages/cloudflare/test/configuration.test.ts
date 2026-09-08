@@ -255,6 +255,7 @@ describe("Gateway Worker の設定検証", () => {
       createValidConfiguration(),
     );
     const missingBindings: readonly [keyof FlareLobbyBindings, string][] = [
+      ["FLARE_LOBBY_DB", "D1_BINDING_MISSING"],
       ["FLARE_LOBBY_ROOMS", "ROOM_DURABLE_OBJECT_BINDING_MISSING"],
       ["FLARE_LOBBY_MATCH_POOLS", "MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING"],
       ["FLARE_LOBBY_PARTIES", "PARTY_DURABLE_OBJECT_BINDING_MISSING"],
@@ -262,21 +263,133 @@ describe("Gateway Worker の設定検証", () => {
         "FLARE_LOBBY_PARTY_MEMBERSHIPS",
         "PARTY_MEMBERSHIP_DURABLE_OBJECT_BINDING_MISSING",
       ],
+      ["FLARE_LOBBY_RATE_LIMITS", "RATE_LIMIT_DURABLE_OBJECT_BINDING_MISSING"],
       ["FLARE_LOBBY_TOKEN_SECRET", "TOKEN_SECRET_MISSING"],
     ];
 
     for (const [binding, code] of missingBindings) {
+      for (const missingValue of [undefined, null]) {
+        const brokenEnv = { ...env } as FlareLobbyBindings;
+        (brokenEnv as unknown as Record<string, unknown>)[binding] =
+          missingValue;
+        const response = await worker.fetch(
+          new Request("https://example.test/v1/custom-rooms"),
+          brokenEnv,
+          {} as ExecutionContext,
+        );
+
+        expect(response.status).toBe(500);
+        await expect(response.json()).resolves.toMatchObject({ code });
+      }
+    }
+  });
+
+  it("レート制限 Binding の不足を処理開始前に検出する", async () => {
+    const worker = createGatewayWorker<FlareLobbyBindings>(
+      createValidConfiguration(),
+    );
+    const brokenEnv = { ...env } as FlareLobbyBindings;
+    (brokenEnv as unknown as Record<string, unknown>)[
+      "FLARE_LOBBY_RATE_LIMITS"
+    ] = undefined;
+
+    const response = await worker.fetch(
+      new Request("https://example.test/"),
+      brokenEnv,
+      {} as ExecutionContext,
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "RATE_LIMIT_DURABLE_OBJECT_BINDING_MISSING",
+    });
+  });
+
+  it("正常設定と Analytics なしで ready を返す", async () => {
+    const worker = createGatewayWorker<FlareLobbyBindings>(
+      createValidConfiguration(),
+    );
+
+    const readyResponse = await worker.fetch(
+      new Request("https://example.test/"),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(readyResponse.status).toBe(200);
+    await expect(readyResponse.json()).resolves.toEqual({
+      status: "ready",
+    });
+
+    const withoutAnalytics = { ...env } as FlareLobbyBindings;
+    (withoutAnalytics as unknown as Record<string, unknown>)[
+      "FLARE_LOBBY_ANALYTICS"
+    ] = undefined;
+    const analyticsLessResponse = await worker.fetch(
+      new Request("https://example.test/"),
+      withoutAnalytics,
+      {} as ExecutionContext,
+    );
+    expect(analyticsLessResponse.status).toBe(200);
+    await expect(analyticsLessResponse.json()).resolves.toEqual({
+      status: "ready",
+    });
+  });
+
+  it("Secret の未設定・null・非文字列・空文字・空白だけを拒否する", async () => {
+    const worker = createGatewayWorker<FlareLobbyBindings>(
+      createValidConfiguration(),
+    );
+    const invalidSecrets: readonly unknown[] = [
+      undefined,
+      null,
+      123,
+      "",
+      "   ",
+    ];
+
+    for (const secret of invalidSecrets) {
       const brokenEnv = { ...env } as FlareLobbyBindings;
-      (brokenEnv as unknown as Record<string, unknown>)[binding] = undefined;
+      (brokenEnv as unknown as Record<string, unknown>)[
+        "FLARE_LOBBY_TOKEN_SECRET"
+      ] = secret;
       const response = await worker.fetch(
-        new Request("https://example.test/v1/custom-rooms"),
+        new Request("https://example.test/"),
         brokenEnv,
         {} as ExecutionContext,
       );
 
       expect(response.status).toBe(500);
-      await expect(response.json()).resolves.toMatchObject({ code });
+      await expect(response.json()).resolves.toMatchObject({
+        code: "TOKEN_SECRET_MISSING",
+      });
     }
+  });
+
+  it("設定エラー応答とログに Secret や Binding 実体を出力しない", async () => {
+    const worker = createGatewayWorker<FlareLobbyBindings>(
+      createValidConfiguration(),
+    );
+    const secret = "configuration-test-secret-value";
+    const brokenEnv = {
+      ...env,
+      FLARE_LOBBY_TOKEN_SECRET: secret,
+    } as FlareLobbyBindings;
+    (brokenEnv as unknown as Record<string, unknown>)[
+      "FLARE_LOBBY_RATE_LIMITS"
+    ] = undefined;
+
+    const response = await worker.fetch(
+      new Request("https://example.test/"),
+      brokenEnv,
+      {} as ExecutionContext,
+    );
+
+    expect(response.status).toBe(500);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      code: "RATE_LIMIT_DURABLE_OBJECT_BINDING_MISSING",
+    });
+    expect(JSON.stringify(body)).not.toContain(secret);
   });
 });
 
