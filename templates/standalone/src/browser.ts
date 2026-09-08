@@ -40,6 +40,20 @@ function getAccessToken(): string {
 let client: StandaloneClient | undefined;
 let activeRoom: Room<StandaloneApp> | undefined;
 let activeTicket: MatchmakingTicket<StandaloneApp> | undefined;
+let pendingOperation: Promise<void> = Promise.resolve();
+
+/**
+ * 非同期 UI 操作を直列化し、連打による競合を防ぐ共有ロックです。
+ * 伝播した失敗はここでまとめて通知します。
+ */
+function runExclusive(operation: () => Promise<void>): void {
+  pendingOperation = pendingOperation.then(operation, operation).then(
+    () => undefined,
+    (error: unknown) => {
+      log(`操作に失敗しました: ${toMessage(error)}`);
+    },
+  );
+}
 
 function tokenInput(): HTMLInputElement {
   return element<HTMLInputElement>("token");
@@ -109,18 +123,17 @@ async function joinRoom(): Promise<void> {
 
 async function leaveRoom(notify = true): Promise<void> {
   const room = activeRoom;
+  if (room === undefined) {
+    return;
+  }
+  if (room.closed) {
+    activeRoom = undefined;
+    return;
+  }
+  await room.leave({ requestId: crypto.randomUUID() });
   activeRoom = undefined;
-  if (room !== undefined && !room.closed) {
-    try {
-      await room.leave({ requestId: crypto.randomUUID() });
-      if (notify) {
-        log("ルームを退出しました。");
-      }
-    } catch (error) {
-      if (notify) {
-        log(`ルーム退出に失敗: ${toMessage(error)}`);
-      }
-    }
+  if (notify) {
+    log("ルームを退出しました。");
   }
 }
 
@@ -144,6 +157,12 @@ async function closeRoom(): Promise<void> {
 async function joinQueue(): Promise<void> {
   try {
     await cancelQueue(false);
+    await leaveRoom(false);
+  } catch (error) {
+    log(`キュー参加に失敗: ${toMessage(error)}`);
+    return;
+  }
+  try {
     const ticket = await getClient().joinMatchmaking(SOLO_POOL, {
       requestId: crypto.randomUUID(),
       ttlMs: 60_000,
@@ -162,18 +181,13 @@ async function joinQueue(): Promise<void> {
 
 async function cancelQueue(notify = true): Promise<void> {
   const ticket = activeTicket;
+  if (ticket === undefined) {
+    return;
+  }
+  await ticket.cancel({ requestId: crypto.randomUUID() });
   activeTicket = undefined;
-  if (ticket !== undefined) {
-    try {
-      await ticket.cancel({ requestId: crypto.randomUUID() });
-      if (notify) {
-        log("キューを取り消しました。");
-      }
-    } catch (error) {
-      if (notify) {
-        log(`キュー取消に失敗: ${toMessage(error)}`);
-      }
-    }
+  if (notify) {
+    log("キューを取り消しました。");
   }
 }
 
@@ -185,20 +199,20 @@ function toMessage(error: unknown): string {
 }
 
 element<HTMLButtonElement>("create-room").addEventListener("click", () => {
-  void createRoom();
+  runExclusive(createRoom);
 });
 element<HTMLButtonElement>("join-room").addEventListener("click", () => {
-  void joinRoom();
+  runExclusive(joinRoom);
 });
 element<HTMLButtonElement>("leave-room").addEventListener("click", () => {
-  void leaveRoom();
+  runExclusive(() => leaveRoom());
 });
 element<HTMLButtonElement>("close-room").addEventListener("click", () => {
-  void closeRoom();
+  runExclusive(closeRoom);
 });
 element<HTMLButtonElement>("join-queue").addEventListener("click", () => {
-  void joinQueue();
+  runExclusive(joinQueue);
 });
 element<HTMLButtonElement>("cancel-queue").addEventListener("click", () => {
-  void cancelQueue();
+  runExclusive(() => cancelQueue());
 });
