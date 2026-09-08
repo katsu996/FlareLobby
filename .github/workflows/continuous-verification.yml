@@ -86,5 +86,8 @@ jobs:
       - name: Verify npm package publish dry-runs
         run: pnpm check:packages
 
+      - name: Verify rating schema consistency
+        run: pnpm check:rating-schema
+
       - name: Verify Cloudflare sample deploy dry-run
         run: pnpm check:deploy
