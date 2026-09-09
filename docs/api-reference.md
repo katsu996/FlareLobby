@@ -126,27 +126,32 @@ FlareLobbyError }` です。`FlareLobbyError` の constructor は
 
 ### Client 本体
 
-| API                                                   | 引数                                                                                               | 戻り値                                       |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `createFlareLobbyClient<TApp>(options)`               | `endpoint`、`getAccessToken`、任意 `fetch`/WebSocket 差し替え、`requestIdFactory`、再接続設定      | `FlareLobbyClient<TApp>`                     |
-| `client.request<T>(path, options?)`                   | HTTP path、method、JSON `body`、headers、`signal`、`idempotent`、`requestId`                       | `Promise<T>`                                 |
-| `client.connect(path, options?)` / `connectWebSocket` | WebSocket path、`signal`、protocols、`knownEventTypes`、`lastRevision`                             | `Promise<FlareLobbyWebSocketConnection>`     |
-| `client.createCustomRoom(options?)`                   | `name/title`、visibility/listing、joinMethod/joinMode、人数、password、settings、signal、reconnect | `Promise<HostRoom<TApp>>`                    |
-| `client.joinCustomRoom(code)`                         | 招待コードまたは Room ID の文字列                                                                  | `Promise<PlayerRoom<TApp>>`                  |
-| `client.joinCustomRoom(options)`                      | `roomId` または `invitationCode/code`、role、password、signal、reconnect                           | `Promise<PlayerRoom                          | SpectatorRoom>` |
-| `client.listCustomRooms(query?)`                      | Pool/Room 条件、available、limit、cursor、signal                                                   | `Promise<CustomRoomListPage>`                |
-| `client.joinMatchmaking(pool, options?)`              | Pool ID/Pool、rating、region、inputMethod、検索属性、期限、signal、reconnect                       | `Promise<MatchmakingTicket>`                 |
-| `client.findMatch(pool, options?)`                    | `joinMatchmaking` と同じ                                                                           | `Promise<PlayerRoom<TApp>>`                  |
-| `client.getRating(pool, options?)`                    | Pool ID/Pool、signal                                                                               | `Promise<Rating>`                            |
-| `client.dispose()` / `destroy()`                      | なし                                                                                               | `void`。接続と購読を解放し以後は `CANCELLED` |
+| API                                                   | 引数                                                                                                                                                       | 戻り値                                       |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `createFlareLobbyClient<TApp>(options)`               | `endpoint`、`getAccessToken`、任意 `fetch`/WebSocket 差し替え、`requestIdFactory`、再接続設定、`requestTimeoutMs`/`connectionTimeoutMs`/`commandTimeoutMs` | `FlareLobbyClient<TApp>`                     |
+| `client.request<T>(path, options?)`                   | HTTP path、method、JSON `body`、headers、`signal`、`idempotent`、`requestId`、`timeoutMs`                                                                  | `Promise<T>`                                 |
+| `client.connect(path, options?)` / `connectWebSocket` | WebSocket path、`signal`、protocols、`knownEventTypes`、`lastRevision`、`timeoutMs`                                                                        | `Promise<FlareLobbyWebSocketConnection>`     |
+| `client.createCustomRoom(options?)`                   | `name/title`、visibility/listing、joinMethod/joinMode、人数、password、settings、signal、reconnect                                                         | `Promise<HostRoom<TApp>>`                    |
+| `client.joinCustomRoom(code)`                         | 招待コードまたは Room ID の文字列                                                                                                                          | `Promise<PlayerRoom<TApp>>`                  |
+| `client.joinCustomRoom(options)`                      | `roomId` または `invitationCode/code`、role、password、signal、reconnect                                                                                   | `Promise<PlayerRoom                          | SpectatorRoom>` |
+| `client.listCustomRooms(query?)`                      | Pool/Room 条件、available、limit、cursor、signal                                                                                                           | `Promise<CustomRoomListPage>`                |
+| `client.joinMatchmaking(pool, options?)`              | Pool ID/Pool、rating、region、inputMethod、検索属性、期限、signal、reconnect                                                                               | `Promise<MatchmakingTicket>`                 |
+| `client.findMatch(pool, options?)`                    | `joinMatchmaking` と同じ                                                                                                                                   | `Promise<PlayerRoom<TApp>>`                  |
+| `client.getRating(pool, options?)`                    | Pool ID/Pool、signal                                                                                                                                       | `Promise<Rating>`                            |
+| `client.dispose()` / `destroy()`                      | なし                                                                                                                                                       | `void`。接続と購読を解放し以後は `CANCELLED` |
 
 `client.dispose()` と `destroy()` はマッチング Ticket の待機・接続・購読・再接続タイマーも
 ローカルで解放します。サーバー上の Ticket の取消要求は送信しません。
 
 `ClientRequestOptions` は `method?`、`headers?`、JSON `body?`、`signal?`、
-`idempotent?`、`requestId?`、`ClientWebSocketOptions` は `signal?`、protocols、
-`knownEventTypes?`、`lastRevision?`、`ClientCommandOptions` は `signal?`、`requestId?`
-です。`FlareLobbyWebSocketConnection` は `closed`、`send(command, payload, options?)`
+`idempotent?`、`requestId?`、`timeoutMs?`、`ClientWebSocketOptions` は `signal?`、protocols、
+`knownEventTypes?`、`lastRevision?`、`timeoutMs?`、`ClientCommandOptions` は `signal?`、`requestId?`、
+`timeoutMs?` です。操作の `timeoutMs` が `undefined` のときは Client の既定値
+（`requestTimeoutMs`/`connectionTimeoutMs`/`commandTimeoutMs`）を継承し、`null` は
+明示的な無期限です。正の有限数（上限 2,147,483,647）のみ有効で、それ以外は
+`INVALID_PAYLOAD` です。期限切れは `TIMEOUT`（`requestId` がある場合は保持）で、
+自動再送しません。処理結果が不明なら同じ `requestId` で確認します。
+`FlareLobbyWebSocketConnection` は `closed`、`send(command, payload, options?)`
 （`Promise<T>`）、`onEvent()`、`onClose()`、`close()` を提供します。
 
 ### Room ハンドル
@@ -469,6 +474,7 @@ Room の既定値は `DEFAULT_DISCONNECT_GRACE_PERIOD_MS`、`DEFAULT_EVENT_HISTO
 | `ROOM_FINISHED`                | 終了済み Room への操作                                        | 新しい Room または新しい成立結果を使う                           |
 | `CONFLICT`                     | 現在状態、重複、requestId の Payload、rate limit などとの競合 | Snapshot/状態を再取得。Payload を変えた requestId は再利用しない |
 | `CANCELLED`                    | AbortSignal、明示取消、dispose で中止                         | 必要なら新しい要求を作る                                         |
+| `TIMEOUT`                      | Client の期限内に完了しなかった。自動再送しない               | 同じ requestId で結果を確認し必要なら新しい要求を作る            |
 | `INVALID_MESSAGE`              | JSON/Envelope/必須項目/サイズ/メッセージ種別が不正            | 型と Protocol v1、入力上限を確認                                 |
 | `INVALID_PAYLOAD`              | JSON は読めるが業務 Payload の型・値が不正                    | API の入力型、必須条件、値域を確認                               |
 | `UNSUPPORTED_PROTOCOL_VERSION` | 対応していない Protocol version                               | `PROTOCOL_VERSION` に合わせる                                    |

@@ -243,6 +243,8 @@ const protocolFailure: ServerFailureEnvelope = {
 
 const knownErrorCode: FlareLobbyErrorCode = "CANCELLED";
 
+const timeoutErrorCode: FlareLobbyErrorCode = "TIMEOUT";
+
 // @ts-expect-error イベントには状態変化後の revision が必要です。
 const invalidProtocolEvent: ServerEventEnvelope = {
   protocolVersion: 1,
@@ -262,5 +264,6 @@ void protocolCommand;
 void protocolEvent;
 void protocolFailure;
 void knownErrorCode;
+void timeoutErrorCode;
 void invalidProtocolEvent;
 void invalidErrorCode;

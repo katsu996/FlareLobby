@@ -132,6 +132,7 @@ Room の初回接続または再接続時の `room.snapshot` は、通常のス�
 | `ROOM_FINISHED`                | 終了済みルームへ許可されない操作を行った                             |
 | `CONFLICT`                     | 現在の状態、または同じ `requestId` の内容と競合した                  |
 | `CANCELLED`                    | 利用者または取消シグナルにより操作を中止した                         |
+| `TIMEOUT`                      | Client SDK が設定した期限内に操作が完了しなかった                    |
 | `INVALID_MESSAGE`              | Envelope の形式、必須項目、またはメッセージ種別が不正である          |
 | `INVALID_PAYLOAD`              | JSON は読めるが、操作固有の `payload` の型・値・必須条件が不正である |
 | `UNSUPPORTED_PROTOCOL_VERSION` | 既知でない必須プロトコル版を受信した                                 |
