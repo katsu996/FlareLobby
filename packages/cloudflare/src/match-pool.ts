@@ -30,6 +30,7 @@ import type {
 } from "@flarelobby/core";
 
 import {
+  FLARE_LOBBY_WEBSOCKET_PROTOCOL,
   createErrorResponse,
   verifyGatewayPrincipalEnvelope,
   readGatewayToken,
@@ -1806,6 +1807,9 @@ export class MatchPoolDurableObject
 
     return new Response(null, {
       status: 101,
+      headers: {
+        "Sec-WebSocket-Protocol": FLARE_LOBBY_WEBSOCKET_PROTOCOL,
+      },
       webSocket: pair[0],
     });
   }

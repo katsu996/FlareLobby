@@ -9,6 +9,7 @@ import type {
 } from "@flarelobby/core";
 
 import {
+  FLARE_LOBBY_WEBSOCKET_PROTOCOL,
   createErrorResponse,
   readGatewayToken,
   verifyGatewayPrincipalEnvelope,
@@ -771,7 +772,13 @@ export class PartyDurableObject extends DurableObject<Env> {
     for (const event of events) {
       pair[1].send(JSON.stringify(event));
     }
-    return new Response(null, { status: 101, webSocket: pair[0] });
+    return new Response(null, {
+      status: 101,
+      headers: {
+        "Sec-WebSocket-Protocol": FLARE_LOBBY_WEBSOCKET_PROTOCOL,
+      },
+      webSocket: pair[0],
+    });
   }
 
   private get partyName(): string {
