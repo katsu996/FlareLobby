@@ -66,6 +66,7 @@ let archiveDirectory = "";
 let logDirectory = "";
 let workerProcess = null;
 let viteProcess = null;
+let browserHandle = null;
 let workerPort = 0;
 let vitePort = 0;
 let workerOrigin = "";
@@ -208,6 +209,14 @@ async function stopProcess(handle, label, timeoutMs = 10_000) {
 }
 
 function cleanupSync() {
+  try {
+    if (browserHandle) {
+      void browserHandle.close().catch(() => {});
+      browserHandle = null;
+    }
+  } catch {
+    // ignore
+  }
   try {
     if (workerProcess) {
       workerProcess.child.kill("SIGKILL");
@@ -479,19 +488,34 @@ const api = {
   },
   async waitForMatch(timeoutMs: number): Promise<string> {
     if (!ticket) throw new Error("ticket がありません。");
-    const matched = await ticket.waitForMatch();
-    room = matched;
-    ticket = undefined;
-    return matched.snapshot.room.id;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const matched = await ticket.waitForMatch({
+        signal: controller.signal,
+      });
+      room = matched;
+      ticket = undefined;
+      return matched.snapshot.room.id;
+    } finally {
+      clearTimeout(timer);
+    }
   },
-  async findMatchAndWait(): Promise<string> {
+  async findMatchAndWait(timeoutMs: number): Promise<string> {
     if (!client) throw new Error("client が初期化されていません。");
-    const matched = await client.findMatch(SOLO_POOL, {
-      requestId: crypto.randomUUID(),
-      rating: 1500,
-    });
-    room = matched;
-    return matched.snapshot.room.id;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const matched = await client.findMatch(SOLO_POOL, {
+        requestId: crypto.randomUUID(),
+        rating: 1500,
+        signal: controller.signal,
+      });
+      room = matched;
+      return matched.snapshot.room.id;
+    } finally {
+      clearTimeout(timer);
+    }
   },
   async cancelQueue(): Promise<string> {
     if (!ticket) return "no-ticket";
@@ -586,7 +610,9 @@ function harnessHtmlSource() {
 
 function stagePack() {
   stage = "pack";
-  consumerRoot = mkdtempSync(join(tmpdir(), "flarelobby-consumer-"));
+  consumerRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "flarelobby-consumer-")),
+  );
   archiveDirectory = join(consumerRoot, "archives");
   logDirectory = join(consumerRoot, "logs");
   mkdirSync(archiveDirectory, { recursive: true });
@@ -1103,10 +1129,11 @@ async function stageServers(consumer) {
   log("wrangler dev と Vite の起動を確認しました。");
 }
 
-async function stageBrowser() {
+async function runBrowserStage() {
   stage = "browser";
   const { chromium } = await import("playwright");
   const browser = await chromium.launch({ headless: true });
+  browserHandle = browser;
   const results = { steps: [] };
   try {
     const record = (name, ok, detail = "") => {
@@ -1185,7 +1212,9 @@ async function stageBrowser() {
       await queuePromise;
       const [firstRoomId, secondRoomId] = await Promise.all([
         first.page.evaluate(() => window.__consumerHarness.waitForMatch(15000)),
-        second.page.evaluate(() => window.__consumerHarness.findMatchAndWait()),
+        second.page.evaluate(() =>
+          window.__consumerHarness.findMatchAndWait(15000),
+        ),
       ]);
       record(
         "matchmaking-1v1",
@@ -1260,17 +1289,7 @@ async function stageBrowser() {
       const cancelled = await first.page.evaluate(() =>
         window.__consumerHarness.cancelQueue(),
       );
-      record(
-        "queue-cancel",
-        [
-          "cancelled",
-          "cancelled-by-user",
-          "cancelled-by-client",
-          "canceled",
-          "no-ticket",
-        ].includes(cancelled) || typeof cancelled === "string",
-        cancelled,
-      );
+      record("queue-cancel", cancelled === "cancelled", cancelled);
       const disposedA = await first.page.evaluate(() =>
         window.__consumerHarness.dispose(),
       );
@@ -1385,6 +1404,32 @@ async function stageBrowser() {
     );
   } finally {
     await browser.close().catch(() => {});
+    if (browserHandle === browser) browserHandle = null;
+  }
+}
+
+async function stageBrowser() {
+  stage = "browser";
+  const controller = new AbortController();
+  try {
+    const overallTimeout = delay(TIMEOUTS.browserTotalMs, undefined, {
+      signal: controller.signal,
+    }).then(
+      async () => {
+        try {
+          await browserHandle?.close();
+        } catch {
+          // タイムアウト時の後始末の失敗は元のタイムアウトを優先する。
+        }
+        fail(
+          `browser stage の全体タイムアウト (${TIMEOUTS.browserTotalMs} ms) を超過しました。`,
+        );
+      },
+      () => undefined,
+    );
+    await Promise.race([runBrowserStage(), overallTimeout]);
+  } finally {
+    controller.abort();
   }
 }
 
@@ -1419,6 +1464,12 @@ async function main() {
         error instanceof Error ? (error.stack ?? error.message) : String(error),
       ),
     );
+    try {
+      await browserHandle?.close();
+    } catch {
+      // ignore
+    }
+    browserHandle = null;
     try {
       await stopProcess(workerProcess, "wrangler dev");
     } catch {

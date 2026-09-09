@@ -15,6 +15,7 @@ import {
   verifyGatewayPrincipalEnvelope,
 } from "./security.js";
 import type { GatewayPrincipalEnvelope } from "./security.js";
+import { hasWebSocketProtocol } from "./room.js";
 
 /** パーティーの既定定員です。リーダーを含めます。 */
 export const DEFAULT_PARTY_MAX_SIZE = 5;
@@ -765,6 +766,10 @@ export class PartyDurableObject extends DurableObject<Env> {
       request.headers.get("upgrade")?.toLowerCase() === "websocket";
     if (!wantsWebSocket) {
       return Response.json({ events });
+    }
+
+    if (!hasWebSocketProtocol(request)) {
+      return createErrorResponse(new FlareLobbyError("INVALID_MESSAGE"));
     }
 
     const pair = new WebSocketPair();

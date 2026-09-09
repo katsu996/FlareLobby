@@ -37,6 +37,7 @@ import {
 } from "./security.js";
 import type { GatewayPrincipalEnvelope } from "./security.js";
 import type { RoomInitializationOptions } from "./room.js";
+import { hasWebSocketProtocol } from "./room.js";
 import {
   createObservabilityContext,
   createObservabilitySink,
@@ -1795,6 +1796,10 @@ export class MatchPoolDurableObject
     if (!wantsWebSocket) {
       const currentTicket = this.toTicket(ticket);
       return Response.json({ ticket: currentTicket, events });
+    }
+
+    if (!hasWebSocketProtocol(request)) {
+      return createErrorResponse(new FlareLobbyError("INVALID_MESSAGE"));
     }
 
     const pair = new WebSocketPair();
