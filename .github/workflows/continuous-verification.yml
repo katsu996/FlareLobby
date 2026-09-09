@@ -91,3 +91,18 @@ jobs:
 
       - name: Verify Cloudflare sample deploy dry-run
         run: pnpm check:deploy
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Verify independent consumer project E2E
+        run: pnpm check:consumer
+
+      - name: Upload consumer failure bundle
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: consumer-failure-${{ github.run_number }}
+          path: /tmp/flarelobby-consumer-failure-*
+          if-no-files-found: warn
+          retention-days: 14

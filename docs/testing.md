@@ -178,6 +178,63 @@ README、利用ガイド、API リファレンスのコード例は、動作説�
 | Issue/PR Template が日本語である         | `.github/ISSUE_TEMPLATE/`、`.github/pull_request_template.md` |
 | 未実装機能を利用可能と誤認させない       | `README.md` の対象範囲、各ガイドの対象外記載                  |
 
+## 配布 tarball の独立プロジェクト導入 E2E
+
+`pnpm check:consumer`（`scripts/verify-consumer.mjs`）は、npm 未公開の状態でも
+4 package の tarball だけで別プロジェクトが成立することを検証します。
+`templates/standalone` を OS 一時ディレクトリへコピーし、同一検証で生成した
+4 tarball へ `pnpm-workspace.yaml` の overrides で固定して install します。
+workspace 参照、`src` への symlink、tsconfig paths、元 repo の `node_modules`
+参照が残っていた場合は失敗します。
+
+検証内容は次のとおりです。
+
+- client/core/testing の Node ESM import と全公開 Entry Point・型宣言の確認
+  （cloudflare の runtime entry は `cloudflare:workers` 専用のため Workers 側で検証）
+- `wrangler types` と `skipLibCheck:false` の型検査
+  （型宣言の配布不備を `skipLibCheck:true` で隠さない）
+- 配布 Migration だけでのローカル D1 初期化（空 DB と旧スキーマ fixture の
+  データ保持を含む）
+- 配布テンプレートの拒否設定を維持したまま、独立したテスト entry から認証を注入し、
+  `wrangler dev` をローカル起動
+- Playwright Chromium の 2 context で、別オリジンの Vite/browser から
+  HTTP と WebSocket を利用した作成・参加・準備・状態通知・1v1 マッチング・
+  切断復帰（snapshot/revision 確認）・cancel/dispose
+- 不許可 Origin からの CORS アクセスをブラウザが拒否することの確認
+
+切断は Playwright の offline 制御と harness の接続切断で再現し、任意の sleep
+ではなく状態到達を待って判定します。Cloudflare account、本番 DB、
+実デプロイ用 credential は必要ありません。
+
+### 準備と実行
+
+```sh
+pnpm exec playwright install --with-deps chromium
+pnpm check:consumer
+pnpm release:check
+```
+
+ローカルで依存だけ用意する場合は `pnpm exec playwright install chromium` でも
+実行できます。`release:check` は `check:rating-schema` の後に `check:consumer`
+を実行します。CI（Continuous Verification）もブラウザの準備後に同じ
+`pnpm check:consumer` を実行します。
+
+### 所要時間とタイムアウト
+
+ローカル実行の目安は約 1〜2 分です。スクリプト内の上限は次のとおりです。
+build・install 各 5 分、型検査 3 分、D1 各 2 分、wrangler dev 起動待ち 90 秒、
+Vite 起動待ち 30 秒、ブラウザ各段階 20 秒・全体 5 分です。
+CI ジョブの `timeout-minutes: 20` と合わせて管理します。
+
+### 失敗ログの場所
+
+失敗時は OS 一時ディレクトリの `/tmp/flarelobby-consumer-failure-<timestamp>/`
+へ `state.json`（段階・所要・タイムアウト設定・エラー）、`wrangler.log`、
+`vite.log`、`browser.json` を保存し、成功時は一時ファイルを削除します。
+token/secret（`Authorization` の Bearer 値とテスト秘密値）はマスク済みです。
+CI では失敗時に同ディレクトリを artifact `consumer-failure-<run number>`
+として 14 日間保存します。
+
 ## v0.1.0 公開前チェック
 
 Issue #28 の公開前確認は、クリーンな checkout で次の 1 コマンドとして再実行できます。
@@ -197,6 +254,9 @@ pnpm release:check
    MIT License、tarball 許可リストと 4 package の npm publish dry-run
 5. `scripts/verify-cloudflare-deploy.mjs` による一時ディレクトリでのサンプル build と
    `wrangler deploy --dry-run`
+6. `scripts/verify-rating-schema.mjs` によるレーティングスキーマの整合確認
+7. `scripts/verify-consumer.mjs` による配布 tarball の独立プロジェクト導入 E2E
+   （Playwright Chromium、別オリジン、ローカル `wrangler dev` のみ）
 
 npm dry-run には `--no-git-checks` を使いますが、version、public access、公開ファイル、
 秘密・内部ファイルの不在を別途検証します。Cloudflare dry-run は upload 前に終了し、
