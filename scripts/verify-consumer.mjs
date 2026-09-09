@@ -31,7 +31,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -668,15 +668,19 @@ function stageScaffold(tarballs) {
   stage = "scaffold";
   const consumer = join(consumerRoot, "consumer");
   mkdirSync(consumer, { recursive: true });
-  cpSync(join(root, "templates", "standalone"), consumer, {
+  const templateDirectory = join(root, "templates", "standalone");
+  cpSync(templateDirectory, consumer, {
     recursive: true,
-    filter: (source) =>
-      !source.includes("node_modules") &&
-      !source.includes(
-        `${resolve(root, "templates", "standalone")}${"/dist"}`,
-      ) &&
-      !source.endsWith("/.wrangler") &&
-      !source.endsWith("/dist"),
+    filter: (source) => {
+      if (source === templateDirectory) return true;
+      const segments = relative(templateDirectory, source).split(sep);
+      return !segments.some(
+        (segment) =>
+          segment === "node_modules" ||
+          segment === "dist" ||
+          segment === ".wrangler",
+      );
+    },
   });
 
   const manifestPath = join(consumer, "package.json");
@@ -735,6 +739,17 @@ function stageScaffold(tarballs) {
   return consumer;
 }
 
+// 解決した entry 実パスから package 境界へ戻す。platform の separator で
+// 比較するため、POSIX 専用の正規表現は使わない。
+function packageDirectoryFromEntry(entry) {
+  const real = realpathSync(entry);
+  if (basename(dirname(real)) === "dist") return dirname(dirname(real));
+  const segments = real.split(sep);
+  const distIndex = segments.lastIndexOf("dist");
+  if (distIndex > 0) return segments.slice(0, distIndex).join(sep);
+  return real;
+}
+
 function stageInstall(consumer) {
   stage = "install";
   log("独立プロジェクトとして install します (tarball のみ)。");
@@ -750,7 +765,7 @@ function stageInstall(consumer) {
     const entry = consumerRequire.resolve(pkg.name, {
       paths: [consumer],
     });
-    const packageDirectory = realpathSync(entry).replace(/\/dist\/.*$/, "");
+    const packageDirectory = packageDirectoryFromEntry(entry);
     const manifestPath = join(packageDirectory, "package.json");
     const real = realpathSync(packageDirectory);
     if (!real.startsWith(consumer)) {
@@ -786,7 +801,7 @@ async function stageNodeImports(consumer) {
   const consumerRequire = createRequire(join(consumer, "package.json"));
   const packageDirectoryOf = (name) => {
     const entryResolved = consumerRequire.resolve(name, { paths: [consumer] });
-    return realpathSync(entryResolved).replace(/\/dist\/.*$/, "");
+    return packageDirectoryFromEntry(entryResolved);
   };
   const importFrom = async (name, sub = "dist/index.js") =>
     import(join(packageDirectoryOf(name), sub));
