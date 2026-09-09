@@ -9,6 +9,10 @@ Migration を含みます。
 pnpm add @flarelobby/cloudflare @flarelobby/core
 ```
 
+上記は公開後の指定です。公開前の検証は
+[導入とローカルサンプル](https://github.com/katsu996/FlareLobby/blob/main/docs/getting-started.md) の
+npm 利用者向け手順の tarball 経路を使ってください。
+
 Binding、Migration、環境型生成、デプロイの手順は
 [Cloudflare 設定](https://github.com/katsu996/FlareLobby/blob/main/docs/cloudflare-configuration.md)
 と

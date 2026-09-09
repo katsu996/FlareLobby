@@ -8,6 +8,10 @@ ES Modules パッケージです。
 pnpm add @flarelobby/core
 ```
 
+上記は公開後の指定です。公開前の検証は
+[導入とローカルサンプル](https://github.com/katsu996/FlareLobby/blob/main/docs/getting-started.md) の
+npm 利用者向け手順の tarball 経路を使ってください。
+
 利用方法と全公開 Export は、リポジトリの
 [API リファレンス](https://github.com/katsu996/FlareLobby/blob/main/docs/api-reference.md)
 を参照してください。現行のマッチングとレーティングの使い分けは

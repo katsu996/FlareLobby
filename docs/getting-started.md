@@ -56,13 +56,35 @@ pnpm --filter @flarelobby/cloudflare pack
 pnpm --filter @flarelobby/client pack
 mkdir /tmp/flarelobby-template-check
 cp -r templates/standalone/. /tmp/flarelobby-template-check/
+cp flarelobby-core-0.1.0.tgz flarelobby-cloudflare-0.1.0.tgz flarelobby-client-0.1.0.tgz /tmp/flarelobby-template-check/
 ```
 
-一時コピー側で生成 tarball を `file:` 指定に置き換えて `pnpm install` します。
+tarball 名のバージョン部分は生成された名前に読み替えてください。次は一時コピー側で
+実行し、3 依存を `file:` 参照へ置き換えます。元のテンプレートは公開パッケージ名と
+バージョン指定のままにします。
+
+```sh
+cd /tmp/flarelobby-template-check
+npm pkg set dependencies.@flarelobby/core=file:./flarelobby-core-0.1.0.tgz
+npm pkg set dependencies.@flarelobby/cloudflare=file:./flarelobby-cloudflare-0.1.0.tgz
+npm pkg set dependencies.@flarelobby/client=file:./flarelobby-client-0.1.0.tgz
+```
+
 `@flarelobby/cloudflare` と `@flarelobby/client` が依存する `@flarelobby/core`
-は推移的に registry 解決されるため、一時コピー側の `pnpm-workspace.yaml` の
-`overrides` でも生成 tarball を指定します。
-元のテンプレートは公開パッケージ名とバージョン指定のままにします。
+は推移的に registry 解決されるため、一時コピー側に `pnpm-workspace.yaml` を作り
+生成 tarball で override してから `pnpm install` します。
+
+```yaml
+overrides:
+  "@flarelobby/core": "file:./flarelobby-core-0.1.0.tgz"
+allowBuilds:
+  esbuild: true
+  workerd: true
+```
+
+```sh
+pnpm install
+```
 
 テンプレートの初期化は次のとおりです。
 
