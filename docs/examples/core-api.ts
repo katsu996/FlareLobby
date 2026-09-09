@@ -3,6 +3,7 @@ import {
   decodeServerMessage,
   elo,
   getMatchmakingSearchWidth,
+  glicko2,
   normalizeMatchmakingSearchPolicy,
 } from "@flarelobby/core";
 
@@ -20,6 +21,11 @@ const calculation = elo().calculate({
   ratingB: 1_500,
   result: 1,
 });
+const glicko2Calculation = glicko2().calculate({
+  ratingA: 1_500,
+  ratingB: 1_500,
+  result: 1,
+});
 const revision = classifyEventRevision(7, 8);
 const decoded = decodeServerMessage(
   JSON.stringify({
@@ -32,4 +38,10 @@ const decoded = decodeServerMessage(
   { knownEventTypes: ["room.snapshot"] },
 );
 
-void [width, calculation.updatedRatingA, revision, decoded.ok];
+void [
+  width,
+  calculation.updatedRatingA,
+  glicko2Calculation.updatedRatingA,
+  revision,
+  decoded.ok,
+];
