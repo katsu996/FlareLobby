@@ -30,12 +30,14 @@ import type {
 } from "@flarelobby/core";
 
 import {
+  FLARE_LOBBY_WEBSOCKET_PROTOCOL,
   createErrorResponse,
   verifyGatewayPrincipalEnvelope,
   readGatewayToken,
 } from "./security.js";
 import type { GatewayPrincipalEnvelope } from "./security.js";
 import type { RoomInitializationOptions } from "./room.js";
+import { hasWebSocketProtocol } from "./room.js";
 import {
   createObservabilityContext,
   createObservabilitySink,
@@ -1796,6 +1798,10 @@ export class MatchPoolDurableObject
       return Response.json({ ticket: currentTicket, events });
     }
 
+    if (!hasWebSocketProtocol(request)) {
+      return createErrorResponse(new FlareLobbyError("INVALID_MESSAGE"));
+    }
+
     const pair = new WebSocketPair();
     const tag = ticketEventTag(parsedPath.ticketId);
     this.ctx.acceptWebSocket(pair[1], [tag]);
@@ -1806,6 +1812,9 @@ export class MatchPoolDurableObject
 
     return new Response(null, {
       status: 101,
+      headers: {
+        "Sec-WebSocket-Protocol": FLARE_LOBBY_WEBSOCKET_PROTOCOL,
+      },
       webSocket: pair[0],
     });
   }

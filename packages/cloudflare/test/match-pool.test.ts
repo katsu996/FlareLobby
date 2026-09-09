@@ -1238,6 +1238,7 @@ describe("Match Pool Durable Object", () => {
         headers: {
           "x-flarelobby-gateway-token": principal.token,
           upgrade: "websocket",
+          "Sec-WebSocket-Protocol": "flarelobby.v1",
         },
       }),
     );
@@ -2005,6 +2006,7 @@ describe("Match Pool Durable Object", () => {
         headers: {
           "x-flarelobby-gateway-token": principal.token,
           upgrade: "websocket",
+          "Sec-WebSocket-Protocol": "flarelobby.v1",
         },
       }),
     );

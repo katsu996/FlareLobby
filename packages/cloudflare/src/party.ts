@@ -9,11 +9,13 @@ import type {
 } from "@flarelobby/core";
 
 import {
+  FLARE_LOBBY_WEBSOCKET_PROTOCOL,
   createErrorResponse,
   readGatewayToken,
   verifyGatewayPrincipalEnvelope,
 } from "./security.js";
 import type { GatewayPrincipalEnvelope } from "./security.js";
+import { hasWebSocketProtocol } from "./room.js";
 
 /** パーティーの既定定員です。リーダーを含めます。 */
 export const DEFAULT_PARTY_MAX_SIZE = 5;
@@ -766,12 +768,22 @@ export class PartyDurableObject extends DurableObject<Env> {
       return Response.json({ events });
     }
 
+    if (!hasWebSocketProtocol(request)) {
+      return createErrorResponse(new FlareLobbyError("INVALID_MESSAGE"));
+    }
+
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], ["party"]);
     for (const event of events) {
       pair[1].send(JSON.stringify(event));
     }
-    return new Response(null, { status: 101, webSocket: pair[0] });
+    return new Response(null, {
+      status: 101,
+      headers: {
+        "Sec-WebSocket-Protocol": FLARE_LOBBY_WEBSOCKET_PROTOCOL,
+      },
+      webSocket: pair[0],
+    });
   }
 
   private get partyName(): string {
