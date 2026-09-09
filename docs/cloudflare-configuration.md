@@ -1,7 +1,10 @@
 # Cloudflare 設定
 
 FlareLobby の Gateway Worker を Cloudflare へデプロイするための Binding、
-D1 Migration、Secret、環境構成の手順をまとめます。ローカル起動の最小手順は
+D1 Migration、Secret、環境構成の手順をまとめます。npm 利用者の導入全体は
+[導入とローカルサンプル](./getting-started.md) の npm 利用者向け手順を起点にし、
+公式の導入例は [Standalone テンプレート](../templates/standalone/README.md) です。
+本体リポジトリを clone せずに導入できます。ローカル起動の最小手順（本体開発者向け）は
 [README](../README.md) を参照してください。
 
 ## 必要な Binding
@@ -85,6 +88,14 @@ pnpm add -D wrangler
 pnpm wrangler d1 migrations apply my-flarelobby --local
 pnpm wrangler dev
 ```
+
+2026-09-08 時点では `@flarelobby/*` は npm registry で未公開（`404 Not Found`）
+のため、上記 `pnpm add` が成功すると断言しません。公開後は上記で導入し、
+公開前の検証は本体リポジトリで `pnpm pack` した tarball を一時コピーへ導入する
+経路を使ってください。配布テンプレートへローカル絶対パスや `workspace:` を
+残しません。詳細な検証手順は [導入とローカルサンプル](./getting-started.md) の
+npm 利用者向け手順と [Standalone テンプレート](../templates/standalone/README.md)
+を参照してください。
 
 モノレポ内のローカルデモは `../../packages/cloudflare/migrations` を参照するため、
 デモ用の `0003_local_demo_rps.sql` も引き続き適用されます。
@@ -211,7 +222,8 @@ Binding と Secret の不備は処理開始前に検証されます。必須 Bin
 認証不要の `GET /` が返す `{ status: "ready" }` は必須設定検証の結果であり、
 DB 疎通・Migration 適用済み・外部認証サービスの正常性の保証ではありません。
 必須設定の不備がある場合は `GET /` を含む全要求を処理開始前に `500` で拒否します。
-新たな `/health` は追加しません。
+`GET /health` はローカルデモ独自のエンドポイントであり、標準 Gateway には
+追加しません。今回新たな health API は作りません。
 
 ## CORS（ブラウザからの利用）
 
@@ -272,3 +284,13 @@ Node.js と pnpm のバージョンは [mise.toml](../mise.toml) に固定され
 `FlareLobbyConfigurationError` として報告されます。設定項目の詳細は
 [`packages/cloudflare/src/config.ts`](../packages/cloudflare/src/config.ts)
 の doc コメントを参照してください。
+
+認証サービスは固定しません。`authenticate` が `null` を返す要求は未認証として
+扱い、`authorization` を省略した場合や `false`・例外を返す場合は保護対象の操作を
+既定で拒否します。利用者が検証済みの主体 ID を返す `authenticate` と明示的な
+`authorization` Hook を接続する責任を持ちます。ローカルデモの `x-demo-player`
+認証はローカル確認専用であり、本番例にしません。型検査対象の接続例は
+[`docs/examples/cloudflare-config.ts`](./examples/cloudflare-config.ts) と
+[`docs/examples/npm-standalone-worker.ts`](./examples/npm-standalone-worker.ts)、
+公式の導入例は [Standalone テンプレート](../templates/standalone/README.md) の
+`src/index.ts` を参照してください。

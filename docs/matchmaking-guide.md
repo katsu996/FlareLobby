@@ -1,8 +1,10 @@
 # マッチメイキング利用ガイド
 
-FlareLobby の v0.1.0 マッチングは、同じ Pool の 2 枚のチケットを 1 対 1 で成立
-させ、対戦 Room への接続情報を返します。候補探索は `@flarelobby/core` の純粋
-関数、永続状態と競合制御は Match Pool Durable Object が担当します。
+FlareLobby の現行マッチングは、同じ Pool のチケットを 1 対 1 または
+パーティー/チーム単位で成立させ、対戦 Room への接続情報を返します。候補探索は
+`@flarelobby/core` の純粋関数、永続状態と競合制御は Match Pool Durable Object が
+担当します。v0.1.0 時点の 1 対 1 のみの範囲は [v0.1.0 Release Note](./releases/v0.1.0.md)
+を歴史記録として参照してください。
 
 ## Pool を設定する
 
