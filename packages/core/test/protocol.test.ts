@@ -346,6 +346,44 @@ describe("JSON 通信プロトコル v1", () => {
     expect(withRequest.toJSON()).toEqual(payload);
   });
 
+  it("HTTP メタデータは保持し wire 形式と WebSocket 互換を維持する", () => {
+    const error = new FlareLobbyError("CONFLICT", {
+      message: "要求が許可された頻度を超えています。",
+      requestId: "request-1",
+      httpStatus: 429,
+      retryAfterSeconds: 12,
+    });
+
+    expect(error.code).toBe("CONFLICT");
+    expect(error.requestId).toBe("request-1");
+    expect(error.httpStatus).toBe(429);
+    expect(error.retryAfterSeconds).toBe(12);
+    // toJSON の wire 形式は変更しない。
+    expect(error.toJSON()).toEqual({
+      code: "CONFLICT",
+      message: "要求が許可された頻度を超えています。",
+    });
+    expect(JSON.stringify(error)).toBe(
+      JSON.stringify({
+        code: "CONFLICT",
+        message: "要求が許可された頻度を超えています。",
+      }),
+    );
+
+    // fromPayload は通信 Envelope の復元のみで HTTP 情報を新設しない。
+    const restored = FlareLobbyError.fromPayload(error.toJSON(), "request-1");
+    expect(restored.code).toBe("CONFLICT");
+    expect(restored.message).toBe("要求が許可された頻度を超えています。");
+    expect(restored.requestId).toBe("request-1");
+    expect(restored.httpStatus).toBeUndefined();
+    expect(restored.retryAfterSeconds).toBeUndefined();
+
+    // 既定では HTTP メタデータを持たない。
+    const plain = new FlareLobbyError("CONFLICT");
+    expect(plain.httpStatus).toBeUndefined();
+    expect(plain.retryAfterSeconds).toBeUndefined();
+  });
+
   it("decode 系の入力形式と JSON 解析失敗を INVALID_MESSAGE へ正規化する", () => {
     // 文字列以外
     expectProtocolError(

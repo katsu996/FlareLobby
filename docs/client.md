@@ -46,6 +46,40 @@ const result = await client.request<{ readonly accepted: boolean }>(
 HTTP の失敗、JSON の不正、通信例外は `FlareLobbyError` と安定したエラーコードへ
 正規化されます。
 
+### HTTP エラーと待ち時間表示
+
+HTTP の非成功応答は本文の形式（JSON・非 JSON・空・不正）にかかわらず
+`httpStatus` を保持し、有効な `Retry-After` があれば `retryAfterSeconds` も
+保持します。`code` の意味は変えず、レート制限は `code: "CONFLICT"` のままです。
+`Retry-After` は非負の整数秒または有効な HTTP 日時だけを解釈し、欠落・不正値は
+未設定です。別オリジンでは CORS の `Access-Control-Expose-Headers: Retry-After`
+により読み取れます。自動リトライは行いません。
+
+```ts
+import { FlareLobbyError } from "@flarelobby/core";
+
+try {
+  await client.request("/v1/custom-rooms", {
+    method: "POST",
+    body: { name: "練習ルーム" },
+  });
+} catch (error) {
+  if (error instanceof FlareLobbyError) {
+    const waitSeconds = error.retryAfterSeconds;
+    showError({
+      code: error.code,
+      status: error.httpStatus,
+      message:
+        waitSeconds === undefined
+          ? error.message
+          : `${error.message}（約${waitSeconds}秒後に再試行できます）`,
+    });
+  } else {
+    throw error;
+  }
+}
+```
+
 ## タイムアウト
 
 HTTP 要求、WebSocket 接続、WebSocket コマンドには期限を設定できます。

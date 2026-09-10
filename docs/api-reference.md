@@ -118,9 +118,13 @@ ID の別名は `PlayerId`、`PrincipalId`、`RoomId`、`InvitationCode`、`Part
 
 `ProtocolResult<T>` は `{ ok: true, value }` または `{ ok: false, error:
 FlareLobbyError }` です。`FlareLobbyError` の constructor は
-`(code, options?: { message?: string; requestId?: string })`、公開プロパティは
-`code`、`requestId`、`message`、`toJSON()` は安全な `{ code, message }`、
+`(code, options?: { message?: string; requestId?: string; httpStatus?: number;
+retryAfterSeconds?: number })`、公開プロパティは
+`code`、`requestId`、`message`、`httpStatus?`、`retryAfterSeconds?`、
+`toJSON()` は安全な `{ code, message }`、
 `FlareLobbyError.fromPayload(payload, requestId?)` は通信エラーから公開例外を作ります。
+`httpStatus` と `retryAfterSeconds` は HTTP 失敗時のみ設定され、`toJSON()` と
+通信 Envelope の wire 形式には含まれません。WebSocket エラーには付けません。
 
 ## `@flarelobby/client`
 
@@ -153,6 +157,17 @@ FlareLobbyError }` です。`FlareLobbyError` の constructor は
 自動再送しません。処理結果が不明なら同じ `requestId` で確認します。
 `FlareLobbyWebSocketConnection` は `closed`、`send(command, payload, options?)`
 （`Promise<T>`）、`onEvent()`、`onClose()`、`close()` を提供します。
+
+HTTP の非成功応答は本文が JSON・非 JSON・空・不正のいずれでも
+`FlareLobbyError` へ `httpStatus` を保持し、有効な `Retry-After` があれば
+`retryAfterSeconds` も保持します（`429` に限らず `503` などでも保持）。
+`code` の意味は変えず、レート制限の `CONFLICT` を新しいコードへ変更しません。
+`Retry-After` は前後空白除去後に非負の整数秒または有効な HTTP 日時として解釈し、
+日時は `max(0, ceil((retryAt - now) / 1000))` で秒数化します。負数・小数・
+非数値・不正日時・極端に大きい値・欠落は `retryAfterSeconds` 未設定です。
+ネットワーク失敗など HTTP 応答前の失敗には `httpStatus` を付けません。
+自動リトライや認証更新は行いません。別オリジンでは CORS の
+`Access-Control-Expose-Headers: Retry-After` によりブラウザから読み取れます。
 
 ### Room ハンドル
 

@@ -168,7 +168,7 @@ function isRateLimitDeniedError(
 ): error is RateLimitDeniedError {
   return (
     error.code === "CONFLICT" &&
-    typeof (error as RateLimitDeniedError).retryAfterSeconds === "number"
+    typeof error.retryAfterSeconds === "number"
   );
 }
 
@@ -182,12 +182,9 @@ export function createRateLimitError(
   retryAfterSeconds: number,
   message?: string,
 ): FlareLobbyError {
-  return Object.assign(
-    message === undefined
-      ? new FlareLobbyError("CONFLICT")
-      : new FlareLobbyError("CONFLICT", { message }),
-    { retryAfterSeconds },
-  ) as FlareLobbyError;
+  return message === undefined
+    ? new FlareLobbyError("CONFLICT", { retryAfterSeconds })
+    : new FlareLobbyError("CONFLICT", { message, retryAfterSeconds });
 }
 
 const TOKEN_VERSION = 1 as const;
