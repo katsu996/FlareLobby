@@ -426,7 +426,7 @@ class FlareLobbyClientImpl<
     const responseBody = await readResponseBody(response, requestId);
 
     if (!response.ok) {
-      throw normalizeHttpError(response.status, responseBody, requestId);
+      throw normalizeHttpError(response, responseBody, requestId);
     }
 
     if (!responseBody.ok) {
@@ -549,9 +549,7 @@ class FlareLobbyClientImpl<
             return;
           }
           if (!response.ok) {
-            doReject(
-              normalizeHttpError(response.status, responseBody, requestId),
-            );
+            doReject(normalizeHttpError(response, responseBody, requestId));
             return;
           }
           if (!responseBody.ok) {
@@ -2017,34 +2015,160 @@ async function readResponseBody(
 }
 
 function normalizeHttpError(
-  status: number,
+  response: Response,
   body:
     | { readonly ok: true; readonly value: unknown }
     | { readonly ok: false; readonly error: FlareLobbyError },
   requestId: RequestId | undefined,
+  now: number = Date.now(),
 ): FlareLobbyError {
+  const httpStatus = response.status;
+  const retryAfterSeconds = parseRetryAfterSeconds(
+    readRetryAfterHeader(response),
+    now,
+  );
+  const httpContext =
+    retryAfterSeconds === undefined
+      ? { httpStatus }
+      : { httpStatus, retryAfterSeconds };
+
   if (!body.ok) {
-    return body.error;
+    return withHttpMetadata(body.error, httpContext);
   }
 
   const payload = readErrorPayload(body.value);
   if (payload !== null) {
-    return FlareLobbyError.fromPayload(payload, requestId);
+    return new FlareLobbyError(payload.code, {
+      message: payload.message,
+      ...(requestId === undefined ? {} : { requestId }),
+      ...httpContext,
+    });
   }
 
-  switch (status) {
+  switch (httpStatus) {
     case 400:
     case 422:
-      return createErrorWithRequestId("INVALID_PAYLOAD", requestId);
+      return new FlareLobbyError("INVALID_PAYLOAD", {
+        ...(requestId === undefined ? {} : { requestId }),
+        ...httpContext,
+      });
     case 401:
-      return createErrorWithRequestId("UNAUTHENTICATED", requestId);
+      return new FlareLobbyError("UNAUTHENTICATED", {
+        ...(requestId === undefined ? {} : { requestId }),
+        ...httpContext,
+      });
     case 403:
-      return createErrorWithRequestId("FORBIDDEN", requestId);
+      return new FlareLobbyError("FORBIDDEN", {
+        ...(requestId === undefined ? {} : { requestId }),
+        ...httpContext,
+      });
     case 409:
-      return createErrorWithRequestId("CONFLICT", requestId);
+      return new FlareLobbyError("CONFLICT", {
+        ...(requestId === undefined ? {} : { requestId }),
+        ...httpContext,
+      });
     default:
-      return createErrorWithRequestId("CONNECTION_FAILED", requestId);
+      return new FlareLobbyError("CONNECTION_FAILED", {
+        ...(requestId === undefined ? {} : { requestId }),
+        ...httpContext,
+      });
   }
+}
+
+/**
+ * `Retry-After` 応答ヘッダーを安全に読み取ります。
+ *
+ * `fetch` 差し替えの簡易モックなど `headers` を持たない応答では
+ * 欠落として扱い、例外を公開しません。
+ */
+function readRetryAfterHeader(response: Response): string | null {
+  try {
+    return response.headers?.get("Retry-After") ?? null;
+  } catch {
+    // ヘッダー読み取りの失敗は欠落として扱います。
+    return null;
+  }
+}
+
+/**
+ * `Retry-After` の値を再試行までの秒数へ解釈します。
+ *
+ * 前後空白を除去し、非負の整数秒または有効な HTTP 日時だけを受け付けます。
+ * 負数、小数、非数値、不正日時、極端に大きい値は無視して `undefined` を返します。
+ * ヘッダー欠落を `0` 秒とは解釈しません。
+ */
+function parseRetryAfterSeconds(
+  value: string | null | undefined,
+  now: number = Date.now(),
+): number | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  if (trimmed === "") {
+    return undefined;
+  }
+
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+
+    if (!Number.isSafeInteger(seconds)) {
+      return undefined;
+    }
+
+    return seconds;
+  }
+
+  const retryAt = parseHttpDate(trimmed);
+
+  if (retryAt === null) {
+    return undefined;
+  }
+
+  return Math.max(0, Math.ceil((retryAt - now) / 1000));
+}
+
+/**
+ * HTTP 日時だけを解釈します。
+ *
+ * `Date.parse` が受け付ける任意の文字列を採用せず、IMF-fixdate・RFC 850・
+ * asctime の形式で `GMT` を含む値だけを対象にします。不正な日時は `null` です。
+ */
+function parseHttpDate(value: string): number | null {
+  const isHttpDate =
+    /^[A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(
+      value,
+    ) ||
+    /^[A-Za-z]+, \d{2}-[A-Za-z]{3}-\d{2} \d{2}:\d{2}:\d{2} GMT$/.test(value) ||
+    /^[A-Za-z]{3} [A-Za-z]{3} [ \d]\d \d{2}:\d{2}:\d{2} \d{4}$/.test(value);
+
+  if (!isHttpDate) {
+    return null;
+  }
+
+  const parsed = Date.parse(value);
+
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+/**
+ * 既存のエラー情報（`code`・`message`・`requestId`）を保持したまま
+ * HTTP メタデータを付与します。
+ */
+function withHttpMetadata(
+  error: FlareLobbyError,
+  httpContext: {
+    readonly httpStatus: number;
+    readonly retryAfterSeconds?: number;
+  },
+): FlareLobbyError {
+  return new FlareLobbyError(error.code, {
+    message: error.message,
+    ...(error.requestId === undefined ? {} : { requestId: error.requestId }),
+    ...httpContext,
+  });
 }
 
 function readErrorPayload(value: unknown): FlareLobbyErrorPayload | null {

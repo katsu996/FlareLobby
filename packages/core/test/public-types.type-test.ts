@@ -12,6 +12,7 @@ import type {
   ServerEventEnvelope,
   ServerFailureEnvelope,
 } from "../src/index.js";
+import { FlareLobbyError } from "../src/index.js";
 
 type Equal<TLeft, TRight> =
   (<TValue>() => TValue extends TLeft ? 1 : 2) extends <
@@ -245,6 +246,14 @@ const knownErrorCode: FlareLobbyErrorCode = "CANCELLED";
 
 const timeoutErrorCode: FlareLobbyErrorCode = "TIMEOUT";
 
+const httpErrorMetadata: {
+  readonly httpStatus: number | undefined;
+  readonly retryAfterSeconds: number | undefined;
+} = new FlareLobbyError("CONFLICT", {
+  httpStatus: 429,
+  retryAfterSeconds: 12,
+});
+
 // @ts-expect-error イベントには状態変化後の revision が必要です。
 const invalidProtocolEvent: ServerEventEnvelope = {
   protocolVersion: 1,
@@ -265,5 +274,6 @@ void protocolEvent;
 void protocolFailure;
 void knownErrorCode;
 void timeoutErrorCode;
+void httpErrorMetadata;
 void invalidProtocolEvent;
 void invalidErrorCode;

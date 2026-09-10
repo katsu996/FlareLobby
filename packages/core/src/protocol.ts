@@ -76,6 +76,16 @@ export interface FlareLobbyErrorOptions {
   readonly message?: string;
   /** 対応するクライアントコマンドが分かる場合の要求識別子です。 */
   readonly requestId?: RequestId;
+  /**
+   * HTTP 経由で失敗を受信したときの状態コードです。
+   * ネットワーク失敗など HTTP 応答を受け取る前の失敗には付けません。
+   */
+  readonly httpStatus?: number;
+  /**
+   * `Retry-After` から解釈した再試行までの秒数です。
+   * 有効な値があるときだけ設定します。
+   */
+  readonly retryAfterSeconds?: number;
 }
 
 const defaultErrorMessages: Readonly<Record<FlareLobbyErrorCode, string>> = {
@@ -102,6 +112,8 @@ const defaultErrorMessages: Readonly<Record<FlareLobbyErrorCode, string>> = {
 export class FlareLobbyError extends Error {
   public readonly code: FlareLobbyErrorCode;
   public readonly requestId: RequestId | undefined;
+  public readonly httpStatus: number | undefined;
+  public readonly retryAfterSeconds: number | undefined;
 
   public constructor(
     code: FlareLobbyErrorCode,
@@ -111,6 +123,8 @@ export class FlareLobbyError extends Error {
     this.name = "FlareLobbyError";
     this.code = code;
     this.requestId = options.requestId;
+    this.httpStatus = options.httpStatus;
+    this.retryAfterSeconds = options.retryAfterSeconds;
   }
 
   /** 通信上で公開可能なエラー情報だけを返します。 */

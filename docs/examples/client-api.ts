@@ -1,5 +1,5 @@
 import { createFlareLobbyClient } from "@flarelobby/client";
-import type { FlareLobbyApp } from "@flarelobby/core";
+import { FlareLobbyError, type FlareLobbyApp } from "@flarelobby/core";
 
 type ExampleApp = FlareLobbyApp<
   { map: "forest" | "desert" },
@@ -32,6 +32,19 @@ const stop = host.onMessage("chat", (message) => {
 await host.setReady(true);
 await host.send("chat", { text: "準備完了" });
 await lobby.request("/v1/example", { timeoutMs: 5_000 });
+
+declare const renderWait: (seconds: number | undefined) => void;
+
+try {
+  await lobby.request("/v1/example", { method: "POST" });
+} catch (error) {
+  if (error instanceof FlareLobbyError && error.httpStatus !== undefined) {
+    const waitSeconds: number | undefined = error.retryAfterSeconds;
+    renderWait(waitSeconds);
+  } else {
+    throw error;
+  }
+}
 const timedConnection = await lobby.connect("/v1/rooms/room-1/ws", {
   timeoutMs: 5_000,
 });
