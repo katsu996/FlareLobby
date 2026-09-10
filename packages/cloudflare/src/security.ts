@@ -167,8 +167,7 @@ function isRateLimitDeniedError(
   error: FlareLobbyError,
 ): error is RateLimitDeniedError {
   return (
-    error.code === "CONFLICT" &&
-    typeof error.retryAfterSeconds === "number"
+    error.code === "CONFLICT" && typeof error.retryAfterSeconds === "number"
   );
 }
 

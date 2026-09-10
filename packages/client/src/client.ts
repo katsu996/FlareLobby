@@ -2149,7 +2149,9 @@ function parseRetryAfterSeconds(
  */
 function parseHttpDate(value: string): number | null {
   const isHttpDate =
-    /^[A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(value) ||
+    /^[A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(
+      value,
+    ) ||
     /^[A-Za-z]+, \d{2}-[A-Za-z]{3}-\d{2} \d{2}:\d{2}:\d{2} GMT$/.test(value) ||
     /^[A-Za-z]{3} [A-Za-z]{3} [ \d]\d \d{2}:\d{2}:\d{2} \d{4}$/.test(value);
 
@@ -2168,7 +2170,10 @@ function parseHttpDate(value: string): number | null {
  */
 function withHttpMetadata(
   error: FlareLobbyError,
-  httpContext: { readonly httpStatus: number; readonly retryAfterSeconds?: number },
+  httpContext: {
+    readonly httpStatus: number;
+    readonly retryAfterSeconds?: number;
+  },
 ): FlareLobbyError {
   return new FlareLobbyError(error.code, {
     message: error.message,
