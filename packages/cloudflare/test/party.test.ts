@@ -734,6 +734,46 @@ describe("Party Durable Object", () => {
     }
   });
 
+  it("イベント接続の WebSocket 受け口は subprotocol なしでは拒否される", async () => {
+    const partyId = newPartyId();
+    const stub = env.FLARE_LOBBY_PARTIES.getByName(partyId);
+    const leader = await createGatewayPrincipal(
+      `leader-${crypto.randomUUID()}`,
+    );
+    await stub.createParty({
+      gatewayPrincipal: leader,
+      requestId: `request-${crypto.randomUUID()}`,
+    });
+
+    const url = `https://party.test/${partyId}/events`;
+    const rejected = await stub.fetch(
+      new Request(url, {
+        headers: {
+          authorization: `Bearer ${leader.token}`,
+          upgrade: "websocket",
+        },
+      }),
+    );
+    expect(rejected.status).toBe(400);
+    expect(((await rejected.json()) as { readonly code: string }).code).toBe(
+      "INVALID_MESSAGE",
+    );
+
+    const upgraded = await stub.fetch(
+      new Request(url, {
+        headers: {
+          authorization: `Bearer ${leader.token}`,
+          upgrade: "websocket",
+          "Sec-WebSocket-Protocol": "flarelobby.v1",
+        },
+      }),
+    );
+    expect(upgraded.status).toBe(101);
+    expect(upgraded.headers.get("Sec-WebSocket-Protocol")).toBe(
+      "flarelobby.v1",
+    );
+  });
+
   it("満員パーティーでの招待発行と受諾を拒否する", async () => {
     const partyId = newPartyId();
     const stub = env.FLARE_LOBBY_PARTIES.getByName(partyId);
