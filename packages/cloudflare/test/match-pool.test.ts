@@ -1294,6 +1294,27 @@ describe("Match Pool Durable Object", () => {
     expect(cancelled.status).toBe("cancelled");
   });
 
+  it("チケットイベントの WebSocket 接続は subprotocol なしでは拒否される", async () => {
+    const { stub } = await createInitializedPool();
+    const principal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
+    const ticket = await stub.createTicket(createTicketOptions(principal));
+
+    const rejected = await stub.fetch(
+      new Request(`https://match-pool.test/tickets/${ticket.id}/events`, {
+        headers: {
+          "x-flarelobby-gateway-token": principal.token,
+          upgrade: "websocket",
+        },
+      }),
+    );
+    expect(rejected.status).toBe(400);
+    expect(((await rejected.json()) as { readonly code: string }).code).toBe(
+      "INVALID_MESSAGE",
+    );
+  });
+
   it("候補探索と成立意図の取得は入力を検証し、意図は識別子の種類ごとに読める", async () => {
     const { pool, stub } = await createInitializedPool();
     const firstPrincipal = await createGatewayPrincipal(
