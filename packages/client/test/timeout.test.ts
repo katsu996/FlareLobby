@@ -999,3 +999,96 @@ describe("client timeout additional branches", () => {
     errorClient.dispose();
   });
 });
+
+describe("client timeout remaining branches", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    FakeWebSocket.autoOpen = true;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("dispose 時に fetch が AbortError で終了しても CANCELLED になる", async () => {
+    const fetchImplementation: FetchImplementation = vi.fn(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => {
+              reject(
+                Object.assign(new Error("aborted"), { name: "AbortError" }),
+              );
+            },
+            { once: true },
+          );
+        }),
+    );
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      fetch: fetchImplementation,
+    });
+    const pending = client.request("/v1/rooms", { timeoutMs: 5000 });
+    const assertion = expect(pending).rejects.toMatchObject({
+      code: "CANCELLED",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    client.dispose();
+    await assertion;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("期限切れ後のイベント接続の遅延 open は登録されない", async () => {
+    const envelope = {
+      party: {
+        partyId: "party-late",
+        revision: 1,
+        maxPartySize: 4,
+        members: [
+          {
+            playerId: "leader-1",
+            role: "leader",
+            joinedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        invites: [],
+        queuedTicket: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    };
+    FakeWebSocket.autoOpen = false;
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      fetch: async () => Response.json(envelope),
+      webSocket: fakeWebSocketConstructor,
+      connectionTimeoutMs: 400,
+    });
+    const pending = client.createParty({ maxPartySize: 4 });
+    const assertion = expect(pending).rejects.toMatchObject({
+      code: "TIMEOUT",
+    });
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      if (FakeWebSocket.instances.length > 0) {
+        break;
+      }
+    }
+    await vi.advanceTimersByTimeAsync(400);
+    await assertion;
+    const socket = FakeWebSocket.instances[0];
+    expect(socket?.readyState).toBe(3);
+    // 遅延 open しても復活しない。
+    socket?.open();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(vi.getTimerCount()).toBe(0);
+    client.dispose();
+  });
+});
