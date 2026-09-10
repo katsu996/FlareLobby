@@ -621,3 +621,273 @@ describe("client timeout", () => {
     await assertion;
   });
 });
+
+describe("client timeout edge branches", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    FakeWebSocket.autoOpen = true;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("事前 abort・fetch 失敗・不正応答を timeout 設定時も正規化する", async () => {
+    const baseClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      fetch: vi.fn(),
+      webSocket: fakeWebSocketConstructor,
+    });
+
+    // 事前に abort 済みの要求は fetch へ進まず CANCELLED。
+    const preAborted = new AbortController();
+    preAborted.abort();
+    await expect(
+      baseClient.request("/v1/rooms", {
+        timeoutMs: 1000,
+        signal: preAborted.signal,
+      }),
+    ).rejects.toMatchObject({ code: "CANCELLED" });
+
+    // fetch が汎用例外を投げると CONNECTION_FAILED。
+    const throwingClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      fetch: async () => {
+        throw new Error("boom");
+      },
+    });
+    await expect(
+      throwingClient.request("/v1/rooms", { timeoutMs: 1000 }),
+    ).rejects.toMatchObject({ code: "CONNECTION_FAILED" });
+
+    // Response 風でない戻りは CONNECTION_FAILED。
+    const invalidResponseClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      fetch: async () => ({}) as unknown as Response,
+    });
+    await expect(
+      invalidResponseClient.request("/v1/rooms", { timeoutMs: 1000 }),
+    ).rejects.toMatchObject({ code: "CONNECTION_FAILED" });
+
+    // HTTP 状態コードと不正 JSON 本文を正規化する。
+    const statusClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      fetch: async () => new Response("{}", { status: 401 }),
+    });
+    await expect(
+      statusClient.request("/v1/rooms", { timeoutMs: 1000 }),
+    ).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
+
+    const malformedClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      fetch: async () => new Response("{not-json", { status: 200 }),
+    });
+    await expect(
+      malformedClient.request("/v1/rooms", { timeoutMs: 1000 }),
+    ).rejects.toMatchObject({ code: "INVALID_MESSAGE" });
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("接続の事前 abort・protocol 不正・ソケット生成失敗を timeout 設定時も処理する", async () => {
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      webSocket: fakeWebSocketConstructor,
+    });
+
+    const preAborted = new AbortController();
+    preAborted.abort();
+    await expect(
+      client.connect("/v1/rooms/room-1/ws", {
+        timeoutMs: 1000,
+        signal: preAborted.signal,
+      }),
+    ).rejects.toMatchObject({ code: "CANCELLED" });
+
+    await expect(
+      client.connect("/v1/rooms/room-1/ws", {
+        timeoutMs: 1000,
+        protocols: [""],
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
+
+    const failingClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      webSocketFactory: () => {
+        throw new Error("constructor failed");
+      },
+    });
+    await expect(
+      failingClient.connect("/v1/rooms/room-1/ws", { timeoutMs: 1000 }),
+    ).rejects.toMatchObject({ code: "CONNECTION_FAILED" });
+
+    // 接続中の利用者 abort は CANCELLED になる。
+    FakeWebSocket.autoOpen = false;
+    const abortController = new AbortController();
+    const abortClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      webSocket: fakeWebSocketConstructor,
+    });
+    const pending = abortClient.connect("/v1/rooms/room-1/ws", {
+      timeoutMs: 5000,
+      signal: abortController.signal,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    abortController.abort();
+    await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("Raw JSON イベント接続にも connectionTimeoutMs が適用される", async () => {
+    const partyTimestamp = "2026-01-01T00:00:00.000Z";
+    const partyEnvelope = {
+      party: {
+        partyId: "party-1",
+        revision: 1,
+        maxPartySize: 4,
+        members: [
+          { playerId: "leader-1", role: "leader", joinedAt: partyTimestamp },
+        ],
+        invites: [],
+        queuedTicket: null,
+        createdAt: partyTimestamp,
+        updatedAt: partyTimestamp,
+      },
+    };
+
+    // 未 open のイベント接続は TIMEOUT になる。
+    FakeWebSocket.autoOpen = false;
+    const timeoutClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      fetch: async () => Response.json(partyEnvelope),
+      webSocket: fakeWebSocketConstructor,
+      connectionTimeoutMs: 700,
+    });
+    const timeoutPending = timeoutClient.createParty({ maxPartySize: 4 });
+    const timeoutAssertion = expect(timeoutPending).rejects.toMatchObject({
+      code: "TIMEOUT",
+    });
+    // HTTP 完了後にイベント接続のタイマーが設定されるまで microtask を流す。
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      if (vi.getTimerCount() > 0) {
+        break;
+      }
+    }
+    await vi.advanceTimersByTimeAsync(700);
+    await timeoutAssertion;
+    expect(FakeWebSocket.instances[0]?.readyState).toBe(3);
+
+    // 正常時はタイマーを残さない。
+    FakeWebSocket.instances = [];
+    FakeWebSocket.autoOpen = true;
+    const okClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      fetch: async () => Response.json(partyEnvelope),
+      webSocket: fakeWebSocketConstructor,
+      connectionTimeoutMs: 5000,
+    });
+    const party = await okClient.createParty({ maxPartySize: 4 });
+    expect(party.id).toBe("party-1");
+    expect(vi.getTimerCount()).toBe(0);
+    okClient.dispose();
+
+    // dispose 競合のイベント接続は CANCELLED になる。
+    FakeWebSocket.instances = [];
+    FakeWebSocket.autoOpen = false;
+    const abortClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      fetch: async () => Response.json(partyEnvelope),
+      webSocket: fakeWebSocketConstructor,
+      connectionTimeoutMs: 5000,
+    });
+    const abortPending = abortClient.createParty({ maxPartySize: 4 });
+    const abortAssertion = expect(abortPending).rejects.toMatchObject({
+      code: "CANCELLED",
+    });
+    // HTTP 完了後にイベント接続のタイマーが設定されるまで microtask を流す。
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      if (FakeWebSocket.instances.length > 0) {
+        break;
+      }
+    }
+    abortClient.dispose();
+    await abortAssertion;
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("command の送信失敗と失敗応答を timeout 設定時も正規化する", async () => {
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      webSocket: fakeWebSocketConstructor,
+      requestIdFactory: (() => {
+        let n = 100;
+        return () => `edge-${++n}`;
+      })(),
+    });
+    const connection = await client.connect("/v1/rooms/room-1/ws");
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+
+    // 失敗応答はサーバーのコードをそのまま返す。
+    const failurePending = connection.send(
+      "room.kick",
+      { playerId: "p-1" },
+      { timeoutMs: 5000 },
+    );
+    socket?.receive(
+      JSON.stringify({
+        protocolVersion: 1,
+        kind: "failure",
+        requestId: "edge-101",
+        error: { code: "FORBIDDEN", message: "権限がありません。" },
+      }),
+    );
+    await expect(failurePending).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    // 送信例外は CONNECTION_FAILED になる。
+    const throwingSocket = {
+      readyState: 1,
+      addEventListener(_type: string, _listener: EventListener): void {},
+      removeEventListener(_type: string, _listener: EventListener): void {},
+      send(): void {
+        throw new Error("send failed");
+      },
+      close(): void {},
+    };
+    const throwingClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      webSocketFactory: () => throwingSocket as unknown as WebSocket,
+      requestIdFactory: () => "edge-send-fail",
+    });
+    const throwingConnection = await throwingClient.connect(
+      "/v1/rooms/room-1/ws",
+    );
+    await expect(
+      throwingConnection.send("room.set_ready", {}, { timeoutMs: 1000 }),
+    ).rejects.toMatchObject({
+      code: "CONNECTION_FAILED",
+      requestId: "edge-send-fail",
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
