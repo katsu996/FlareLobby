@@ -116,6 +116,7 @@ describe("JSON 通信プロトコル v1", () => {
       "ROOM_FINISHED",
       "CONFLICT",
       "CANCELLED",
+      "TIMEOUT",
       "INVALID_MESSAGE",
       "INVALID_PAYLOAD",
       "UNSUPPORTED_PROTOCOL_VERSION",
@@ -125,6 +126,32 @@ describe("JSON 通信プロトコル v1", () => {
     for (const code of FLARE_LOBBY_ERROR_CODES) {
       expect(new FlareLobbyError(code).code).toBe(code);
     }
+  });
+
+  it("TIMEOUT を既定メッセージ付きで生成し failure Envelope を往復できる", () => {
+    const timeout = new FlareLobbyError("TIMEOUT", { requestId: "request-1" });
+    expect(timeout.code).toBe("TIMEOUT");
+    expect(timeout.message).toBe("操作がタイムアウトしました。");
+    expect(timeout.requestId).toBe("request-1");
+    expect(timeout.toJSON()).toEqual({
+      code: "TIMEOUT",
+      message: "操作がタイムアウトしました。",
+    });
+
+    const encoded = expectProtocolValue(
+      encodeProtocolMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "failure",
+        requestId: "request-1",
+        error: timeout.toJSON(),
+      }),
+    );
+    const decoded = expectProtocolValue(decodeServerMessage(encoded));
+    expect(decoded).toMatchObject({
+      kind: "failure",
+      requestId: "request-1",
+      error: { code: "TIMEOUT" },
+    });
   });
 
   it("revision から欠落、重複、順序逆転を検出する", () => {

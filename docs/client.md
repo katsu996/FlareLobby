@@ -46,6 +46,40 @@ const result = await client.request<{ readonly accepted: boolean }>(
 HTTP の失敗、JSON の不正、通信例外は `FlareLobbyError` と安定したエラーコードへ
 正規化されます。
 
+## タイムアウト
+
+HTTP 要求、WebSocket 接続、WebSocket コマンドには期限を設定できます。
+操作の `timeoutMs` が `undefined` のときは Client の既定値を継承し、`null` は
+明示的な無期限です。省略し続けた場合は無期限で、従来の `AbortSignal` 対応を維持します。
+
+```ts
+const client = createFlareLobbyClient({
+  endpoint: "https://lobby.example.com",
+  getAccessToken: () => auth.getAccessToken(),
+  requestTimeoutMs: 10_000,
+  connectionTimeoutMs: 10_000,
+  commandTimeoutMs: 10_000,
+});
+
+await client.request("/v1/example", { timeoutMs: 5_000 });
+const connection = await client.connect("/v1/rooms/room-1/ws", {
+  timeoutMs: 5_000,
+});
+await connection.send("room.set_ready", { ready: true }, { timeoutMs: 5_000 });
+```
+
+正の有限数（上限 2,147,483,647）のみ有効で、`0`、負数、`NaN`、`Infinity`、
+上限超過は `INVALID_PAYLOAD` です。期限切れは `TIMEOUT` になり、`requestId` が
+ある場合は保持します。`AbortSignal` や `dispose()` による中止は `CANCELLED` です。
+`TIMEOUT` が発生してもサーバー側処理は完了している可能性があるため、自動再送は
+しません。処理結果が不明なら同じ `requestId` で確認します。
+
+HTTP の期限は要求開始からトークン取得、`fetch`、本文受信・解析まで、WebSocket
+接続の期限は接続開始からトークン取得と `open` 完了まで、コマンドの期限は `send`
+から対応する成功・失敗応答までに適用します。期限切れ後に届いた応答や `open` は
+処理済みの待機や接続を復活させません。コマンド一件の期限切れが他のコマンドや
+接続を閉じることはありません。
+
 ## カスタムルーム
 
 `createCustomRoom()` は作成者をホストとして登録し、HTTP の初期スナップショットを
@@ -191,9 +225,9 @@ WebSocket は任意の HTTP ヘッダーを付けられないため、トーク�
 入れず、認証用の WebSocket subprotocol として送ります。トークン値は URL、公開
 エラー、内部例外へ含めません。
 
-`connect` と `connection.send` は AbortSignal を受け付けます。`dispose()` は
-保有中の WebSocket、イベント購読、応答待機を解放し、以後の操作を
-`CANCELLED` として拒否します。
+`connect` と `connection.send` は AbortSignal と `timeoutMs` を受け付けます。
+`dispose()` は保有中の WebSocket、イベント購読、応答待機、期限タイマーを解放し、
+以後の操作を `CANCELLED` として拒否します。
 
 ### 再接続と状態復元
 

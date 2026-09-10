@@ -53,6 +53,8 @@ const WEBSOCKET_OPEN = 1;
 const WEBSOCKET_CLOSED = 3;
 const DEFAULT_WEBSOCKET_PROTOCOL = "flarelobby.v1";
 const AUTHENTICATION_PROTOCOL_PREFIX = "flarelobby.auth.";
+/** タイマーの overflow を防ぐためのタイムアウト上限です。 */
+const MAX_TIMEOUT_MS = 2_147_483_647;
 
 /** リスナー未登録時に保持するイベント上限です。超過分は古いものから破棄します。 */
 const MAX_QUEUED_EVENTS = 100;
@@ -88,6 +90,11 @@ export interface ClientRequestOptions {
   readonly idempotent?: boolean;
   /** 再送時に同じ処理結果を参照するための要求識別子です。 */
   readonly requestId?: RequestId;
+  /**
+   * 要求全体の期限（ミリ秒）です。`undefined` は Client の既定値を継承し、
+   * `null` は明示的な無期限です。正の有限数（上限 2,147,483,647）のみ有効です。
+   */
+  readonly timeoutMs?: number | null;
 }
 
 /** WebSocket 接続のオプションです。 */
@@ -97,6 +104,11 @@ export interface ClientWebSocketOptions {
   readonly knownEventTypes?: readonly ProtocolEventType[];
   /** 再開接続時に最後に適用した Room の版番号を指定します。 */
   readonly lastRevision?: Revision;
+  /**
+   * 接続確立までの期限（ミリ秒）です。`undefined` は Client の既定値を継承し、
+   * `null` は明示的な無期限です。正の有限数（上限 2,147,483,647）のみ有効です。
+   */
+  readonly timeoutMs?: number | null;
 }
 
 /** WebSocket コマンドのオプションです。 */
@@ -104,6 +116,11 @@ export interface ClientCommandOptions {
   readonly signal?: AbortSignal;
   /** 再送時に同じ処理結果を参照するための要求識別子です。 */
   readonly requestId?: RequestId;
+  /**
+   * 応答待ちの期限（ミリ秒）です。`undefined` は Client の既定値を継承し、
+   * `null` は明示的な無期限です。正の有限数（上限 2,147,483,647）のみ有効です。
+   */
+  readonly timeoutMs?: number | null;
 }
 
 /** クライアントの初期化設定です。 */
@@ -122,6 +139,20 @@ export interface FlareLobbyClientOptions<
   readonly requestIdFactory?: () => RequestId;
   /** Room の再接続に使う既定設定です。 */
   readonly reconnect?: RoomReconnectOptions;
+  /**
+   * HTTP 要求全体の既定の期限（ミリ秒）です。省略・`null` は無期限です。
+   * 正の有限数（上限 2,147,483,647）のみ有効です。
+   */
+  readonly requestTimeoutMs?: number | null;
+  /**
+   * WebSocket 接続確立までの既定の期限（ミリ秒）です。省略・`null` は無期限です。
+   * Raw JSON イベント接続にも適用されます。
+   */
+  readonly connectionTimeoutMs?: number | null;
+  /**
+   * WebSocket コマンド応答待ちの既定の期限（ミリ秒）です。省略・`null` は無期限です。
+   */
+  readonly commandTimeoutMs?: number | null;
 }
 
 /** WebSocket イベントを受け取るコールバックです。 */
@@ -232,6 +263,10 @@ class FlareLobbyClientImpl<
   private readonly connections = new Set<FlareLobbyWebSocketConnectionImpl>();
   private readonly eventStreamConnections =
     new Set<RawJsonEventConnectionImpl>();
+  private readonly requestTimeoutMs: number | undefined;
+  private readonly connectionTimeoutMs: number | undefined;
+  private readonly commandTimeoutMs: number | undefined;
+  private readonly disposeController = new AbortController();
   private disposedState = false;
 
   public constructor(options: FlareLobbyClientOptions<TApp>) {
@@ -248,6 +283,11 @@ class FlareLobbyClientImpl<
     this.webSocketConstructor = options.webSocket ?? options.WebSocket;
     this.webSocketFactory = options.webSocketFactory;
     this.requestIdFactory = options.requestIdFactory ?? createRequestId;
+    this.requestTimeoutMs = normalizeTimeoutDefault(options.requestTimeoutMs);
+    this.connectionTimeoutMs = normalizeTimeoutDefault(
+      options.connectionTimeoutMs,
+    );
+    this.commandTimeoutMs = normalizeTimeoutDefault(options.commandTimeoutMs);
     this.customRoomApi = createCustomRoomApi<TApp>({
       request: this.request.bind(this),
       connect: this.connect.bind(this),
@@ -293,18 +333,15 @@ class FlareLobbyClientImpl<
   ): Promise<TResponse> {
     this.assertActive();
     throwIfAborted(options.signal);
+    const operationTimeout = normalizeTimeoutOption(options.timeoutMs);
+    const timeoutMs = resolveTimeoutMs(operationTimeout, this.requestTimeoutMs);
 
     const requestId = this.resolveHttpRequestId(options);
     const url = resolveHttpUrl(this.endpointUrl, path);
-    const token = await this.readAccessToken();
-    throwIfAborted(options.signal);
 
-    const headers = new Headers(options.headers);
-    headers.set("Authorization", `Bearer ${token}`);
-    headers.set("Accept", "application/json");
-
+    const headersBase = new Headers(options.headers);
     if (requestId !== undefined) {
-      headers.set("Idempotency-Key", requestId);
+      headersBase.set("Idempotency-Key", requestId);
     }
 
     let body: string | undefined;
@@ -319,7 +356,7 @@ class FlareLobbyClientImpl<
         throw new FlareLobbyError("INVALID_PAYLOAD");
       }
 
-      headers.set("Content-Type", "application/json");
+      headersBase.set("Content-Type", "application/json");
     }
 
     const fetchImplementation =
@@ -328,6 +365,43 @@ class FlareLobbyClientImpl<
     if (fetchImplementation === undefined) {
       throw new FlareLobbyError("CONNECTION_FAILED");
     }
+
+    if (timeoutMs === undefined) {
+      return this.requestWithoutTimeout<TResponse>(
+        url,
+        options,
+        requestId,
+        headersBase,
+        body,
+        fetchImplementation,
+      );
+    }
+
+    return this.requestWithTimeout<TResponse>(
+      url,
+      options,
+      requestId,
+      headersBase,
+      body,
+      fetchImplementation,
+      timeoutMs,
+    );
+  }
+
+  private async requestWithoutTimeout<TResponse>(
+    url: URL,
+    options: ClientRequestOptions,
+    requestId: RequestId | undefined,
+    headersBase: Headers,
+    body: string | undefined,
+    fetchImplementation: FetchImplementation,
+  ): Promise<TResponse> {
+    const token = await this.readAccessToken();
+    throwIfAborted(options.signal);
+
+    const headers = new Headers(headersBase);
+    headers.set("Authorization", `Bearer ${token}`);
+    headers.set("Accept", "application/json");
 
     let response: Response;
     try {
@@ -362,6 +436,143 @@ class FlareLobbyClientImpl<
     return responseBody.value as TResponse;
   }
 
+  private requestWithTimeout<TResponse>(
+    url: URL,
+    options: ClientRequestOptions,
+    requestId: RequestId | undefined,
+    headersBase: Headers,
+    body: string | undefined,
+    fetchImplementation: FetchImplementation,
+    timeoutMs: number,
+  ): Promise<TResponse> {
+    const userSignal = options.signal;
+    const disposeSignal = this.disposeController.signal;
+    const fetchController = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    return new Promise<TResponse>((resolve, reject) => {
+      let settled = false;
+      const cleanup = (): void => {
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+        if (userSignal !== undefined) {
+          userSignal.removeEventListener("abort", onUserAbort);
+        }
+        disposeSignal.removeEventListener("abort", onDispose);
+      };
+      const doResolve = (value: TResponse): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        resolve(value);
+      };
+      const doReject = (error: FlareLobbyError): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        fetchController.abort();
+        reject(error);
+      };
+      const onUserAbort = (): void => {
+        doReject(createErrorWithRequestId("CANCELLED", requestId));
+      };
+      const onDispose = (): void => {
+        doReject(createErrorWithRequestId("CANCELLED", requestId));
+      };
+      const onTimeout = (): void => {
+        doReject(createErrorWithRequestId("TIMEOUT", requestId));
+      };
+
+      timer = setTimeout(onTimeout, timeoutMs);
+      if (userSignal !== undefined) {
+        userSignal.addEventListener("abort", onUserAbort, { once: true });
+      }
+      disposeSignal.addEventListener("abort", onDispose, { once: true });
+
+      void (async (): Promise<void> => {
+        try {
+          const token = await this.readAccessToken();
+          if (settled) {
+            return;
+          }
+
+          const headers = new Headers(headersBase);
+          headers.set("Authorization", `Bearer ${token}`);
+          headers.set("Accept", "application/json");
+
+          let response: Response;
+          try {
+            response = await fetchImplementation(url, {
+              method: options.method ?? "GET",
+              headers,
+              ...(body === undefined ? {} : { body }),
+              signal: fetchController.signal,
+            });
+          } catch (error) {
+            if (settled) {
+              return;
+            }
+            if (
+              userSignal?.aborted === true ||
+              disposeSignal.aborted ||
+              this.disposedState
+            ) {
+              doReject(createErrorWithRequestId("CANCELLED", requestId));
+              return;
+            }
+            if (isAbortError(error)) {
+              // 内部 Abort は利用者中止・dispose・期限切れのいずれかが先行しています。
+              // settled が false のまま残るのは競合時のみであり、期限切れを優先しません。
+              doReject(createErrorWithRequestId("CANCELLED", requestId));
+              return;
+            }
+            doReject(createErrorWithRequestId("CONNECTION_FAILED", requestId));
+            return;
+          }
+
+          if (settled) {
+            return;
+          }
+          if (!isResponseLike(response)) {
+            doReject(createErrorWithRequestId("CONNECTION_FAILED", requestId));
+            return;
+          }
+
+          const responseBody = await readResponseBody(response, requestId);
+          if (settled) {
+            return;
+          }
+          if (!response.ok) {
+            doReject(
+              normalizeHttpError(response.status, responseBody, requestId),
+            );
+            return;
+          }
+          if (!responseBody.ok) {
+            doReject(responseBody.error);
+            return;
+          }
+          doResolve(responseBody.value as TResponse);
+        } catch (error) {
+          if (settled) {
+            return;
+          }
+          if (error instanceof FlareLobbyError) {
+            doReject(error);
+            return;
+          }
+          doReject(createErrorWithRequestId("CONNECTION_FAILED", requestId));
+        }
+      })();
+    });
+  }
+
   public async connect(
     path: string | URL,
     options: ClientWebSocketOptions = {},
@@ -376,45 +587,201 @@ class FlareLobbyClientImpl<
   ): Promise<FlareLobbyWebSocketConnection<TApp>> {
     this.assertActive();
     throwIfAborted(options.signal);
+    const operationTimeout = normalizeTimeoutOption(options.timeoutMs);
+    const timeoutMs = resolveTimeoutMs(
+      operationTimeout,
+      this.connectionTimeoutMs,
+    );
 
     const url = resolveWebSocketUrl(
       this.endpointUrl,
       path,
       options.lastRevision,
     );
-    const authenticationToken =
-      token === undefined ? await this.readAccessToken() : token;
-    this.assertActive();
-    throwIfAborted(options.signal);
 
-    const protocols = createWebSocketProtocols(
-      options.protocols,
-      authenticationToken,
-    );
-    const socket = this.createWebSocket(url, protocols);
-    const connection = new FlareLobbyWebSocketConnectionImpl(
-      socket,
-      this.requestIdFactory,
-      options.knownEventTypes,
-      () => this.connections.delete(connection),
-    );
-    this.connections.add(connection);
-
-    try {
-      if (this.disposedState) {
-        connection.close(1000, "client disposed");
-        this.connections.delete(connection);
-        throw new FlareLobbyError("CANCELLED");
-      }
-
-      await connection.waitForOpen(options.signal);
+    if (timeoutMs === undefined) {
+      const authenticationToken =
+        token === undefined ? await this.readAccessToken() : token;
       this.assertActive();
-      return connection as FlareLobbyWebSocketConnection<TApp>;
-    } catch (error) {
-      connection.close();
-      this.connections.delete(connection);
-      throw normalizeClientError(error, "CONNECTION_FAILED");
+      throwIfAborted(options.signal);
+
+      const protocols = createWebSocketProtocols(
+        options.protocols,
+        authenticationToken,
+      );
+      const socket = this.createWebSocket(url, protocols);
+      const connection = new FlareLobbyWebSocketConnectionImpl(
+        socket,
+        this.requestIdFactory,
+        options.knownEventTypes,
+        () => this.connections.delete(connection),
+        this.commandTimeoutMs,
+      );
+      this.connections.add(connection);
+
+      try {
+        if (this.disposedState) {
+          connection.close(1000, "client disposed");
+          this.connections.delete(connection);
+          throw new FlareLobbyError("CANCELLED");
+        }
+
+        await connection.waitForOpen(options.signal);
+        this.assertActive();
+        return connection as FlareLobbyWebSocketConnection<TApp>;
+      } catch (error) {
+        connection.close();
+        this.connections.delete(connection);
+        throw normalizeClientError(error, "CONNECTION_FAILED");
+      }
     }
+
+    return this.connectWithTimeout(url, options, token, timeoutMs);
+  }
+
+  private connectWithTimeout(
+    url: URL,
+    options: ClientWebSocketOptions,
+    token: string | undefined,
+    timeoutMs: number,
+  ): Promise<FlareLobbyWebSocketConnection<TApp>> {
+    const userSignal = options.signal;
+    const disposeSignal = this.disposeController.signal;
+
+    return new Promise<FlareLobbyWebSocketConnection<TApp>>(
+      (resolve, reject) => {
+        let settled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let connection: FlareLobbyWebSocketConnectionImpl | undefined;
+
+        const cleanup = (): void => {
+          if (timer !== undefined) {
+            clearTimeout(timer);
+            timer = undefined;
+          }
+          if (userSignal !== undefined) {
+            userSignal.removeEventListener("abort", onUserAbort);
+          }
+          disposeSignal.removeEventListener("abort", onDispose);
+        };
+        const doResolve = (
+          value: FlareLobbyWebSocketConnection<TApp>,
+        ): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          cleanup();
+          resolve(value);
+        };
+        const doReject = (error: FlareLobbyError): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          cleanup();
+          if (connection !== undefined) {
+            connection.close();
+            this.connections.delete(connection);
+          }
+          reject(error);
+        };
+        const onUserAbort = (): void => {
+          doReject(new FlareLobbyError("CANCELLED"));
+        };
+        const onDispose = (): void => {
+          doReject(new FlareLobbyError("CANCELLED"));
+        };
+        const onTimeout = (): void => {
+          doReject(new FlareLobbyError("TIMEOUT"));
+        };
+
+        timer = setTimeout(onTimeout, timeoutMs);
+        if (userSignal !== undefined) {
+          userSignal.addEventListener("abort", onUserAbort, { once: true });
+        }
+        disposeSignal.addEventListener("abort", onDispose, { once: true });
+
+        void (async (): Promise<void> => {
+          try {
+            const authenticationToken =
+              token === undefined ? await this.readAccessToken() : token;
+            if (settled) {
+              return;
+            }
+
+            let protocols: readonly string[];
+            try {
+              protocols = createWebSocketProtocols(
+                options.protocols,
+                authenticationToken,
+              );
+            } catch (error) {
+              if (settled) {
+                return;
+              }
+              doReject(normalizeClientError(error, "CONNECTION_FAILED"));
+              return;
+            }
+
+            let socket: WebSocket;
+            try {
+              socket = this.createWebSocket(url, protocols);
+            } catch (error) {
+              if (settled) {
+                return;
+              }
+              doReject(normalizeClientError(error, "CONNECTION_FAILED"));
+              return;
+            }
+
+            if (settled) {
+              socket.close();
+              return;
+            }
+
+            const created = new FlareLobbyWebSocketConnectionImpl(
+              socket,
+              this.requestIdFactory,
+              options.knownEventTypes,
+              () => this.connections.delete(created),
+              this.commandTimeoutMs,
+            );
+            connection = created;
+            this.connections.add(created);
+
+            if (settled) {
+              doReject(new FlareLobbyError("CANCELLED"));
+              return;
+            }
+
+            try {
+              await created.waitForOpen();
+            } catch (error) {
+              if (settled) {
+                return;
+              }
+              doReject(normalizeClientError(error, "CONNECTION_FAILED"));
+              return;
+            }
+
+            if (settled) {
+              // 期限切れ後に open した接続は閉じて登録しません。
+              created.close();
+              this.connections.delete(created);
+              return;
+            }
+            this.assertActive();
+            doResolve(created as FlareLobbyWebSocketConnection<TApp>);
+          } catch (error) {
+            if (settled) {
+              return;
+            }
+            doReject(normalizeClientError(error, "CONNECTION_FAILED"));
+          }
+        })();
+      },
+    );
   }
 
   /**
@@ -427,31 +794,163 @@ class FlareLobbyClientImpl<
   ): Promise<RawJsonEventConnection> {
     this.assertActive();
     throwIfAborted(options.signal);
+    const timeoutMs = this.connectionTimeoutMs;
 
     const url = resolveWebSocketUrl(this.endpointUrl, path);
-    const authenticationToken = await this.readAccessToken();
-    this.assertActive();
-    throwIfAborted(options.signal);
 
-    const protocols = createWebSocketProtocols(undefined, authenticationToken);
-    const socket = this.createWebSocket(url, protocols);
-    const connection = new RawJsonEventConnectionImpl(socket, () =>
-      this.eventStreamConnections.delete(connection),
-    );
-    this.eventStreamConnections.add(connection);
-    try {
-      if (this.disposedState) {
-        connection.close(1000, "client disposed");
-        throw new FlareLobbyError("CANCELLED");
-      }
-
-      await connection.waitForOpen(options.signal);
+    if (timeoutMs === undefined) {
+      const authenticationToken = await this.readAccessToken();
       this.assertActive();
-      return connection;
-    } catch (error) {
-      connection.close();
-      throw normalizeClientError(error, "CONNECTION_FAILED");
+      throwIfAborted(options.signal);
+
+      const protocols = createWebSocketProtocols(
+        undefined,
+        authenticationToken,
+      );
+      const socket = this.createWebSocket(url, protocols);
+      const connection = new RawJsonEventConnectionImpl(socket, () =>
+        this.eventStreamConnections.delete(connection),
+      );
+      this.eventStreamConnections.add(connection);
+      try {
+        if (this.disposedState) {
+          connection.close(1000, "client disposed");
+          throw new FlareLobbyError("CANCELLED");
+        }
+
+        await connection.waitForOpen(options.signal);
+        this.assertActive();
+        return connection;
+      } catch (error) {
+        connection.close();
+        throw normalizeClientError(error, "CONNECTION_FAILED");
+      }
     }
+
+    return this.connectEventStreamWithTimeout(url, options.signal, timeoutMs);
+  }
+
+  private connectEventStreamWithTimeout(
+    url: URL,
+    userSignal: AbortSignal | undefined,
+    timeoutMs: number,
+  ): Promise<RawJsonEventConnection> {
+    const disposeSignal = this.disposeController.signal;
+
+    return new Promise<RawJsonEventConnection>((resolve, reject) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let connection: RawJsonEventConnectionImpl | undefined;
+
+      const cleanup = (): void => {
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+        if (userSignal !== undefined) {
+          userSignal.removeEventListener("abort", onUserAbort);
+        }
+        disposeSignal.removeEventListener("abort", onDispose);
+      };
+      const doResolve = (value: RawJsonEventConnection): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        resolve(value);
+      };
+      const doReject = (error: FlareLobbyError): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        if (connection !== undefined) {
+          connection.close();
+          this.eventStreamConnections.delete(connection);
+        }
+        reject(error);
+      };
+      const onUserAbort = (): void => {
+        doReject(new FlareLobbyError("CANCELLED"));
+      };
+      const onDispose = (): void => {
+        doReject(new FlareLobbyError("CANCELLED"));
+      };
+      const onTimeout = (): void => {
+        doReject(new FlareLobbyError("TIMEOUT"));
+      };
+
+      timer = setTimeout(onTimeout, timeoutMs);
+      if (userSignal !== undefined) {
+        userSignal.addEventListener("abort", onUserAbort, { once: true });
+      }
+      disposeSignal.addEventListener("abort", onDispose, { once: true });
+
+      void (async (): Promise<void> => {
+        try {
+          const authenticationToken = await this.readAccessToken();
+          if (settled) {
+            return;
+          }
+
+          const protocols = createWebSocketProtocols(
+            undefined,
+            authenticationToken,
+          );
+          let socket: WebSocket;
+          try {
+            socket = this.createWebSocket(url, protocols);
+          } catch (error) {
+            if (settled) {
+              return;
+            }
+            doReject(normalizeClientError(error, "CONNECTION_FAILED"));
+            return;
+          }
+
+          if (settled) {
+            socket.close();
+            return;
+          }
+
+          const created = new RawJsonEventConnectionImpl(socket, () =>
+            this.eventStreamConnections.delete(created),
+          );
+          connection = created;
+          this.eventStreamConnections.add(created);
+
+          if (settled) {
+            doReject(new FlareLobbyError("CANCELLED"));
+            return;
+          }
+
+          try {
+            await created.waitForOpen();
+          } catch (error) {
+            if (settled) {
+              return;
+            }
+            doReject(normalizeClientError(error, "CONNECTION_FAILED"));
+            return;
+          }
+
+          if (settled) {
+            created.close();
+            this.eventStreamConnections.delete(created);
+            return;
+          }
+          this.assertActive();
+          doResolve(created);
+        } catch (error) {
+          if (settled) {
+            return;
+          }
+          doReject(normalizeClientError(error, "CONNECTION_FAILED"));
+        }
+      })();
+    });
   }
 
   public connectWebSocket(
@@ -532,6 +1031,11 @@ class FlareLobbyClientImpl<
     }
 
     this.disposedState = true;
+    try {
+      this.disposeController.abort();
+    } catch {
+      // Abort の失敗は公開しません。
+    }
     this.matchmakingApi.dispose();
     this.partyApi.dispose();
     for (const connection of this.eventStreamConnections) {
@@ -620,6 +1124,7 @@ interface PendingCommand {
   readonly reject: (error: FlareLobbyError) => void;
   readonly signal: AbortSignal | undefined;
   readonly abortListener: (() => void) | undefined;
+  readonly timeoutId: ReturnType<typeof setTimeout> | undefined;
 }
 
 class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection {
@@ -627,6 +1132,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
   private readonly requestIdFactory: () => RequestId;
   private readonly knownEventTypes: readonly ProtocolEventType[] | undefined;
   private readonly onClosed: () => void;
+  private readonly commandTimeoutMs: number | undefined;
   private readonly pending = new Map<RequestId, PendingCommand>();
   private readonly eventListeners = new Set<ClientEventListener>();
   private readonly closeListeners = new Set<(error: FlareLobbyError) => void>();
@@ -695,11 +1201,16 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
     requestIdFactory: () => RequestId,
     knownEventTypes: readonly ProtocolEventType[] | undefined,
     onClosed: () => void,
+    commandTimeoutMs?: number | null,
   ) {
     this.socket = socket;
     this.requestIdFactory = requestIdFactory;
     this.knownEventTypes = knownEventTypes;
     this.onClosed = onClosed;
+    this.commandTimeoutMs =
+      commandTimeoutMs === null || commandTimeoutMs === undefined
+        ? undefined
+        : commandTimeoutMs;
     this.openPromise = new Promise<void>((resolve, reject) => {
       this.resolveOpen = resolve;
       this.rejectOpen = reject;
@@ -771,6 +1282,8 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
     }
 
     throwIfAborted(options.signal);
+    const operationTimeout = normalizeTimeoutOption(options.timeoutMs);
+    const timeoutMs = resolveTimeoutMs(operationTimeout, this.commandTimeoutMs);
 
     const requestId = this.createRequestId(options.requestId);
     const message: ClientCommandEnvelope = {
@@ -786,8 +1299,75 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
       throw encoded.error;
     }
 
+    if (timeoutMs === undefined) {
+      return new Promise<TResponse>((resolve, reject) => {
+        let settled = false;
+        const abortListener =
+          options.signal === undefined
+            ? undefined
+            : (): void => {
+                if (settled) {
+                  return;
+                }
+                settled = true;
+                this.removePending(requestId);
+                reject(new FlareLobbyError("CANCELLED", { requestId }));
+              };
+
+        const resolvePending = (value: JsonValue): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          this.removePending(requestId);
+          resolve(value as TResponse);
+        };
+        const rejectPending = (error: FlareLobbyError): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          this.removePending(requestId);
+          reject(error);
+        };
+
+        this.pending.set(requestId, {
+          resolve: resolvePending,
+          reject: rejectPending,
+          signal: options.signal,
+          abortListener,
+          timeoutId: undefined,
+        });
+
+        if (options.signal !== undefined && abortListener !== undefined) {
+          options.signal.addEventListener("abort", abortListener, {
+            once: true,
+          });
+          if (options.signal.aborted) {
+            abortListener();
+            return;
+          }
+        }
+
+        try {
+          this.socket.send(encoded.value);
+        } catch {
+          rejectPending(
+            new FlareLobbyError("CONNECTION_FAILED", { requestId }),
+          );
+        }
+      });
+    }
+
     return new Promise<TResponse>((resolve, reject) => {
       let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const cleanupTimer = (): void => {
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+      };
       const abortListener =
         options.signal === undefined
           ? undefined
@@ -796,15 +1376,26 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
                 return;
               }
               settled = true;
+              cleanupTimer();
               this.removePending(requestId);
               reject(new FlareLobbyError("CANCELLED", { requestId }));
             };
+      const timeoutListener = (): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        // 期限切れで pending 登録を削除するが、他の command が使う接続は閉じない。
+        this.removePending(requestId);
+        reject(new FlareLobbyError("TIMEOUT", { requestId }));
+      };
 
       const resolvePending = (value: JsonValue): void => {
         if (settled) {
           return;
         }
         settled = true;
+        cleanupTimer();
         this.removePending(requestId);
         resolve(value as TResponse);
       };
@@ -813,15 +1404,18 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
           return;
         }
         settled = true;
+        cleanupTimer();
         this.removePending(requestId);
         reject(error);
       };
 
+      timer = setTimeout(timeoutListener, timeoutMs);
       this.pending.set(requestId, {
         resolve: resolvePending,
         reject: rejectPending,
         signal: options.signal,
         abortListener,
+        timeoutId: timer,
       });
 
       if (options.signal !== undefined && abortListener !== undefined) {
@@ -938,6 +1532,9 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
     if (pending.signal !== undefined && pending.abortListener !== undefined) {
       pending.signal.removeEventListener("abort", pending.abortListener);
     }
+    if (pending.timeoutId !== undefined) {
+      clearTimeout(pending.timeoutId);
+    }
     this.pending.delete(requestId);
   }
 
@@ -961,8 +1558,13 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
       this.rejectOpen(error);
     }
 
-    for (const pending of this.pending.values()) {
-      pending.reject(error);
+    const pendings = [...this.pending.values()];
+    for (const pending of pendings) {
+      try {
+        pending.reject(error);
+      } catch {
+        // 利用者の reject 例外で後始末を止めないようにします。
+      }
     }
     this.pending.clear();
     this.queuedEvents.length = 0;
@@ -1467,6 +2069,45 @@ function isResponseLike(value: unknown): value is Response {
     typeof value["status"] === "number" &&
     typeof value["text"] === "function"
   );
+}
+
+function normalizeTimeoutOption(value: unknown): number | null | undefined {
+  if (value === undefined || value === null) {
+    return value;
+  }
+
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value <= 0 ||
+    value > MAX_TIMEOUT_MS
+  ) {
+    throw new FlareLobbyError("INVALID_PAYLOAD", {
+      message:
+        "timeout は 1 以上 2147483647 以下の正の有限数、または null で指定してください。",
+    });
+  }
+
+  return value;
+}
+
+function normalizeTimeoutDefault(value: unknown): number | undefined {
+  const normalized = normalizeTimeoutOption(value);
+  return normalized === null || normalized === undefined
+    ? undefined
+    : normalized;
+}
+
+function resolveTimeoutMs(
+  operationTimeout: number | null | undefined,
+  clientDefault: number | undefined,
+): number | undefined {
+  const effective =
+    operationTimeout !== undefined ? operationTimeout : clientDefault;
+  if (effective === undefined || effective === null) {
+    return undefined;
+  }
+  return effective;
 }
 
 function normalizeClientError(
