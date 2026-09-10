@@ -476,11 +476,7 @@ class FlareLobbyClientImpl<
         }
         settled = true;
         cleanup();
-        try {
-          fetchController.abort();
-        } catch {
-          // Abort の失敗は公開しません。
-        }
+        fetchController.abort();
         reject(error);
       };
       const onUserAbort = (): void => {
@@ -495,15 +491,7 @@ class FlareLobbyClientImpl<
 
       timer = setTimeout(onTimeout, timeoutMs);
       if (userSignal !== undefined) {
-        if (userSignal.aborted) {
-          onUserAbort();
-          return;
-        }
         userSignal.addEventListener("abort", onUserAbort, { once: true });
-      }
-      if (disposeSignal.aborted) {
-        onDispose();
-        return;
       }
       disposeSignal.addEventListener("abort", onDispose, { once: true });
 
@@ -511,10 +499,6 @@ class FlareLobbyClientImpl<
         try {
           const token = await this.readAccessToken();
           if (settled) {
-            return;
-          }
-          if (this.disposedState) {
-            doReject(createErrorWithRequestId("CANCELLED", requestId));
             return;
           }
 
@@ -697,11 +681,7 @@ class FlareLobbyClientImpl<
           settled = true;
           cleanup();
           if (connection !== undefined) {
-            try {
-              connection.close();
-            } catch {
-              // 閉塞時の例外は公開しません。
-            }
+            connection.close();
             this.connections.delete(connection);
           }
           reject(error);
@@ -718,15 +698,7 @@ class FlareLobbyClientImpl<
 
         timer = setTimeout(onTimeout, timeoutMs);
         if (userSignal !== undefined) {
-          if (userSignal.aborted) {
-            onUserAbort();
-            return;
-          }
           userSignal.addEventListener("abort", onUserAbort, { once: true });
-        }
-        if (disposeSignal.aborted || this.disposedState) {
-          onDispose();
-          return;
         }
         disposeSignal.addEventListener("abort", onDispose, { once: true });
 
@@ -735,10 +707,6 @@ class FlareLobbyClientImpl<
             const authenticationToken =
               token === undefined ? await this.readAccessToken() : token;
             if (settled) {
-              return;
-            }
-            if (this.disposedState) {
-              doReject(new FlareLobbyError("CANCELLED"));
               return;
             }
 
@@ -768,11 +736,7 @@ class FlareLobbyClientImpl<
             }
 
             if (settled) {
-              try {
-                socket.close();
-              } catch {
-                // 期限切れ後の遅延ソケットは閉じるだけです。
-              }
+              socket.close();
               return;
             }
 
@@ -790,10 +754,6 @@ class FlareLobbyClientImpl<
               doReject(new FlareLobbyError("CANCELLED"));
               return;
             }
-            if (this.disposedState) {
-              doReject(new FlareLobbyError("CANCELLED"));
-              return;
-            }
 
             try {
               await created.waitForOpen();
@@ -807,20 +767,11 @@ class FlareLobbyClientImpl<
 
             if (settled) {
               // 期限切れ後に open した接続は閉じて登録しません。
-              try {
-                created.close();
-              } catch {
-                // 閉塞時の例外は公開しません。
-              }
+              created.close();
               this.connections.delete(created);
               return;
             }
-            try {
-              this.assertActive();
-            } catch {
-              doReject(new FlareLobbyError("CANCELLED"));
-              return;
-            }
+            this.assertActive();
             doResolve(created as FlareLobbyWebSocketConnection<TApp>);
           } catch (error) {
             if (settled) {
@@ -916,11 +867,7 @@ class FlareLobbyClientImpl<
         settled = true;
         cleanup();
         if (connection !== undefined) {
-          try {
-            connection.close();
-          } catch {
-            // 閉塞時の例外は公開しません。
-          }
+          connection.close();
           this.eventStreamConnections.delete(connection);
         }
         reject(error);
@@ -937,15 +884,7 @@ class FlareLobbyClientImpl<
 
       timer = setTimeout(onTimeout, timeoutMs);
       if (userSignal !== undefined) {
-        if (userSignal.aborted) {
-          onUserAbort();
-          return;
-        }
         userSignal.addEventListener("abort", onUserAbort, { once: true });
-      }
-      if (disposeSignal.aborted || this.disposedState) {
-        onDispose();
-        return;
       }
       disposeSignal.addEventListener("abort", onDispose, { once: true });
 
@@ -953,10 +892,6 @@ class FlareLobbyClientImpl<
         try {
           const authenticationToken = await this.readAccessToken();
           if (settled) {
-            return;
-          }
-          if (this.disposedState) {
-            doReject(new FlareLobbyError("CANCELLED"));
             return;
           }
 
@@ -976,11 +911,7 @@ class FlareLobbyClientImpl<
           }
 
           if (settled) {
-            try {
-              socket.close();
-            } catch {
-              // 期限切れ後の遅延ソケットは閉じるだけです。
-            }
+            socket.close();
             return;
           }
 
@@ -990,7 +921,7 @@ class FlareLobbyClientImpl<
           connection = created;
           this.eventStreamConnections.add(created);
 
-          if (settled || this.disposedState) {
+          if (settled) {
             doReject(new FlareLobbyError("CANCELLED"));
             return;
           }
@@ -1006,20 +937,11 @@ class FlareLobbyClientImpl<
           }
 
           if (settled) {
-            try {
-              created.close();
-            } catch {
-              // 期限切れ後に open した接続は閉じるだけです。
-            }
+            created.close();
             this.eventStreamConnections.delete(created);
             return;
           }
-          try {
-            this.assertActive();
-          } catch {
-            doReject(new FlareLobbyError("CANCELLED"));
-            return;
-          }
+          this.assertActive();
           doResolve(created);
         } catch (error) {
           if (settled) {
