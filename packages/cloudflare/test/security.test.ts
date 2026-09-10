@@ -446,6 +446,20 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
     expect(response.headers.get("Retry-After")).toBe("30");
   });
 
+  it("利用制限エラーはメッセージ省略時も既定文言で 429 を返す", async () => {
+    const error = createRateLimitError(30);
+    expect(error.code).toBe("CONFLICT");
+    expect(error.retryAfterSeconds).toBe(30);
+
+    const response = createErrorResponse(error);
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("30");
+    await expect(response.json()).resolves.toEqual({
+      code: "CONFLICT",
+      message: "現在の状態と競合しました。",
+    });
+  });
+
   it("利用制限以外の CONFLICT は従来どおり HTTP 400 を返す", async () => {
     const response = createErrorResponse(new FlareLobbyError("CONFLICT"));
 

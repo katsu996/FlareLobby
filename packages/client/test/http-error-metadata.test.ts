@@ -187,4 +187,137 @@ describe("HTTP エラーの status と Retry-After 保持", () => {
     expect(error.httpStatus).toBe(429);
     expect(error.retryAfterSeconds).toBe(12);
   });
+
+  it("状態コードのみの応答も requestId と httpStatus を保持する", async () => {
+    const cases = [
+      { status: 400, code: "INVALID_PAYLOAD" },
+      { status: 422, code: "INVALID_PAYLOAD" },
+      { status: 401, code: "UNAUTHENTICATED" },
+      { status: 403, code: "FORBIDDEN" },
+      { status: 409, code: "CONFLICT" },
+      { status: 500, code: "CONNECTION_FAILED" },
+    ] as const;
+
+    for (const { status, code } of cases) {
+      const error = await readRequestError(
+        async () =>
+          new Response("{}", {
+            status,
+            headers: { "Retry-After": "5" },
+          }),
+        { requestId: `request-fallback-${status}` },
+      );
+
+      expect(error.code, `status ${status}`).toBe(code);
+      expect(error.requestId, `status ${status}`).toBe(
+        `request-fallback-${status}`,
+      );
+      expect(error.httpStatus, `status ${status}`).toBe(status);
+      expect(error.retryAfterSeconds, `status ${status}`).toBe(5);
+    }
+  });
+
+  it("RFC 850 と asctime 形式の HTTP 日時も解釈する", async () => {
+    // 1994-11-06T08:49:37Z を各形式で表す。now をその 12 秒前に固定する。
+    // RFC 850 は GMT を含むため UTC で一意に解釈できる。
+    const now = Date.parse("1994-11-06T08:49:25.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    const rfc850 = await readRequestError(async () =>
+      Response.json(
+        {
+          code: "CONFLICT",
+          message: "要求が許可された頻度を超えています。",
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": "Sunday, 06-Nov-94 08:49:37 GMT" },
+        },
+      ),
+    );
+    expect(rfc850.retryAfterSeconds).toBe(12);
+    expect(rfc850.httpStatus).toBe(429);
+
+    // asctime はタイムゾーンを含まず実行環境の解釈に依存するため、
+    // 秒数の一致までは断定せず HTTP 日時として採用されることだけを確認する。
+    const asctime = await readRequestError(async () =>
+      Response.json(
+        {
+          code: "CONFLICT",
+          message: "要求が許可された頻度を超えています。",
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": "Sun Nov  6 08:49:37 1994" },
+        },
+      ),
+    );
+    expect(asctime.httpStatus).toBe(429);
+    expect(asctime.retryAfterSeconds).toBeDefined();
+  });
+
+  it("HTTP日時形式でも解析不能な日時は無視する", async () => {
+    const error = await readRequestError(async () =>
+      Response.json(
+        {
+          code: "CONFLICT",
+          message: "要求が許可された頻度を超えています。",
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": "Sun, 99 Foo 9999 99:99:99 GMT" },
+        },
+      ),
+    );
+
+    expect(error.httpStatus).toBe(429);
+    expect(error.retryAfterSeconds).toBeUndefined();
+  });
+
+  it("ヘッダー読み取り失敗や欠落は Retry-After なしとして扱う", async () => {
+    const throwingHeaders = await readRequestError(
+      async () =>
+        ({
+          ok: false,
+          status: 503,
+          headers: {
+            get: () => {
+              throw new Error("headers broken");
+            },
+          },
+          text: () => Promise.resolve("{}"),
+        }) as unknown as Response,
+    );
+    expect(throwingHeaders.httpStatus).toBe(503);
+    expect(throwingHeaders.retryAfterSeconds).toBeUndefined();
+
+    const nullHeaders = await readRequestError(
+      async () =>
+        ({
+          ok: false,
+          status: 503,
+          headers: null,
+          text: () => Promise.resolve("{}"),
+        }) as unknown as Response,
+    );
+    expect(nullHeaders.httpStatus).toBe(503);
+    expect(nullHeaders.retryAfterSeconds).toBeUndefined();
+  });
+
+  it("本文不正の HTTP エラーも requestId を保持する", async () => {
+    const error = await readRequestError(
+      async () =>
+        new Response("not-json{{", {
+          status: 500,
+          headers: { "Retry-After": "7" },
+        }),
+      { requestId: "request-broken-1" },
+    );
+
+    expect(error.code).toBe("INVALID_MESSAGE");
+    expect(error.requestId).toBe("request-broken-1");
+    expect(error.httpStatus).toBe(500);
+    expect(error.retryAfterSeconds).toBe(7);
+  });
 });

@@ -2083,19 +2083,11 @@ function normalizeHttpError(
  */
 function readRetryAfterHeader(response: Response): string | null {
   try {
-    const headers = (response as { readonly headers?: unknown }).headers;
-    if (
-      headers !== null &&
-      typeof headers === "object" &&
-      typeof (headers as Headers).get === "function"
-    ) {
-      return (headers as Headers).get("Retry-After");
-    }
+    return response.headers?.get("Retry-After") ?? null;
   } catch {
     // ヘッダー読み取りの失敗は欠落として扱います。
+    return null;
   }
-
-  return null;
 }
 
 /**
@@ -2131,14 +2123,11 @@ function parseRetryAfterSeconds(
 
   const retryAt = parseHttpDate(trimmed);
 
-  if (retryAt === null || !Number.isSafeInteger(now)) {
+  if (retryAt === null) {
     return undefined;
   }
 
-  const seconds = Math.ceil((retryAt - now) / 1000);
-  const clamped = Math.max(0, seconds);
-
-  return Number.isSafeInteger(clamped) ? clamped : undefined;
+  return Math.max(0, Math.ceil((retryAt - now) / 1000));
 }
 
 /**
