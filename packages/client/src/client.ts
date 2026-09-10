@@ -580,11 +580,7 @@ class FlareLobbyClientImpl<
             return;
           }
           if (error instanceof FlareLobbyError) {
-            doReject(
-              error.code === "TIMEOUT" || error.code === "CANCELLED"
-                ? error
-                : createErrorWithRequestId("CONNECTION_FAILED", requestId),
-            );
+            doReject(error);
             return;
           }
           doReject(createErrorWithRequestId("CONNECTION_FAILED", requestId));

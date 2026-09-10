@@ -891,3 +891,111 @@ describe("client timeout edge branches", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe("client timeout additional branches", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    FakeWebSocket.autoOpen = true;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("token 失敗を timeout 設定時も正規化する", async () => {
+    const unauthClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => {
+        throw new Error("provider boom");
+      },
+      fetch: vi.fn(),
+    });
+    await expect(
+      unauthClient.request("/v1/rooms", { timeoutMs: 1000 }),
+    ).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
+
+    const emptyTokenClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "",
+      fetch: vi.fn(),
+    });
+    await expect(
+      emptyTokenClient.request("/v1/rooms", { timeoutMs: 1000 }),
+    ).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
+
+    const connectUnauthClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => {
+        throw new Error("provider boom");
+      },
+      webSocket: fakeWebSocketConstructor,
+    });
+    await expect(
+      connectUnauthClient.connect("/v1/rooms/room-1/ws", { timeoutMs: 1000 }),
+    ).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("イベント接続のソケット生成失敗と error イベントを timeout 設定時も処理する", async () => {
+    const envelope = {
+      party: {
+        partyId: "party-9",
+        revision: 1,
+        maxPartySize: 4,
+        members: [
+          {
+            playerId: "leader-1",
+            role: "leader",
+            joinedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        invites: [],
+        queuedTicket: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    };
+
+    const failingClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      fetch: async () => Response.json(envelope),
+      webSocketFactory: () => {
+        throw new Error("constructor failed");
+      },
+      connectionTimeoutMs: 1000,
+    });
+    await expect(
+      failingClient.createParty({ maxPartySize: 4 }),
+    ).rejects.toMatchObject({ code: "CONNECTION_FAILED" });
+
+    // error イベントで切断される。
+    FakeWebSocket.instances = [];
+    FakeWebSocket.autoOpen = false;
+    const errorClient = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "token",
+      fetch: async () => Response.json(envelope),
+      webSocket: fakeWebSocketConstructor,
+      connectionTimeoutMs: 5000,
+    });
+    const errorPending = errorClient.createParty({ maxPartySize: 4 });
+    const errorAssertion = expect(errorPending).rejects.toMatchObject({
+      code: "CONNECTION_FAILED",
+    });
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      if (FakeWebSocket.instances.length > 0) {
+        break;
+      }
+    }
+    FakeWebSocket.instances[0]?.emit("error", new Event("error"));
+    await errorAssertion;
+    expect(vi.getTimerCount()).toBe(0);
+    errorClient.dispose();
+  });
+});
