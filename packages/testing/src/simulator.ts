@@ -418,6 +418,7 @@ export function simulateMatchmaking(
       const first = recordsById.get(evaluation.candidate.ticketIds[0]);
       const second = recordsById.get(evaluation.candidate.ticketIds[1]);
 
+      /* v8 ignore next -- 候補は待機中チケットから重複なく選ばれるため到達不能な防御です。 */
       if (
         first === undefined ||
         second === undefined ||
@@ -683,6 +684,7 @@ function createEventTimes(
   }
 
   if (times.size > MAX_SIMULATION_EVENT_COUNT) {
+    /* v8 ignore next -- 直前の tick ループで上限超過を検出済みのため到達不能な防御です。 */
     throw new RangeError(
       `シミュレーションイベント数が上限 ${MAX_SIMULATION_EVENT_COUNT} 件を超えました。`,
     );
@@ -750,6 +752,7 @@ function toMatchResult(
 ): SimulationMatchResult {
   const first = recordsById.get(match.evaluation.candidate.ticketIds[0]);
   const second = recordsById.get(match.evaluation.candidate.ticketIds[1]);
+  /* v8 ignore next -- 成立候補は同一レコード群から作られるため到達不能な防御です。 */
   if (first === undefined || second === undefined) {
     throw new Error("成立した候補のチケットが見つかりません。");
   }

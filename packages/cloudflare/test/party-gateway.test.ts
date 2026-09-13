@@ -507,6 +507,82 @@ describe("Party イベント WebSocket", () => {
     response.webSocket.accept();
     const payload = JSON.parse(await message) as { readonly type: string };
     expect(payload.type).toBe("created");
+
+    // 参加中の接続へメンバーの参加が配信される。
+    const invited = uniquePrincipal("ws-invited");
+    const inviteResponse = await fetchWorker(
+      `/v1/parties/${encodeURIComponent(party.partyId)}/invites`,
+      leader,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          requestId: `invite-ws-${party.partyId}`,
+          playerId: `${invited}-player`,
+        }),
+      },
+    );
+    expect(inviteResponse.status).toBe(200);
+    const { invite } = await inviteResponse.json<{
+      readonly invite: { readonly token: string };
+    }>();
+    const acceptedResponse = await fetchWorker(
+      `/v1/parties/${encodeURIComponent(party.partyId)}/members`,
+      invited,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          requestId: `accept-ws-${invited}`,
+          token: invite.token,
+        }),
+      },
+    );
+    expect(acceptedResponse.status).toBe(200);
+
+    const joined = new Promise<string>((resolve) => {
+      const onMessage = (event: Event): void => {
+        const data = (event as MessageEvent).data as string;
+        if (
+          (JSON.parse(data) as { readonly type: string }).type ===
+          "member_joined"
+        ) {
+          response.webSocket!.removeEventListener("message", onMessage);
+          resolve(data);
+        }
+      };
+      response.webSocket!.addEventListener("message", onMessage);
+    });
+    // 受諾は既に済んでいるため、次は退出イベントを待つ。
+    const leaver = uniquePrincipal("ws-leaver");
+    const inviteLeaver = await fetchWorker(
+      `/v1/parties/${encodeURIComponent(party.partyId)}/invites`,
+      leader,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          requestId: `invite-ws-leaver-${party.partyId}`,
+          playerId: `${leaver}-player`,
+        }),
+      },
+    );
+    expect(inviteLeaver.status).toBe(200);
+    const { invite: leaverInvite } = await inviteLeaver.json<{
+      readonly invite: { readonly token: string };
+    }>();
+    const acceptedLeaver = await fetchWorker(
+      `/v1/parties/${encodeURIComponent(party.partyId)}/members`,
+      leaver,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          requestId: `accept-ws-leaver-${leaver}`,
+          token: leaverInvite.token,
+        }),
+      },
+    );
+    expect(acceptedLeaver.status).toBe(200);
+    const joinedPayload = JSON.parse(await joined) as { readonly type: string };
+    expect(joinedPayload.type).toBe("member_joined");
+
     response.webSocket.close();
   });
 
@@ -522,5 +598,78 @@ describe("Party イベント WebSocket", () => {
       {} as ExecutionContext,
     );
     expect(rejected.status).toBeGreaterThanOrEqual(400);
+  });
+
+  it("取得系以外のメソッドは 404 になる", async () => {
+    const leader = uniquePrincipal("method-guard");
+    const party = await createParty(leader);
+    const base = `/v1/parties/${encodeURIComponent(party.partyId)}`;
+
+    for (const path of [
+      `${base}/members`,
+      `${base}/leave`,
+      `${base}/dissolve`,
+      `${base}/events`,
+    ]) {
+      const response = await fetchWorker(
+        path,
+        leader,
+        path.endsWith("/events")
+          ? { method: "POST", body: "{}" }
+          : { method: "GET" },
+      );
+      expect(response.status, path).toBe(404);
+    }
+  });
+
+  it("空本文の参加要求は INVALID_PAYLOAD になる", async () => {
+    const leader = uniquePrincipal("empty-body");
+    const party = await createParty(leader);
+    const response = await testWorker.fetch(
+      new Request(
+        `https://example.test/v1/parties/${encodeURIComponent(party.partyId)}/invites`,
+        {
+          method: "POST",
+          headers: {
+            "x-test-principal": leader,
+            "content-type": "application/json",
+          },
+        },
+      ) as unknown as Parameters<typeof testWorker.fetch>[0],
+      env,
+      {} as ExecutionContext,
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("トークンなし・認証なしのイベント接続は拒否される", async () => {
+    const leader = uniquePrincipal("ws-unauth");
+    const party = await createParty(leader);
+    const path = `/v1/parties/${encodeURIComponent(party.partyId)}/events/ws`;
+
+    // トークンなしは 401 になる。
+    const noToken = await testWorker.fetch(
+      new Request(`https://example.test${path}`, {
+        method: "GET",
+        headers: { Upgrade: "websocket", "x-test-principal": leader },
+      }) as unknown as Parameters<typeof testWorker.fetch>[0],
+      env,
+      {} as ExecutionContext,
+    );
+    expect(noToken.status).toBe(401);
+
+    // 認証なしは 401 になる。
+    const noAuth = await testWorker.fetch(
+      new Request(`https://example.test${path}`, {
+        method: "GET",
+        headers: {
+          Upgrade: "websocket",
+          "Sec-WebSocket-Protocol": `flarelobby.v1, flarelobby.auth.${encodeWebSocketToken("test-token")}`,
+        },
+      }) as unknown as Parameters<typeof testWorker.fetch>[0],
+      env,
+      {} as ExecutionContext,
+    );
+    expect(noAuth.status).toBe(401);
   });
 });

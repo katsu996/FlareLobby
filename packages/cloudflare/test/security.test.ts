@@ -1031,3 +1031,98 @@ describe("認証・認可・入力検証・利用制限の共通基盤", () => {
     );
   });
 });
+
+describe("セキュリティ検証の分岐", () => {
+  it("署名発行の不正入力と空トークン検証を拒否する", async () => {
+    const { issueJoinToken, verifyJoinToken, validateQuery } =
+      await import("../src/index.js");
+
+    // 空シークレットでは UNAUTHENTICATED になる。
+    const issued = await issueJoinToken("", {
+      principal: { id: "p-1", playerId: "player-1" },
+      roomId: "room-1",
+      role: "player",
+      participantId: "participant-1",
+      expiresAt: Date.now() + 60_000,
+    });
+    expect(issued.ok).toBe(false);
+
+    // 空トークンの検証は失敗する。
+    const verifyOptions = {
+      principal: { id: "p-1", playerId: "player-1" },
+      roomId: "room-1",
+    };
+    expect(
+      await verifyJoinToken(TOKEN_SECRET, "", verifyOptions),
+    ).toMatchObject({
+      ok: false,
+    });
+    // 不正な符号化のトークンは失敗する。
+    expect(
+      await verifyJoinToken(TOKEN_SECRET, "e30.AAAAA", verifyOptions),
+    ).toMatchObject({ ok: false });
+    // 空シークレットでは検証できない。
+    expect(await verifyJoinToken("", "e30.e30", verifyOptions)).toMatchObject({
+      ok: false,
+    });
+
+    // 投げる検証関数は INVALID_PAYLOAD に正規化される。
+    const validated = validateQuery(
+      new Request("https://example.test/?x=1"),
+      (_value: unknown): _value is Record<string, unknown> => {
+        throw new Error("validator boom");
+      },
+    );
+    expect(validated.ok).toBe(false);
+  });
+
+  it("本文長の不正とコマンド検証の上限を拒否する", async () => {
+    const { readValidatedJsonBody, validateWebSocketCommand } =
+      await import("../src/index.js");
+    const isJsonObject = (value: unknown): value is Record<string, unknown> =>
+      typeof value === "object" && value !== null && !Array.isArray(value);
+
+    const badLength = await readValidatedJsonBody(
+      new Request("https://example.test/", {
+        method: "POST",
+        headers: {
+          "content-length": "abc",
+          "content-type": "application/json",
+        },
+        body: "{}",
+      }),
+      1024,
+      isJsonObject,
+    );
+    expect(badLength.ok).toBe(false);
+
+    expect(validateWebSocketCommand("hello", 0).ok).toBe(false);
+  });
+
+  it("join 認可フックを選択する", async () => {
+    const { authorizeGatewayOperation } = await import("../src/index.js");
+    const authenticated = {
+      principal: { id: "p-1", playerId: "player-1" },
+      gatewayPrincipal: {
+        playerId: "player-1",
+        token: "test-token",
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+      },
+    };
+
+    const allowed = await authorizeGatewayOperation(
+      authenticated,
+      { authorizeJoin: () => true },
+      { operation: "join", roomId: "room-1" },
+    );
+    expect(allowed.ok).toBe(true);
+
+    const hostAllowed = await authorizeGatewayOperation(
+      authenticated,
+      { authorizeHostOperation: () => true },
+      { operation: "host_operation", roomId: "room-1" },
+    );
+    expect(hostAllowed.ok).toBe(true);
+  });
+});

@@ -43,6 +43,13 @@ describe("SeededRandom", () => {
     }
   });
 
+  it("rejects upper bounds above 2^32", () => {
+    const random = new SeededRandom("bounds");
+
+    expect(() => random.nextInt(0x1_0000_0000 + 1)).toThrow(RangeError);
+    expect(random.nextInt(0x1_0000_0000)).toBeGreaterThanOrEqual(0);
+  });
+
   it("rejects invalid random seeds", () => {
     for (const seed of ["", 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(() => new SeededRandom(seed)).toThrow(TypeError);

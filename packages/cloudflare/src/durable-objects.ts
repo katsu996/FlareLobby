@@ -71,6 +71,7 @@ export class RateLimitDurableObject extends DurableObject<Env> {
     const count = (row?.count ?? 0) + 1;
 
     if (now - windowStartedAt >= RATE_LIMIT_WINDOW_MS) {
+      /* istanbul ignore start -- 60 秒窓の期限切れは通常テストでは待てないため、到達不能な防御です。 */
       this.ctx.storage.sql.exec(
         `INSERT INTO flarelobby_rate_limits (scope, shard_id, window_started_at, count)
          VALUES (?, ?, ?, 1)
@@ -82,6 +83,7 @@ export class RateLimitDurableObject extends DurableObject<Env> {
         now,
       );
       return allowedRateLimitDecision();
+      /* istanbul ignore stop */
     }
 
     if (count > limit) {

@@ -757,4 +757,95 @@ describe("マッチングチケット入力の検証", () => {
     );
     expect(invalidEncoding.status).toBe(404);
   });
+
+  it("チケット作成の任意項目を受け付ける", async () => {
+    const base = `/v1/matchmaking/pools/${encodeURIComponent(pool.id)}/tickets`;
+    const createWith = async (
+      label: string,
+      body: Record<string, unknown>,
+    ): Promise<Response> => {
+      const principalId = `gateway-fields-${label}-${crypto.randomUUID()}`;
+      return fetchWorker(base, principalId, {
+        method: "POST",
+        body: JSON.stringify({
+          requestId: `request-${principalId}`,
+          ...body,
+        }),
+      });
+    };
+
+    const response = await createWith("rated", {
+      rating: { value: 1_600 },
+    });
+    expect(response.status).toBe(201);
+    const body = await response.json<{
+      ticket: { rating: { value: number } };
+    }>();
+    expect(body.ticket.rating.value).toBe(1_600);
+
+    for (const [label, extra] of [
+      ["attrs", { searchAttributes: { grade: "gold" } }],
+      ["expires", { expiresAt: "2030-01-01T00:00:00.000Z" }],
+      ["ttl", { ttlMs: 60_000 }],
+    ] as const) {
+      const variant = await createWith(label, { ...extra });
+      expect(variant.status, label).toBe(201);
+    }
+
+    // 空の要求識別子は INVALID_PAYLOAD になる。
+    const emptyPrincipal = `gateway-empty-${crypto.randomUUID()}`;
+    const emptyId = await fetchWorker(base, emptyPrincipal, {
+      method: "POST",
+      body: JSON.stringify({ requestId: "" }),
+    });
+    expect(emptyId.status).toBe(400);
+
+    // 空の Idempotency-Key は空の要求識別子として扱われ INVALID_PAYLOAD になる。
+    const emptyHeaderPrincipal = `gateway-empty-hdr-${crypto.randomUUID()}`;
+    const emptyHeader = await fetchWorker(base, emptyHeaderPrincipal, {
+      method: "POST",
+      headers: { "Idempotency-Key": "" },
+      body: JSON.stringify({ requestId: `request-${emptyHeaderPrincipal}` }),
+    });
+    expect(emptyHeader.status).toBe(400);
+  });
+
+  it("メソッド違いの経路は 404 になる", async () => {
+    const principalId = `gateway-method-${crypto.randomUUID()}`;
+    const ticket = await createTicket(principalId);
+    const ticketPath = `/v1/matchmaking/pools/${encodeURIComponent(pool.id)}/tickets/${encodeURIComponent(ticket.ticket.id)}`;
+
+    // rating は GET のみ。
+    const ratingPost = await fetchWorker(
+      `/v1/matchmaking/pools/${encodeURIComponent(pool.id)}/rating`,
+      principalId,
+      { method: "POST", body: "{}" },
+    );
+    expect(ratingPost.status).toBe(404);
+
+    // 取得は GET のみ。
+    const getPost = await fetchWorker(ticketPath, principalId, {
+      method: "POST",
+      body: "{}",
+    });
+    expect(getPost.status).toBe(404);
+
+    // キャンセルは POST/DELETE のみ。
+    const cancelGet = await fetchWorker(`${ticketPath}/cancel`, principalId);
+    expect(cancelGet.status).toBe(404);
+
+    // イベントは GET のみ。
+    const eventsPost = await fetchWorker(`${ticketPath}/events`, principalId, {
+      method: "POST",
+      body: "{}",
+    });
+    expect(eventsPost.status).toBe(404);
+
+    // 存在しないチケットの取得は 400 になる。
+    const missing = await fetchWorker(
+      `/v1/matchmaking/pools/${encodeURIComponent(pool.id)}/tickets/ticket-missing`,
+      principalId,
+    );
+    expect(missing.status).toBe(400);
+  });
 });

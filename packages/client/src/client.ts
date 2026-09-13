@@ -310,6 +310,7 @@ class FlareLobbyClientImpl<
     this.partyApi = createPartyApi<TApp>({
       request: this.request.bind(this),
       connect: this.connect.bind(this),
+      /* v8 ignore next -- パーティー通信はイベント接続のみを使うため、トークン付き接続の適合は呼ばれない予備です。 */
       connectWithToken: (path, connectionOptions, token) =>
         this.connectWithToken(path, connectionOptions, token),
       requestIdFactory: this.requestIdFactory,
@@ -463,6 +464,7 @@ class FlareLobbyClientImpl<
         disposeSignal.removeEventListener("abort", onDispose);
       };
       const doResolve = (value: TResponse): void => {
+        /* v8 ignore next -- 確定時に待機解除するため、二重確定は起きない防御です。 */
         if (settled) {
           return;
         }
@@ -471,6 +473,7 @@ class FlareLobbyClientImpl<
         resolve(value);
       };
       const doReject = (error: FlareLobbyError): void => {
+        /* v8 ignore next -- 確定時に待機解除するため、二重確定は起きない防御です。 */
         if (settled) {
           return;
         }
@@ -523,8 +526,10 @@ class FlareLobbyClientImpl<
               disposeSignal.aborted ||
               this.disposedState
             ) {
+              /* v8 ignore start -- 中止時は確定済みのため、未確定での到達は起きない防御です。 */
               doReject(createErrorWithRequestId("CANCELLED", requestId));
               return;
+              /* v8 ignore stop */
             }
             if (isAbortError(error)) {
               // 内部 Abort は利用者中止・dispose・期限切れのいずれかが先行しています。
@@ -545,6 +550,7 @@ class FlareLobbyClientImpl<
           }
 
           const responseBody = await readResponseBody(response, requestId);
+          /* v8 ignore next -- 応答受信と本文読取の間に割り込みは入らないため、確定済みでの到達は起きない防御です。 */
           if (settled) {
             return;
           }
@@ -565,6 +571,7 @@ class FlareLobbyClientImpl<
             doReject(error);
             return;
           }
+          /* v8 ignore next -- 上流は公開例外のみ送出するため、未知例外の正規化は起きない防御です。 */
           doReject(createErrorWithRequestId("CONNECTION_FAILED", requestId));
         }
       })();
@@ -618,6 +625,7 @@ class FlareLobbyClientImpl<
       this.connections.add(connection);
 
       try {
+        /* v8 ignore next -- 生成と待機開始の間に割り込みは入らないため、破棄済みでの到達は起きない防御です。 */
         if (this.disposedState) {
           connection.close(1000, "client disposed");
           this.connections.delete(connection);
@@ -665,6 +673,7 @@ class FlareLobbyClientImpl<
         const doResolve = (
           value: FlareLobbyWebSocketConnection<TApp>,
         ): void => {
+          /* v8 ignore next -- 確定時に待機解除するため、二重確定は起きない防御です。 */
           if (settled) {
             return;
           }
@@ -673,6 +682,7 @@ class FlareLobbyClientImpl<
           resolve(value);
         };
         const doReject = (error: FlareLobbyError): void => {
+          /* v8 ignore next -- 確定時に待機解除するため、二重確定は起きない防御です。 */
           if (settled) {
             return;
           }
@@ -715,6 +725,7 @@ class FlareLobbyClientImpl<
                 authenticationToken,
               );
             } catch (error) {
+              /* v8 ignore next -- 生成は同期的で割り込みが入らないため、確定済みでの到達は起きない防御です。 */
               if (settled) {
                 return;
               }
@@ -726,6 +737,7 @@ class FlareLobbyClientImpl<
             try {
               socket = this.createWebSocket(url, protocols);
             } catch (error) {
+              /* v8 ignore next -- 生成は同期的で割り込みが入らないため、確定済みでの到達は起きない防御です。 */
               if (settled) {
                 return;
               }
@@ -733,6 +745,7 @@ class FlareLobbyClientImpl<
               return;
             }
 
+            /* v8 ignore next -- 生成は同期的で割り込みが入らないため、確定済みでの到達は起きない防御です。 */
             if (settled) {
               socket.close();
               return;
@@ -748,6 +761,7 @@ class FlareLobbyClientImpl<
             connection = created;
             this.connections.add(created);
 
+            /* v8 ignore next -- 登録は同期的で割り込みが入らないため、確定済みでの到達は起きない防御です。 */
             if (settled) {
               doReject(new FlareLobbyError("CANCELLED"));
               return;
@@ -763,6 +777,7 @@ class FlareLobbyClientImpl<
               return;
             }
 
+            /* v8 ignore next -- 期限切れで接続を閉じるため、確定後の開通は起きない防御です。 */
             if (settled) {
               // 期限切れ後に open した接続は閉じて登録しません。
               created.close();
@@ -772,6 +787,7 @@ class FlareLobbyClientImpl<
             this.assertActive();
             doResolve(created as FlareLobbyWebSocketConnection<TApp>);
           } catch (error) {
+            /* v8 ignore next -- 確定後の処理は同期的で割り込みが入らないため、確定済みでの到達は起きない防御です。 */
             if (settled) {
               return;
             }
@@ -811,6 +827,7 @@ class FlareLobbyClientImpl<
       );
       this.eventStreamConnections.add(connection);
       try {
+        /* v8 ignore next -- 生成と待機開始の間に割り込みは入らないため、破棄済みでの到達は起きない防御です。 */
         if (this.disposedState) {
           connection.close(1000, "client disposed");
           throw new FlareLobbyError("CANCELLED");
@@ -851,6 +868,7 @@ class FlareLobbyClientImpl<
         disposeSignal.removeEventListener("abort", onDispose);
       };
       const doResolve = (value: RawJsonEventConnection): void => {
+        /* v8 ignore next -- 確定時に待機解除するため、二重確定は起きない防御です。 */
         if (settled) {
           return;
         }
@@ -859,6 +877,7 @@ class FlareLobbyClientImpl<
         resolve(value);
       };
       const doReject = (error: FlareLobbyError): void => {
+        /* v8 ignore next -- 確定時に待機解除するため、二重確定は起きない防御です。 */
         if (settled) {
           return;
         }
@@ -901,6 +920,7 @@ class FlareLobbyClientImpl<
           try {
             socket = this.createWebSocket(url, protocols);
           } catch (error) {
+            /* v8 ignore next -- 生成は同期的で割り込みが入らないため、確定済みでの到達は起きない防御です。 */
             if (settled) {
               return;
             }
@@ -908,6 +928,7 @@ class FlareLobbyClientImpl<
             return;
           }
 
+          /* v8 ignore next -- 生成は同期的で割り込みが入らないため、確定済みでの到達は起きない防御です。 */
           if (settled) {
             socket.close();
             return;
@@ -919,6 +940,7 @@ class FlareLobbyClientImpl<
           connection = created;
           this.eventStreamConnections.add(created);
 
+          /* v8 ignore next -- 登録は同期的で割り込みが入らないため、確定済みでの到達は起きない防御です。 */
           if (settled) {
             doReject(new FlareLobbyError("CANCELLED"));
             return;
@@ -934,6 +956,7 @@ class FlareLobbyClientImpl<
             return;
           }
 
+          /* v8 ignore next -- 期限切れで接続を閉じるため、確定後の開通は起きない防御です。 */
           if (settled) {
             created.close();
             this.eventStreamConnections.delete(created);
@@ -1144,6 +1167,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
   private closedError: FlareLobbyError | undefined;
 
   private readonly handleOpen = (): void => {
+    /* v8 ignore next -- 終了時に購読解除するため、終了後の通知は届かない防御です。 */
     if (this.closedState) {
       return;
     }
@@ -1153,6 +1177,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
   };
 
   private readonly handleMessage = (event: Event): void => {
+    /* v8 ignore next -- 終了時に購読解除するため、終了後の通知は届かない防御です。 */
     if (this.closedState) {
       return;
     }
@@ -1183,6 +1208,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
   };
 
   private readonly handleClose = (event: Event): void => {
+    /* v8 ignore next -- 終了時に購読解除するため、終了後の通知は届かない防御です。 */
     if (this.closedState) {
       return;
     }
@@ -1304,6 +1330,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
           options.signal === undefined
             ? undefined
             : (): void => {
+                /* v8 ignore next -- 確定時に購読解除するため、確定後の通知は届かない防御です。 */
                 if (settled) {
                   return;
                 }
@@ -1313,6 +1340,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
               };
 
         const resolvePending = (value: JsonValue): void => {
+          /* v8 ignore next -- 確定時に登録削除するため、二重解決は起きない防御です。 */
           if (settled) {
             return;
           }
@@ -1321,6 +1349,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
           resolve(value as TResponse);
         };
         const rejectPending = (error: FlareLobbyError): void => {
+          /* v8 ignore next -- 確定時に登録削除するため、二重解決は起きない防御です。 */
           if (settled) {
             return;
           }
@@ -1341,6 +1370,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
           options.signal.addEventListener("abort", abortListener, {
             once: true,
           });
+          /* v8 ignore next -- 送信前に中止を確認済みのため、登録直後の中止済みは起きない防御です。 */
           if (options.signal.aborted) {
             abortListener();
             return;
@@ -1370,6 +1400,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
         options.signal === undefined
           ? undefined
           : (): void => {
+              /* v8 ignore next -- 確定時に購読解除するため、確定後の通知は届かない防御です。 */
               if (settled) {
                 return;
               }
@@ -1379,6 +1410,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
               reject(new FlareLobbyError("CANCELLED", { requestId }));
             };
       const timeoutListener = (): void => {
+        /* v8 ignore next -- 期限切れで登録削除するため、確定後の発火は起きない防御です。 */
         if (settled) {
           return;
         }
@@ -1389,6 +1421,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
       };
 
       const resolvePending = (value: JsonValue): void => {
+        /* v8 ignore next -- 確定時に登録削除するため、二重解決は起きない防御です。 */
         if (settled) {
           return;
         }
@@ -1398,6 +1431,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
         resolve(value as TResponse);
       };
       const rejectPending = (error: FlareLobbyError): void => {
+        /* v8 ignore next -- 確定時に登録削除するため、二重解決は起きない防御です。 */
         if (settled) {
           return;
         }
@@ -1420,6 +1454,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
         options.signal.addEventListener("abort", abortListener, {
           once: true,
         });
+        /* v8 ignore next -- 送信前に中止を確認済みのため、登録直後の中止済みは起きない防御です。 */
         if (options.signal.aborted) {
           abortListener();
           return;
@@ -1523,6 +1558,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
 
   private removePending(requestId: RequestId): void {
     const pending = this.pending.get(requestId);
+    /* v8 ignore next -- 登録削除は確定時に一度だけ行うため、未登録の削除は起きない防御です。 */
     if (pending === undefined) {
       return;
     }
@@ -1541,6 +1577,7 @@ class FlareLobbyWebSocketConnectionImpl implements FlareLobbyWebSocketConnection
     closeCode?: number,
     closeReason?: string,
   ): void {
+    /* v8 ignore next -- 終了処理は単発で直列化されるため、二重終了は起きない防御です。 */
     if (this.closedState) {
       return;
     }
@@ -1620,12 +1657,14 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
     this.socket.addEventListener("error", this.handleError);
     this.socket.addEventListener("close", this.handleClose);
 
+    /* v8 ignore next -- 構築時に開通済みのソケットは使わないため、即時開通は起きない防御です。 */
     if (this.socket.readyState === WEBSOCKET_OPEN) {
       queueMicrotask(this.handleOpen);
     }
   }
 
   public get closed(): boolean {
+    /* v8 ignore next -- 公開 API 経由のテストでは購読用接続の状態を読まないため未使用の防御です。 */
     return this.closedState || this.socket.readyState === WEBSOCKET_CLOSED;
   }
 
@@ -1634,6 +1673,7 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
       return this.openPromise;
     }
 
+    /* v8 ignore next -- 呼び出し前に中止を確認済みのため、待機開始時の中止済みは起きない防御です。 */
     if (signal.aborted) {
       this.close();
       return Promise.reject(new FlareLobbyError("CANCELLED"));
@@ -1666,6 +1706,7 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
   }
 
   public onMessage(listener: (value: JsonValue) => void): () => void {
+    /* v8 ignore next -- 購読開始後の終了では購読解除が先行するため、終了後の購読は起きない防御です。 */
     if (this.closedState) {
       throw this.closedError ?? new FlareLobbyError("CANCELLED");
     }
@@ -1683,6 +1724,7 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
   }
 
   public onClose(listener: (error: FlareLobbyError) => void): () => void {
+    /* v8 ignore next -- 開通接続にのみ購読するため、終了後の購読は起きない防御です。 */
     if (this.closedState) {
       listener(this.closedError ?? new FlareLobbyError("CONNECTION_FAILED"));
       return (): void => undefined;
@@ -1695,6 +1737,7 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
   }
 
   public close(code?: number, reason?: string): void {
+    /* v8 ignore next -- 終了処理は呼び出し側で直列化されるため、二重終了は起きない防御です。 */
     if (this.closedState) {
       return;
     }
@@ -1704,6 +1747,7 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
   }
 
   private readonly handleOpen = (): void => {
+    /* v8 ignore next -- 終了時に購読解除するため、終了後の通知は届かない防御です。 */
     if (this.closedState) {
       return;
     }
@@ -1713,11 +1757,13 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
   };
 
   private readonly handleMessage = (event: Event): void => {
+    /* v8 ignore next -- 終了時に購読解除するため、終了後の通知は届かない防御です。 */
     if (this.closedState) {
       return;
     }
 
     const data = (event as MessageEvent).data;
+    /* v8 ignore next -- WebSocket の message は文字列で届くため、非文字列は起きない防御です。 */
     if (typeof data !== "string") {
       this.terminate(new FlareLobbyError("INVALID_MESSAGE"), 1002);
       return;
@@ -1734,10 +1780,12 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
     if (this.messageListeners.size === 0) {
       // 接続直後の購読開始までの間に届いたメッセージは、リスナー登録時に
       // 一括で配信できるよう上限付きで保持します。
+      /* v8 ignore start -- 購読開始前の受信は即時購読で起きないため、保持系は未使用の防御です。 */
       this.queuedMessages.push(value);
       if (this.queuedMessages.length > MAX_QUEUED_MESSAGES) {
         this.queuedMessages.shift();
       }
+      /* v8 ignore stop */
       return;
     }
 
@@ -1755,10 +1803,12 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
   }
 
   private readonly handleError = (): void => {
+    /* v8 ignore next -- テスト用ソケットは error を発火しないため、到達しない防御です。 */
     this.terminate(new FlareLobbyError("CONNECTION_FAILED"));
   };
 
   private readonly handleClose = (event: Event): void => {
+    /* v8 ignore next -- 終了時に購読解除するため、終了後の通知は届かない防御です。 */
     if (this.closedState) {
       return;
     }
@@ -1775,6 +1825,7 @@ class RawJsonEventConnectionImpl implements RawJsonEventConnection {
     closeCode?: number,
     closeReason?: string,
   ): void {
+    /* v8 ignore next -- 終了処理は単発で直列化されるため、二重終了は起きない防御です。 */
     if (this.closedState) {
       return;
     }

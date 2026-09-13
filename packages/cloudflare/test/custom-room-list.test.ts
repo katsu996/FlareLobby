@@ -430,6 +430,8 @@ describe("公開カスタムルーム一覧", () => {
       },
       { query: "?limit=0", status: 400, code: "INVALID_PAYLOAD" },
       { query: "?limit=101", status: 400, code: "INVALID_PAYLOAD" },
+      { query: "?availableSlots=-1", status: 400, code: "INVALID_PAYLOAD" },
+      { query: "?minAvailableSlots=-1", status: 400, code: "INVALID_PAYLOAD" },
       { query: "?limit=5&pageSize=6", status: 400, code: "CONFLICT" },
       {
         query: `?cursor=${"x".repeat(513)}`,
@@ -533,6 +535,16 @@ describe("公開カスタムルーム一覧", () => {
         code: "INVALID_PAYLOAD",
       });
     }
+
+    // 署名長が異なるカーソルは定数時間比較で拒否します。
+    const shortSignature = `${(page.nextCursor as string).split(".")[0]}.AA`;
+    const shortResponse = await fetchListResponse(
+      `?mode=cursor-negation&region=jp&limit=2&cursor=${encodeURIComponent(shortSignature)}`,
+    );
+    expect(shortResponse.status).toBe(400);
+    await expect(shortResponse.json()).resolves.toMatchObject({
+      code: "INVALID_PAYLOAD",
+    });
   });
 });
 

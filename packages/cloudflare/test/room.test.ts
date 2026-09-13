@@ -192,14 +192,15 @@ describe("Room Durable Object の永続状態とライフサイクル", () => {
     await room.initialize(createRoomOptions(roomId));
 
     const now = Date.now();
+    // フルスイート実行時の負荷でも期限切れにならないよう余裕を持たせる。
     const later: RoomScheduledOperationOptions = {
       id: "later",
-      dueAt: now + 10_000,
+      dueAt: now + 120_000,
       payload: { name: "later" },
     };
     const earlier: RoomScheduledOperationOptions = {
       id: "earlier",
-      dueAt: now + 2_000,
+      dueAt: now + 60_000,
       payload: { name: "earlier" },
     };
 

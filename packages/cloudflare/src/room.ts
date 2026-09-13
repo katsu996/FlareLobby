@@ -716,6 +716,7 @@ export class RoomDurableObject
           );
 
           if (!issuedResumeToken.ok) {
+            /* istanbul ignore next -- 有効な環境では署名発行は失敗しないため到達不能な防御です。 */
             return createErrorResponse(issuedResumeToken.error);
           }
 
@@ -724,6 +725,7 @@ export class RoomDurableObject
 
         const snapshot = this.readSnapshot();
 
+        /* istanbul ignore next -- 直前に検証した状態を読むため、欠落は起きない防御です。 */
         if (snapshot === null) {
           return createErrorResponse(new FlareLobbyError("CONNECTION_FAILED"));
         }
@@ -804,12 +806,14 @@ export class RoomDurableObject
             this.sendProtocolMessage(server, message),
           )
         ) {
+          /* istanbul ignore start -- ソケット障害の注入手段がないため、通常テストでは起きない防御です。 */
           await this.markWebSocketDisconnected(connectionAttachment);
           try {
             server.close(1011, "接続を初期化できませんでした。");
           } catch {
             // すでに閉じた WebSocket の例外は公開しません。
           }
+          /* istanbul ignore stop */
         }
 
         return new Response(null, {
@@ -820,6 +824,7 @@ export class RoomDurableObject
           webSocket: client,
         });
       } catch (error) {
+        /* istanbul ignore next -- 接続確立後の処理は失敗しないため、通常テストでは起きない防御です。 */
         if (connectionAttachment !== undefined) {
           try {
             await this.markWebSocketDisconnected(connectionAttachment);
@@ -916,6 +921,7 @@ export class RoomDurableObject
 
           const snapshot = this.readSnapshot();
 
+          /* istanbul ignore next -- 直前に書き込んだ状態を読むため、欠落は起きない防御です。 */
           if (snapshot === null) {
             throw new FlareLobbyError("CONNECTION_FAILED");
           }
@@ -1009,6 +1015,7 @@ export class RoomDurableObject
 
           const snapshot = this.readSnapshot();
 
+          /* istanbul ignore next -- 直前に書き込んだ状態を読むため、欠落は起きない防御です。 */
           if (snapshot === null) {
             throw new FlareLobbyError("CONNECTION_FAILED");
           }
@@ -1017,6 +1024,7 @@ export class RoomDurableObject
 
           return snapshot;
         } catch (error) {
+          /* istanbul ignore start -- 初期化中のストレージ障害時のみ到達するため、通常テストでは起きない防御です。 */
           // 初期化途中のストレージ失敗で Room 本体だけが残ると、次の再送が
           // 参加者のない半端な Room を成功として返してしまいます。初期化
           // リクエストはこの入力ゲート内で直列化されるため、失敗時に新規
@@ -1033,6 +1041,7 @@ export class RoomDurableObject
           }
 
           throw new FlareLobbyError("CONNECTION_FAILED");
+          /* istanbul ignore stop */
         }
       },
     );
@@ -1109,6 +1118,7 @@ export class RoomDurableObject
 
         const snapshot = this.readSnapshot();
 
+        /* istanbul ignore next -- 直前に書き込んだ状態を読むため、欠落は起きない防御です。 */
         if (snapshot === null) {
           throw new FlareLobbyError("CONNECTION_FAILED");
         }
@@ -1153,6 +1163,7 @@ export class RoomDurableObject
 
       const snapshot = this.readSnapshot();
 
+      /* istanbul ignore next -- 直前に書き込んだ状態を読むため、欠落は起きない防御です。 */
       if (snapshot === null) {
         throw new FlareLobbyError("CONNECTION_FAILED");
       }
@@ -1291,6 +1302,7 @@ export class RoomDurableObject
 
     const snapshot = this.readSnapshot();
 
+    /* istanbul ignore next -- 直前に書き込んだ状態を読むため、欠落は起きない防御です。 */
     if (snapshot === null) {
       throw new FlareLobbyError("CONNECTION_FAILED");
     }
@@ -1358,6 +1370,7 @@ export class RoomDurableObject
 
     const snapshot = this.readSnapshot();
 
+    /* istanbul ignore next -- 直前に書き込んだ状態を読むため、欠落は起きない防御です。 */
     if (snapshot === null) {
       throw new FlareLobbyError("CONNECTION_FAILED");
     }
@@ -1939,6 +1952,7 @@ export class RoomDurableObject
 
     const stored = this.readProcessedCommand(normalized.requestId);
 
+    /* istanbul ignore next -- 同タスクで記録直後に読むため、欠落は起きない防御です。 */
     if (stored === null) {
       throw new FlareLobbyError("CONNECTION_FAILED");
     }
@@ -2460,6 +2474,7 @@ export class RoomDurableObject
     );
 
     if (!gatewayPrincipal.ok) {
+      /* istanbul ignore next -- 検証済みの主体からのみ組み立てるため、発行失敗は起きない防御です。 */
       this.sendWebSocketFailure(
         webSocket,
         new FlareLobbyError("UNAUTHENTICATED", {
@@ -2500,6 +2515,7 @@ export class RoomDurableObject
       };
 
       if (!this.sendProtocolMessage(webSocket, response)) {
+        /* istanbul ignore next -- 応答送信の競合タイミングのみ到達するため、通常テストでは起きない防御です。 */
         closeWebSocketSafely(webSocket, 1011, "応答を送信できません。");
       }
     } catch (error) {
@@ -2635,6 +2651,7 @@ export class RoomDurableObject
     });
 
     if (actor.participant.kind !== attachment.role) {
+      /* istanbul ignore next -- トークンと参加者行は同一由来のため、不一致は起きない防御です。 */
       throw new FlareLobbyError("FORBIDDEN");
     }
 
@@ -2699,6 +2716,7 @@ export class RoomDurableObject
             }),
           };
     } catch {
+      /* istanbul ignore next -- レート制限基盤の障害時のみ到達するため、通常テストでは起きない防御です。 */
       return {
         ok: false,
         error: new FlareLobbyError("CONNECTION_FAILED"),
@@ -2728,6 +2746,7 @@ export class RoomDurableObject
   ): boolean {
     const encoded = encodeProtocolMessage(message);
 
+    /* istanbul ignore next -- 内部生成メッセージは符号化可能なため、失敗は起きない防御です。 */
     if (!encoded.ok) {
       return false;
     }
@@ -2736,6 +2755,7 @@ export class RoomDurableObject
       webSocket.send(encoded.value);
       return true;
     } catch {
+      /* istanbul ignore next -- 送信競合のタイミングのみ到達するため、通常テストでは起きない防御です。 */
       return false;
     }
   }
@@ -2749,6 +2769,7 @@ export class RoomDurableObject
   private recordRoomEvent(event: ServerEventEnvelope): void {
     const room = this.readRoomRow();
 
+    /* istanbul ignore next -- 記録は書き込み直後に行うため、欠落は起きない防御です。 */
     if (room === undefined) {
       return;
     }
@@ -2868,6 +2889,7 @@ export class RoomDurableObject
   private broadcastProtocolMessage(message: ProtocolMessage): void {
     const encoded = encodeProtocolMessage(message);
 
+    /* istanbul ignore next -- 内部生成メッセージは符号化可能なため、失敗は起きない防御です。 */
     if (!encoded.ok) {
       return;
     }

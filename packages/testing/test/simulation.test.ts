@@ -5,6 +5,8 @@ import {
   SeededRandom,
   VirtualClock,
   compareSearchPolicies,
+  createVirtualClock,
+  formatSimulationOutput,
   generateSimulationPlayers,
   replaySimulation,
   serializeSimulationResult,
@@ -217,6 +219,30 @@ describe("@flarelobby/testing の決定論的テスト補助", () => {
     expect(summary).toContain("未成立");
   });
 
+  it("未成立のみの結果は指標をハイフン表示し JSON と要約を同時に出力する", () => {
+    const unmatched = simulateMatchmaking({
+      seed: "no-match",
+      players: [player("a", 1_000), player("b", 3_000)],
+      startAt: NOW,
+      durationMs: 1_000,
+      tickMs: 1_000,
+    });
+
+    expect(unmatched.statistics.matchCount).toBe(0);
+    expect(unmatched.statistics.waitTimeMs.average).toBeNull();
+
+    const summary = summarizeSimulation(unmatched);
+    expect(summary).toContain("-");
+
+    const output = formatSimulationOutput(unmatched);
+    expect(output.summary).toBe(summary);
+    expect(JSON.parse(output.json)).toMatchObject({
+      seed: "no-match",
+      statistics: { matchCount: 0 },
+    });
+    expect(output.json.endsWith("\n")).toBe(true);
+  });
+
   it("検索幅の異なる設定を同じ入力で比較できる", () => {
     const comparison = compareSearchPolicies(
       {
@@ -377,5 +403,102 @@ describe("@flarelobby/testing の決定論的テスト補助", () => {
     expect(result.statistics.joinedTicketCount).toBe(2);
     expect(result.statistics.matchCount).toBe(0);
     expect(result.statistics.unmatchedRate).toBe(1);
+  });
+});
+
+describe("シミュレーション設定の検証分岐", () => {
+  const baseConfig: MatchmakingSimulationConfig = {
+    seed: "validation",
+    players: [player("a", 1_500), player("b", 1_500)],
+    startAt: NOW,
+    durationMs: 1_000,
+  };
+
+  it("固定プレイヤーと生成設定の併用と未来の注入時計を拒否する", () => {
+    expect(() =>
+      simulateMatchmaking({
+        ...baseConfig,
+        playerGeneration: { count: 2 },
+      }),
+    ).toThrow("同時に指定できません");
+
+    expect(() =>
+      simulateMatchmaking(baseConfig, {
+        clock: createVirtualClock(NOW + 1_000),
+      }),
+    ).toThrow("開始時刻より後");
+  });
+
+  it("対応していない乱数アルゴリズムのリプレイを拒否する", () => {
+    const result = simulateMatchmaking(baseConfig);
+
+    expect(() =>
+      replaySimulation({ ...result.replay, randomAlgorithm: "unknown-v9" }),
+    ).toThrow("対応していない乱数アルゴリズム");
+  });
+
+  it("終了前に参加しないプレイヤーを未参加として集計する", () => {
+    const result = simulateMatchmaking({
+      ...baseConfig,
+      players: [player("late", 1_500, NOW + 60_000)],
+      durationMs: 1_000,
+    });
+
+    expect(result.statistics.notJoinedPlayerCount).toBe(1);
+    expect(result.statistics.joinedTicketCount).toBe(0);
+  });
+
+  it("イベント数の上限超過を拒否する", () => {
+    expect(() =>
+      simulateMatchmaking({
+        ...baseConfig,
+        durationMs: 1_100_000,
+        tickMs: 1,
+      }),
+    ).toThrow("上限");
+  });
+
+  it("Pool・partySize・キャンセル・tickMs の形式を検証する", () => {
+    expect(() =>
+      simulateMatchmaking({
+        ...baseConfig,
+        pool: { gameId: "" } as unknown as MatchmakingPool,
+      }),
+    ).toThrow("Pool の形式が不正");
+    expect(() =>
+      simulateMatchmaking({
+        ...baseConfig,
+        pool: { ...pool, teamSize: 0 },
+      }),
+    ).toThrow("パーティー設定が不正");
+    expect(() => simulateMatchmaking({ ...baseConfig, partySize: 0 })).toThrow(
+      "partySize",
+    );
+    expect(() =>
+      simulateMatchmaking({
+        ...baseConfig,
+        cancellation: { probability: 2, afterMs: 0 },
+      }),
+    ).toThrow("キャンセル確率");
+    expect(() => simulateMatchmaking({ ...baseConfig, tickMs: 0 })).toThrow(
+      "1 以上の安全な整数",
+    );
+    expect(() =>
+      simulateMatchmaking({ ...baseConfig, durationMs: -1 }),
+    ).toThrow("0 以上の安全な整数");
+    expect(() =>
+      simulateMatchmaking(null as unknown as MatchmakingSimulationConfig),
+    ).toThrow("オブジェクト");
+  });
+
+  it("比較対象の名前は空でない文字列で指定する", () => {
+    const policy = { stages: [{ afterMs: 0, maxRatingDifference: 50 }] };
+    expect(() =>
+      compareSearchPolicies(
+        baseConfig,
+        { name: "", policy },
+        { name: "b", policy },
+      ),
+    ).toThrow("空でない文字列");
   });
 });

@@ -857,6 +857,7 @@ export class RoomPersistence {
       return { useSnapshot: false, events: [] };
     }
 
+    /* istanbul ignore next -- 前段で同じ条件を検査済みのため、到達不能な防御です。 */
     if (currentRevision - lastRevision > room.eventHistoryLimit) {
       return { useSnapshot: true, events: [] };
     }

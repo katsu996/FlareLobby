@@ -272,6 +272,7 @@ export async function createCustomRoom<
       expiresAt: Date.now() + DEFAULT_JOIN_TOKEN_TTL_MS,
     });
 
+    /* istanbul ignore next -- 有効な環境では署名発行は失敗しないため到達不能な防御です。 */
     if (!joinToken.ok) {
       return joinToken;
     }
@@ -442,6 +443,7 @@ export async function joinCustomRoom<
       expiresAt: Date.now() + DEFAULT_JOIN_TOKEN_TTL_MS,
     });
 
+    /* istanbul ignore next -- 有効な環境では署名発行は失敗しないため到達不能な防御です。 */
     if (!joinToken.ok) {
       return joinToken;
     }
@@ -802,6 +804,7 @@ async function resolveRoomIdentifier(
     return roomId;
   }
 
+  /* istanbul ignore next -- 前段で両欠落を拒否済みのため、到達不能な防御です。 */
   if (invitationCode === null) {
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }
@@ -845,6 +848,7 @@ function restoreExistingJoinResult<TApp extends AnyFlareLobbyApp>(
   const result = parseJoinResult<TApp>(existing.result);
 
   if (result.ok && result.value.roomId !== roomId) {
+    /* istanbul ignore next -- 要求識別子は主体・ルームで有効範囲化されるため、他ルームの結果は参照されない防御です。 */
     return {
       ok: false,
       error: new FlareLobbyError("CONFLICT"),
@@ -1167,6 +1171,7 @@ async function deriveRoomId(
   principal: Principal,
   requestId: RequestId,
 ): Promise<string> {
+  /* istanbul ignore next -- シークレットは起動時に検証済みのため、空文字は起きない防御です。 */
   if (!isNonEmptyString(tokenSecret)) {
     throw new FlareLobbyError("CONNECTION_FAILED");
   }
@@ -1218,6 +1223,7 @@ function createWebSocketUrl(request: Request, roomId: string): string {
 }
 
 function getSnapshotInvitationCode(snapshot: RoomSnapshot): string {
+  /* istanbul ignore next -- 招待コード経路ではカスタムルームのみ扱うため、他種別は起きない防御です。 */
   if (snapshot.room.kind !== "custom") {
     throw new FlareLobbyError("CONNECTION_FAILED");
   }
@@ -1234,6 +1240,7 @@ function restoreExistingCreationResult<TApp extends AnyFlareLobbyApp>(
   input: NormalizedCustomRoomCreationInput,
 ): ProtocolResult<CustomRoomCreationResult<TApp>> {
   if (existing.command !== CUSTOM_ROOM_CREATE_COMMAND) {
+    /* istanbul ignore next -- 要求識別子は主体・ルームで有効範囲化されるため、他操作の結果は参照されない防御です。 */
     return {
       ok: false,
       error: new FlareLobbyError("CONFLICT", {
@@ -1287,10 +1294,12 @@ function toJsonObject(value: unknown): JsonObject {
   try {
     parsed = JSON.parse(JSON.stringify(value));
   } catch {
+    /* istanbul ignore next -- JSON 由来の値のみ扱うため、循環参照等は起きない防御です。 */
     throw new FlareLobbyError("CONNECTION_FAILED");
   }
 
   if (!isJsonObject(parsed)) {
+    /* istanbul ignore next -- JSON オブジェクトのみ渡すため、他形式は起きない防御です。 */
     throw new FlareLobbyError("CONNECTION_FAILED");
   }
 
@@ -1336,10 +1345,12 @@ function isJsonValue(
   }
 
   if (typeof value !== "object") {
+    /* istanbul ignore next -- JSON 由来の値のみ検証するため、非オブジェクトは起きない防御です。 */
     return false;
   }
 
   if (ancestors.has(value)) {
+    /* istanbul ignore next -- JSON 由来の値のみ検証するため、循環参照は起きない防御です。 */
     return false;
   }
 

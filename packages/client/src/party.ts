@@ -681,6 +681,7 @@ class PartyImpl<TApp extends AnyFlareLobbyApp> implements Party<TApp> {
     connection: RawJsonEventConnection,
     error: FlareLobbyErrorType,
   ): void {
+    /* v8 ignore next -- 切断時は購読解除が先行するため、停止・差替・解散後の通知は届かない防御です。 */
     if (this.stopped || connection !== this.connection || this.dissolvedState) {
       return;
     }
@@ -695,6 +696,7 @@ class PartyImpl<TApp extends AnyFlareLobbyApp> implements Party<TApp> {
 
   /** 切断後の再接続を再試行回数の上限内で遅延実行します。 */
   private scheduleReconnect(): void {
+    /* v8 ignore next -- 切断通知は接続ごとに単発で、再試行時はタイマー解除済みのため多重化しない防御です。 */
     if (this.reconnectTimer !== undefined) {
       return;
     }
@@ -712,6 +714,7 @@ class PartyImpl<TApp extends AnyFlareLobbyApp> implements Party<TApp> {
   }
 
   private async attemptReconnect(): Promise<void> {
+    /* v8 ignore next -- 待機は破棄・解散時に取り消されるため、実行時に停止済みにはならない防御です。 */
     if (this.stopped || this.dissolvedState) {
       return;
     }
@@ -740,6 +743,7 @@ class PartyImpl<TApp extends AnyFlareLobbyApp> implements Party<TApp> {
   }
 
   private requestResync(): void {
+    /* v8 ignore next -- 破棄・解散時は接続購読が外れるため、不整合通知は現役接続のみの防御です。 */
     if (this.stopped || this.dissolvedState) {
       return;
     }

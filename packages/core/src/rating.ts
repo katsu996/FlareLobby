@@ -89,6 +89,7 @@ export function elo(options: EloOptions = {}): EloEngine {
       const rawDeltaA =
         config.kFactor * (normalizedInput.result - expectedScoreA);
 
+      /* v8 ignore next -- 有限な K 係数と [0, 1] の期待値の積は常に有限のため到達不能な防御です。 */
       if (!Number.isFinite(rawDeltaA)) {
         throw new RangeError(
           "ELO の更新差分が有限の数値にならない入力または設定です。",
@@ -100,6 +101,7 @@ export function elo(options: EloOptions = {}): EloEngine {
       const updatedRatingA = normalizedInput.ratingA + deltaA;
       const updatedRatingB = normalizedInput.ratingB + deltaB;
 
+      /* v8 ignore next -- 有限レートと安全整数差分の和は常に有限のため到達不能な防御です。 */
       if (
         !Number.isFinite(updatedRatingA) ||
         !Number.isFinite(updatedRatingB)
@@ -255,6 +257,7 @@ export function glicko2(options: Glicko2Options = {}): Glicko2Engine {
       const updatedRatingA = normalizedInput.ratingA + deltaA;
       const updatedRatingB = normalizedInput.ratingB + deltaB;
 
+      /* v8 ignore next -- 有限レートと安全整数差分の和は常に有限のため到達不能な防御です。 */
       if (
         !Number.isFinite(updatedRatingA) ||
         !Number.isFinite(updatedRatingB)
@@ -631,6 +634,7 @@ function roundDelta(rawDelta: number): number {
 }
 
 function toRatingResult(value: number): RatingResult {
+  /* v8 ignore next -- 呼び出し元は 0 / 0.5 / 1 のみを渡すため到達不能な防御です。 */
   if (!isRatingResult(value)) {
     throw new Error("レーティングの内部計算結果が不正です。");
   }

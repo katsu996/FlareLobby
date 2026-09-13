@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   FlareLobbyConfigurationError,
+  consumeRateLimit,
   createGatewayWorker,
   defineFlareLobby,
   issueResumeToken,
@@ -484,5 +485,54 @@ describe("Gateway Worker の WebSocket Upgrade 経路", () => {
     );
     // WebSocket 経路として解釈されず、未知の経路として扱われます。
     expect(response.status).toBe(404);
+  });
+});
+
+describe("設定検証の分岐", () => {
+  it("cors.allowedOrigins の形式不正を拒否する", () => {
+    expectConfigurationError(
+      () =>
+        defineFlareLobby({
+          ...createValidConfiguration(),
+          cors: { allowedOrigins: "https://game.example" } as never,
+        }),
+      "INVALID_CORS_CONFIGURATION",
+    );
+  });
+
+  it("Binding 取得の例外をそのまま送出する", async () => {
+    const worker = createGatewayWorker<FlareLobbyBindings>(
+      createValidConfiguration(),
+    );
+    const throwingEnv = {
+      get FLARE_LOBBY_DB(): never {
+        throw new Error("binding boom");
+      },
+    } as unknown as FlareLobbyBindings;
+
+    await expect(
+      worker.fetch(
+        new Request("https://example.test/"),
+        throwingEnv,
+        {} as ExecutionContext,
+      ),
+    ).rejects.toThrow("binding boom");
+  });
+
+  it("レート制限 Binding の不足は CONNECTION_FAILED になる", async () => {
+    const result = await consumeRateLimit(
+      {} as FlareLobbyBindings,
+      {
+        principal: { id: "p-1", playerId: "player-1" },
+        gatewayPrincipal: { token: "token" },
+      } as never,
+      "room_creation",
+      10,
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("CONNECTION_FAILED");
+    }
   });
 });

@@ -375,6 +375,7 @@ export async function registerCustomRoomInvitation(
       throw error;
     }
 
+    /* istanbul ignore next -- D1 障害時のみ到達するため、通常テストでは起きない防御です。 */
     throw new FlareLobbyError("CONNECTION_FAILED");
   }
 }

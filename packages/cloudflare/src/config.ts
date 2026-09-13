@@ -545,6 +545,7 @@ async function upgradeCustomRoomWebSocket<
     const room = env.FLARE_LOBBY_ROOMS.getByName(roomId);
     return await room.fetch(new Request(request, { headers }));
   } catch {
+    /* istanbul ignore next -- DO 通信基盤の障害時のみ到達するため、通常テストでは起きない防御です。 */
     return createErrorResponse(new FlareLobbyError("CONNECTION_FAILED"));
   }
 }

@@ -901,6 +901,7 @@ function createRoomWebSocketUrl(request: Request, roomId: string): string {
 
 function createMatchmakingPoolKey(pool: MatchmakingPool): string {
   const fields = [pool.gameId, pool.seasonId, pool.mode, pool.region];
+  /* istanbul ignore next -- プール設定は起動時に検証済みのため、空欄は起きない防御です。 */
   if (!fields.every(isNonEmptyString)) {
     throw new FlareLobbyError("INVALID_PAYLOAD");
   }

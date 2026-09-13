@@ -55,6 +55,7 @@ export function isValidCorsOrigin(value: unknown): value is string {
   }
 
   if (parsed.host === "") {
+    /* istanbul ignore next -- 空ホストの http(s) URL は URL 構文解析で拒否されるため到達不能な防御です。 */
     return false;
   }
 
@@ -159,6 +160,7 @@ export function handleCorsPreflight(
 
   const requestHeaders = parsePreflightRequestHeaders(request);
 
+  /* istanbul ignore next -- 解析は null を返さないため到達不能な防御です。 */
   if (requestHeaders === null) {
     return Response.json(new FlareLobbyError("FORBIDDEN").toJSON(), {
       status: 403,
@@ -263,6 +265,7 @@ export function applyCorsHeaders(
       return response;
     }
   } catch {
+    /* istanbul ignore next -- 応答プロパティの参照は投げないため到達不能な防御です。 */
     if (response.status === 101) {
       return response;
     }
