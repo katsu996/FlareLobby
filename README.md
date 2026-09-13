@@ -39,8 +39,8 @@ TypeScript の Client SDK から、認証済みのルーム作成・参加、パ
 
 ## まず読む文書
 
-[スライド形式のドキュメント](https://katsu996.github.io/FlareLobby/) から
-主要機能と導入手順を確認できます。詳細な API と手順は以下の文書にまとめています。
+[ドキュメントサイト](https://katsu996.github.io/FlareLobby/) で
+導入手順、機能ガイド、API リファレンスを検索・閲覧できます。
 
 | 目的                                               | 文書                                                                                                                                    |
 | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -175,16 +175,20 @@ pnpm version-packages
 
 ## ドキュメントサイト
 
-[Slidev](https://ja.sli.dev/) の原稿は `docs/slides.md` です。
+[VitePress](https://vitepress.dev/) で `docs/` の Markdown をそのまま公開します。
+トップページは `docs/index.md`、ナビゲーションとサイト設定は
+`docs/.vitepress/config.mts` です。
 
 ```sh
 pnpm docs:dev
 pnpm docs:build
+pnpm docs:preview
 ```
 
-開発サーバーは `http://localhost:3030`、ビルド出力は `dist/docs/` です。
-GitHub Pages の `/FlareLobby/` 配下で配信し、ハッシュ形式の URL により
-途中のスライドへの直接アクセスと再読み込みにも対応します。
+開発サーバーは `http://localhost:5173/FlareLobby/`、ビルド出力は `dist/docs/` です。
+サイドバー、全文検索、ページ内目次、Mermaid の図に対応しています。
+GitHub Pages の `/FlareLobby/` 配下へ HTML を生成するため、各ページへの
+直接アクセスと再読み込みにも対応します。リンク切れはビルド時に検出します。
 
 GitHub の Settings → Pages → Build and deployment で Source を
 **GitHub Actions** に設定します。`Documentation Pages` ワークフローは

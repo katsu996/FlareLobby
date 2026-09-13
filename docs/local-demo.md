@@ -17,7 +17,7 @@ pnpm --filter @flarelobby/example-local-demo exec wrangler d1 migrations apply F
 pnpm --filter @flarelobby/example-local-demo dev
 ```
 
-ブラウザで [http://localhost:8787](http://localhost:8787) を開き、英小文字から始まる
+ブラウザで `http://localhost:8787` を開き、英小文字から始まる
 異なるプレイヤー名を入力して2つのブラウザで利用します。
 
 ## APIと責務

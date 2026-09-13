@@ -2,7 +2,7 @@
 
 このページは、npm 利用者向けの導入手順を正本とします。本体リポジトリを
 clone せずに導入できます。公式の導入例は
-[Standalone テンプレート](../templates/standalone/README.md) です。
+[Standalone テンプレート](https://github.com/katsu996/FlareLobby/blob/main/templates/standalone/README.md) です。
 リポジトリ開発者向けの手順は後半の「リポジトリ開発者向け」に分けています。
 
 現行機能（パーティー、チーム単位のマッチング、ELO/Glicko-2）の詳細は
@@ -101,7 +101,7 @@ cp .dev.vars.example .dev.vars
 
 独自 Worker は `defineFlareLobby()` と `createGatewayWorker()` で作ります。
 型検査対象の定義例は
-[`docs/examples/npm-standalone-worker.ts`](./examples/npm-standalone-worker.ts)、
+[`docs/examples/npm-standalone-worker.ts`](https://github.com/katsu996/FlareLobby/blob/main/docs/examples/npm-standalone-worker.ts)、
 公式の導入例はテンプレートの `src/index.ts` です。
 
 5 種類の Durable Objects を公開パッケージから export します。
@@ -191,8 +191,8 @@ pnpm db:apply:local
 - ローカルデモの `x-demo-player` 認証はローカル確認専用であり、本番例にしません。
 
 型検査対象の接続例は
-[`docs/examples/cloudflare-config.ts`](./examples/cloudflare-config.ts) と
-[`docs/examples/npm-standalone-worker.ts`](./examples/npm-standalone-worker.ts) を
+[`docs/examples/cloudflare-config.ts`](https://github.com/katsu996/FlareLobby/blob/main/docs/examples/cloudflare-config.ts) と
+[`docs/examples/npm-standalone-worker.ts`](https://github.com/katsu996/FlareLobby/blob/main/docs/examples/npm-standalone-worker.ts) を
 参照してください。
 
 ### 7. 型生成

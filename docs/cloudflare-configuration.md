@@ -3,14 +3,14 @@
 FlareLobby の Gateway Worker を Cloudflare へデプロイするための Binding、
 D1 Migration、Secret、環境構成の手順をまとめます。npm 利用者の導入全体は
 [導入とローカルサンプル](./getting-started.md) の npm 利用者向け手順を起点にし、
-公式の導入例は [Standalone テンプレート](../templates/standalone/README.md) です。
+公式の導入例は [Standalone テンプレート](https://github.com/katsu996/FlareLobby/blob/main/templates/standalone/README.md) です。
 本体リポジトリを clone せずに導入できます。ローカル起動の最小手順（本体開発者向け）は
-[README](../README.md) を参照してください。
+[README](https://github.com/katsu996/FlareLobby#readme) を参照してください。
 
 ## 必要な Binding
 
 Worker が要求する Binding 契約は
-[`packages/cloudflare/src/config.ts`](../packages/cloudflare/src/config.ts)
+[`packages/cloudflare/src/config.ts`](https://github.com/katsu996/FlareLobby/blob/main/packages/cloudflare/src/config.ts)
 の `FlareLobbyBindings` に定義されています。
 
 | Binding                         | 種別                     | 必須 | 役割                                   |
@@ -29,7 +29,7 @@ Binding 名を変更すると実装と一致しなくなるため、`wrangler.js
 
 ## wrangler.jsonc
 
-共有設定は [`packages/cloudflare/wrangler.jsonc`](../packages/cloudflare/wrangler.jsonc)
+共有設定は [`packages/cloudflare/wrangler.jsonc`](https://github.com/katsu996/FlareLobby/blob/main/packages/cloudflare/wrangler.jsonc)
 にあります。ローカル用の最上位設定に加え、`staging` と `production` の
 2 つの env を定義しています。
 
@@ -45,7 +45,7 @@ Binding 名を変更すると実装と一致しなくなるため、`wrangler.js
 
 ## D1 Migration
 
-D1 スキーマは [`packages/cloudflare/migrations`](../packages/cloudflare/migrations)
+D1 スキーマは [`packages/cloudflare/migrations`](https://github.com/katsu996/FlareLobby/tree/main/packages/cloudflare/migrations)
 配下の SQL ファイルで管理します。
 
 | ファイル                     | 内容                                             |
@@ -94,7 +94,7 @@ pnpm wrangler dev
 公開前の検証は本体リポジトリで `pnpm pack` した tarball を一時コピーへ導入する
 経路を使ってください。配布テンプレートへローカル絶対パスや `workspace:` を
 残しません。詳細な検証手順は [導入とローカルサンプル](./getting-started.md) の
-npm 利用者向け手順と [Standalone テンプレート](../templates/standalone/README.md)
+npm 利用者向け手順と [Standalone テンプレート](https://github.com/katsu996/FlareLobby/blob/main/templates/standalone/README.md)
 を参照してください。
 
 モノレポ内のローカルデモは `../../packages/cloudflare/migrations` を参照するため、
@@ -216,7 +216,7 @@ Binding と Secret の不備は処理開始前に検証されます。必須 Bin
 値の強制変換や `trim` した値の署名利用はしません。`FLARE_LOBBY_ANALYTICS` は
 引き続き任意です。エラー本文とログには Secret や Binding 実体を出力しません。
 その他の設定エラーコードは
-[`packages/cloudflare/src/config.ts`](../packages/cloudflare/src/config.ts)
+[`packages/cloudflare/src/config.ts`](https://github.com/katsu996/FlareLobby/blob/main/packages/cloudflare/src/config.ts)
 の `FLARE_LOBBY_CONFIGURATION_ERROR_CODES` を参照してください。
 
 認証不要の `GET /` が返す `{ status: "ready" }` は必須設定検証の結果であり、
@@ -271,7 +271,7 @@ pnpm --filter @flarelobby/cloudflare exec wrangler deploy --env production
 事前に `d1 migrations apply --remote` でスキーマを適用し、Secret を登録して
 おいてください。デプロイ前の一括検証は `pnpm release:check` が
 Workers 型、パッケージ公開内容、ドライランを含めて確認します。
-Node.js と pnpm のバージョンは [mise.toml](../mise.toml) に固定されています。
+Node.js と pnpm のバージョンは [mise.toml](https://github.com/katsu996/FlareLobby/blob/main/mise.toml) に固定されています。
 
 公開 package の tarball、外部プロジェクトからの `migrations_dir` 解決、空DBへの初回適用、
 同じ Migration の再適用、旧スキーマのデータ保持、実行時初期化済みDBの履歴補正は
@@ -282,7 +282,7 @@ Node.js と pnpm のバージョンは [mise.toml](../mise.toml) に固定され
 `defineFlareLobby()` に渡す設定（カスタムルームの定員、マッチングプール、
 入力上限など）はコード側で検証されます。Binding の不備や設定エラーは
 `FlareLobbyConfigurationError` として報告されます。設定項目の詳細は
-[`packages/cloudflare/src/config.ts`](../packages/cloudflare/src/config.ts)
+[`packages/cloudflare/src/config.ts`](https://github.com/katsu996/FlareLobby/blob/main/packages/cloudflare/src/config.ts)
 の doc コメントを参照してください。
 
 認証サービスは固定しません。`authenticate` が `null` を返す要求は未認証として
@@ -290,7 +290,7 @@ Node.js と pnpm のバージョンは [mise.toml](../mise.toml) に固定され
 既定で拒否します。利用者が検証済みの主体 ID を返す `authenticate` と明示的な
 `authorization` Hook を接続する責任を持ちます。ローカルデモの `x-demo-player`
 認証はローカル確認専用であり、本番例にしません。型検査対象の接続例は
-[`docs/examples/cloudflare-config.ts`](./examples/cloudflare-config.ts) と
-[`docs/examples/npm-standalone-worker.ts`](./examples/npm-standalone-worker.ts)、
-公式の導入例は [Standalone テンプレート](../templates/standalone/README.md) の
+[`docs/examples/cloudflare-config.ts`](https://github.com/katsu996/FlareLobby/blob/main/docs/examples/cloudflare-config.ts) と
+[`docs/examples/npm-standalone-worker.ts`](https://github.com/katsu996/FlareLobby/blob/main/docs/examples/npm-standalone-worker.ts)、
+公式の導入例は [Standalone テンプレート](https://github.com/katsu996/FlareLobby/blob/main/templates/standalone/README.md) の
 `src/index.ts` を参照してください。
