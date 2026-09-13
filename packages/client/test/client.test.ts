@@ -1484,6 +1484,30 @@ describe("@flarelobby/client", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
 
+  it("期限切れ後に届いた本文は確定済みとして無視される", async () => {
+    let controller!: ReadableStreamDefaultController<string>;
+    const stream = new ReadableStream<string>({
+      start(c) {
+        controller = c;
+      },
+    });
+    const streamingFetch = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "secret-token",
+      fetch: (async () =>
+        new Response(stream, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })) as unknown as FetchImplementation,
+    });
+
+    const request = streamingFetch.request("/v1/rooms", { timeoutMs: 5 });
+    await expect(request).rejects.toMatchObject({ code: "TIMEOUT" });
+    controller.enqueue(JSON.stringify({ late: true }));
+    controller.close();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+
   it("認証待ちの接続確立タイムアウトは TIMEOUT になる", async () => {
     const slowToken = createFlareLobbyClient({
       endpoint: "https://example.test",

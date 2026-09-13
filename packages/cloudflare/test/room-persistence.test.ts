@@ -566,13 +566,18 @@ describe("RoomPersistence モジュール", () => {
     expect(resumed.useSnapshot).toBe(false);
     expect(resumed.events).toHaveLength(1);
 
-    // 空履歴はイベントなしで返す。
+    // 空履歴は欠落とみなしてスナップショットを使う。
     const emptyHistory = createStorage((sql) => {
       if (sql.includes("FROM flarelobby_rooms")) return [roomRow()];
       return [];
     });
     expect(
       new RoomPersistence(createDeps(emptyHistory)).readResumeEvents(1, 2),
+    ).toMatchObject({ useSnapshot: true, events: [] });
+
+    // 最新版と一致する場合はイベントなしで再開できる。
+    expect(
+      new RoomPersistence(createDeps(emptyHistory)).readResumeEvents(2, 2),
     ).toMatchObject({ useSnapshot: false, events: [] });
 
     // 履歴上限を超える差分はスナップショットを使う。

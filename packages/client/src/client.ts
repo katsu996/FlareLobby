@@ -550,7 +550,6 @@ class FlareLobbyClientImpl<
           }
 
           const responseBody = await readResponseBody(response, requestId);
-          /* v8 ignore next -- 応答受信と本文読取の間に割り込みは入らないため、確定済みでの到達は起きない防御です。 */
           if (settled) {
             return;
           }

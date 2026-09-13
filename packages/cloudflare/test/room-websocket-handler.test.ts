@@ -509,7 +509,24 @@ describe("RoomWebSocketHandler モジュール", () => {
 
   it("コマンドをディスパッチして成功応答を返す", async () => {
     const socket = new WebSocketPair()[0];
-    const deps = createDeps();
+    const setReady = vi.fn(async () => snapshot());
+    const selectTeam = vi.fn(async () => snapshot());
+    const updateSettings = vi.fn(async () => snapshot());
+    const transferHost = vi.fn(async () => snapshot());
+    const kick = vi.fn(async () => snapshot());
+    const startMatch = vi.fn(async () => snapshot());
+    const close = vi.fn(async () => snapshot());
+    const sendWebSocketFailure = vi.fn();
+    const deps = createDeps({
+      setReady,
+      selectTeam,
+      updateSettings,
+      transferHost,
+      kick,
+      startMatch,
+      close,
+      sendWebSocketFailure,
+    });
     const handler = new RoomWebSocketHandler(deps, createEnv());
 
     const commands: Array<[string, unknown]> = [
@@ -528,6 +545,33 @@ describe("RoomWebSocketHandler モジュール", () => {
       );
     }
 
+    expect(setReady).toHaveBeenCalledTimes(1);
+    expect(setReady).toHaveBeenCalledWith(
+      expect.objectContaining({
+        participantId: "participant-1",
+        requestId: "request-1",
+        ready: true,
+      }),
+    );
+    expect(selectTeam).toHaveBeenCalledWith(
+      expect.objectContaining({ teamId: "red" }),
+    );
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ settings: { map: "desert" } }),
+    );
+    expect(transferHost).toHaveBeenCalledWith(
+      expect.objectContaining({ targetParticipantId: "participant-2" }),
+    );
+    expect(kick).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetParticipantId: "participant-2",
+        reason: "afk",
+      }),
+    );
+    expect(startMatch).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(sendWebSocketFailure).not.toHaveBeenCalled();
+
     // 未知のコマンドは失敗応答になる。
     await handler.handleWebSocketMessage(
       socket,
@@ -537,6 +581,17 @@ describe("RoomWebSocketHandler モジュール", () => {
     await handler.handleWebSocketMessage(
       socket,
       commandMessage("room.set_ready", { ready: "yes" }),
+    );
+    expect(sendWebSocketFailure).toHaveBeenCalledTimes(2);
+    expect(sendWebSocketFailure).toHaveBeenNthCalledWith(
+      1,
+      socket,
+      expect.objectContaining({ code: "INVALID_PAYLOAD" }),
+    );
+    expect(sendWebSocketFailure).toHaveBeenNthCalledWith(
+      2,
+      socket,
+      expect.objectContaining({ code: "INVALID_PAYLOAD" }),
     );
   });
 
