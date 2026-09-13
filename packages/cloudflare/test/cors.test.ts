@@ -449,3 +449,147 @@ describe("CORS と認証・再接続の両立", () => {
     expect(envelope.ok).toBe(true);
   });
 });
+
+describe("CORS 分岐の網羅", () => {
+  it("プリフライト判定の除外条件を返す", async () => {
+    const { isCorsPreflightRequest, handleCorsPreflight } =
+      await import("../src/index.js");
+
+    // WebSocket Upgrade の OPTIONS はプリフライトではない。
+    expect(
+      isCorsPreflightRequest(
+        new Request("https://example.test/v1/rooms/room-1/ws", {
+          method: "OPTIONS",
+          headers: {
+            Upgrade: "websocket",
+            Origin: ALLOWED_ORIGIN,
+            "Access-Control-Request-Method": "GET",
+          },
+        }),
+      ),
+    ).toBe(false);
+
+    // Origin なしの OPTIONS はプリフライトではない。
+    expect(
+      isCorsPreflightRequest(
+        new Request("https://example.test/v1/custom-rooms", {
+          method: "OPTIONS",
+        }),
+      ),
+    ).toBe(false);
+
+    // 要求ヘッダーなしの正規プリフライトは 204 になる。
+    const withoutHeaders = new Request("https://example.test/v1/custom-rooms", {
+      method: "OPTIONS",
+      headers: {
+        Origin: ALLOWED_ORIGIN,
+        "Access-Control-Request-Method": "POST",
+      },
+    });
+    expect(handleCorsPreflight(withoutHeaders, [ALLOWED_ORIGIN]).status).toBe(
+      204,
+    );
+
+    // 空要素だけの要求ヘッダーはヘッダーなしとして 204 になる。
+    const emptyHeaders = new Request("https://example.test/v1/custom-rooms", {
+      method: "OPTIONS",
+      headers: {
+        Origin: ALLOWED_ORIGIN,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": " , , ",
+      },
+    });
+    expect(handleCorsPreflight(emptyHeaders, [ALLOWED_ORIGIN]).status).toBe(
+      204,
+    );
+
+    // 未許可ヘッダーは 403 になる。
+    const forbiddenHeader = new Request(
+      "https://example.test/v1/custom-rooms",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: ALLOWED_ORIGIN,
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "x-custom-header",
+        },
+      },
+    );
+    expect(handleCorsPreflight(forbiddenHeader, [ALLOWED_ORIGIN]).status).toBe(
+      403,
+    );
+  });
+
+  it("Vary と公開ヘッダーの結合分岐を通る", () => {
+    const request = new Request("https://example.test/v1/custom-rooms", {
+      headers: { Origin: ALLOWED_ORIGIN },
+    });
+    const config = { allowedOrigins: [ALLOWED_ORIGIN] };
+
+    // Vary: * は維持する。
+    const wildcard = applyCorsHeaders(
+      new Response("{}", { headers: { Vary: "*" } }),
+      request,
+      config,
+    );
+    expect(wildcard.headers.get("Vary")).toBe("*");
+
+    // Vary に Origin 済みは維持する。
+    const hasOrigin = applyCorsHeaders(
+      new Response("{}", { headers: { Vary: "Origin" } }),
+      request,
+      config,
+    );
+    expect(hasOrigin.headers.get("Vary")).toBe("Origin");
+
+    // 公開ヘッダーなしは既定値を付ける。
+    const exposed = applyCorsHeaders(new Response("{}"), request, config);
+    expect(exposed.headers.get("Access-Control-Expose-Headers")).not.toBeNull();
+
+    // Retry-After 済みは維持する。
+    const retryAfter = applyCorsHeaders(
+      new Response("{}", {
+        headers: { "Access-Control-Expose-Headers": "Retry-After" },
+      }),
+      request,
+      config,
+    );
+    expect(retryAfter.headers.get("Access-Control-Expose-Headers")).toBe(
+      "Retry-After",
+    );
+
+    // 既存の公開ヘッダーに追記する。
+    const appended = applyCorsHeaders(
+      new Response("{}", {
+        headers: { "Access-Control-Expose-Headers": "X-Custom" },
+      }),
+      request,
+      config,
+    );
+    expect(appended.headers.get("Access-Control-Expose-Headers")).toContain(
+      "X-Custom",
+    );
+  });
+
+  it("プリフライトと 101 応答をそのまま通す", () => {
+    const preflightResponse = applyCorsHeaders(
+      new Response(null, { status: 204 }),
+      createPreflightRequest(ALLOWED_ORIGIN),
+      { allowedOrigins: [ALLOWED_ORIGIN] },
+    );
+    expect(preflightResponse.status).toBe(204);
+
+    const switching = applyCorsHeaders(
+      {
+        status: 101,
+        headers: new Headers(),
+        body: null,
+      } as unknown as Response,
+      new Request("https://example.test/v1/rooms/room-1/ws", {
+        headers: { Origin: ALLOWED_ORIGIN },
+      }),
+      { allowedOrigins: [ALLOWED_ORIGIN] },
+    );
+    expect(switching.status).toBe(101);
+  });
+});

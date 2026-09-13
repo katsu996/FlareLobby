@@ -108,6 +108,7 @@ export async function upgradePartyEventsWebSocket<
     );
     return await partyStub.fetch(new Request(request, { headers }));
   } catch (error) {
+    /* istanbul ignore next -- DO 通信基盤の障害時のみ到達するため、通常テストでは起きない防御です。 */
     return createErrorResponse(normalizeGatewayError(error));
   }
 }

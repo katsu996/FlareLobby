@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   FLARE_LOBBY_ERROR_CODES,
@@ -413,6 +413,236 @@ describe("JSON 通信プロトコル v1", () => {
         payload: null,
       } as unknown as ProtocolMessage),
       "UNSUPPORTED_PROTOCOL_VERSION",
+    );
+  });
+
+  it("protocolVersion の非整数と未知の kind を INVALID_MESSAGE で拒否する", () => {
+    expectProtocolError(
+      validateProtocolMessage({
+        protocolVersion: "1",
+        kind: "command",
+        requestId: "request-1",
+        command: "room.set_ready",
+        payload: {},
+      }),
+      "INVALID_MESSAGE",
+    );
+    expectProtocolError(
+      validateProtocolMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "bogus",
+        requestId: "request-1",
+      }),
+      "INVALID_MESSAGE",
+    );
+  });
+
+  it("検証中の例外を INVALID_PAYLOAD へ正規化する", () => {
+    const throwingKind: Record<string, unknown> = {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: "request-1",
+    };
+    Object.defineProperty(throwingKind, "kind", {
+      get() {
+        throw new Error("boom");
+      },
+      enumerable: true,
+      configurable: true,
+    });
+
+    expectProtocolError(
+      validateProtocolMessage(throwingKind),
+      "INVALID_PAYLOAD",
+    );
+  });
+
+  it("decodeClientCommand は方向違いと復号失敗と正常系を処理する", () => {
+    // 復号失敗はそのまま伝搬する。
+    expectProtocolError(decodeClientCommand("{not-json"), "INVALID_MESSAGE");
+
+    // success Envelope は command ではないため拒否する。
+    const encodedSuccess = expectProtocolValue(
+      encodeProtocolMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "success",
+        requestId: "request-1",
+        payload: { accepted: true },
+      }),
+    );
+    expectProtocolError(decodeClientCommand(encodedSuccess), "INVALID_MESSAGE");
+
+    // failure Envelope (requestId あり) も command ではないため拒否する。
+    const encodedFailure = expectProtocolValue(
+      encodeProtocolMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "failure",
+        requestId: "request-2",
+        error: { code: "ROOM_FULL", message: "ルームは満員です。" },
+      }),
+    );
+    expectProtocolError(decodeClientCommand(encodedFailure), "INVALID_MESSAGE");
+
+    // requestId が null の failure Envelope も command ではないため拒否する。
+    const nullRequestFailure = JSON.stringify({
+      protocolVersion: PROTOCOL_VERSION,
+      kind: "failure",
+      requestId: null,
+      error: { code: "ROOM_FULL", message: "ルームは満員です。" },
+    });
+    expectProtocolError(
+      decodeClientCommand(nullRequestFailure),
+      "INVALID_MESSAGE",
+    );
+
+    // 正常な command はそのまま復元する。
+    const encodedCommand = expectProtocolValue(encodeProtocolMessage(command));
+    expect(expectProtocolValue(decodeClientCommand(encodedCommand))).toEqual(
+      command,
+    );
+  });
+
+  it("encodeProtocolMessage は検証失敗と文字列化失敗を公開エラーで返す", () => {
+    expectProtocolError(
+      encodeProtocolMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "command",
+        requestId: "request-1",
+        command: "room.set_ready",
+      } as unknown as ProtocolMessage),
+      "INVALID_MESSAGE",
+    );
+
+    const stringify = vi.spyOn(JSON, "stringify").mockImplementationOnce(() => {
+      throw new Error("stringify boom");
+    });
+    try {
+      expectProtocolError(encodeProtocolMessage(command), "INVALID_PAYLOAD");
+    } finally {
+      stringify.mockRestore();
+    }
+  });
+
+  it("success 応答の requestId 欠落と不正 Payload を拒否する", () => {
+    expectProtocolError(
+      validateProtocolMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "success",
+        payload: { accepted: true },
+      }),
+      "INVALID_MESSAGE",
+    );
+    expectProtocolError(
+      validateProtocolMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "success",
+        requestId: "request-1",
+        payload: undefined,
+      }),
+      "INVALID_PAYLOAD",
+    );
+  });
+
+  it("failure 応答の requestId と error 形式を検証する", () => {
+    const validError = { code: "ROOM_FULL", message: "ルームは満員です。" };
+    expectProtocolError(
+      validateProtocolMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "failure",
+        requestId: 42,
+        error: validError,
+      }),
+      "INVALID_MESSAGE",
+    );
+    expectProtocolError(
+      validateProtocolMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "failure",
+        requestId: "request-1",
+        error: "oops",
+      }),
+      "INVALID_MESSAGE",
+    );
+    expectProtocolError(
+      validateProtocolMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "failure",
+        requestId: "request-1",
+        error: { code: "NOPE", message: "" },
+      }),
+      "INVALID_MESSAGE",
+    );
+  });
+
+  it("event の event・revision・payload 形式を検証する", () => {
+    expectProtocolError(
+      validateProtocolMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "event",
+        event: 42,
+        revision: "x",
+        payload: null,
+      }),
+      "INVALID_MESSAGE",
+    );
+    expectProtocolError(
+      validateProtocolMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "event",
+        event: "room.snapshot",
+        revision: 1,
+        payload: undefined,
+      }),
+      "INVALID_PAYLOAD",
+    );
+  });
+
+  it("payload キーの欠落を INVALID_MESSAGE で拒否する", () => {
+    expectProtocolError(
+      validateProtocolMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        kind: "command",
+        requestId: "request-1",
+        command: "room.set_ready",
+      }),
+      "INVALID_MESSAGE",
+    );
+  });
+
+  it("JSON 値として扱えない Payload を INVALID_PAYLOAD で拒否する", () => {
+    const buildCommand = (payload: unknown) => ({
+      protocolVersion: PROTOCOL_VERSION,
+      kind: "command",
+      requestId: "request-1",
+      command: "room.set_ready",
+      payload,
+    });
+
+    // 循環参照は拒否する。
+    const circular: Record<string, unknown> = { ready: true };
+    circular["self"] = circular;
+    expectProtocolError(
+      validateProtocolMessage(buildCommand(circular)),
+      "INVALID_PAYLOAD",
+    );
+
+    // シンボルキーを含むオブジェクトは拒否する。
+    const withSymbol: Record<string, unknown> = { ready: true };
+    (withSymbol as Record<symbol, unknown>)[Symbol("hidden")] = true;
+    expectProtocolError(
+      validateProtocolMessage(buildCommand(withSymbol)),
+      "INVALID_PAYLOAD",
+    );
+
+    // 配列要素が JSON 値でない場合は拒否する。
+    expectProtocolError(
+      validateProtocolMessage(buildCommand({ list: [1, undefined] })),
+      "INVALID_PAYLOAD",
+    );
+
+    // 組み込みクラスのインスタンスはプレーンオブジェクトではないため拒否する。
+    expectProtocolError(
+      validateProtocolMessage(buildCommand({ at: new Date() })),
+      "INVALID_PAYLOAD",
     );
   });
 });

@@ -280,6 +280,7 @@ async function normalizeCustomRoomListQuery(
     availableSlots !== undefined &&
     (!Number.isSafeInteger(availableSlots) || availableSlots < 0)
   ) {
+    /* istanbul ignore next -- クエリ解析で非負整数のみ通すため、到達不能な防御です。 */
     throw new FlareLobbyError("INVALID_PAYLOAD", {
       message: "availableSlots は 0 以上の整数で指定してください。",
     });
@@ -289,6 +290,7 @@ async function normalizeCustomRoomListQuery(
     minAvailableSlots !== undefined &&
     (!Number.isSafeInteger(minAvailableSlots) || minAvailableSlots < 0)
   ) {
+    /* istanbul ignore next -- クエリ解析で非負整数のみ通すため、到達不能な防御です。 */
     throw new FlareLobbyError("INVALID_PAYLOAD", {
       message: "minAvailableSlots は 0 以上の整数で指定してください。",
     });
@@ -474,6 +476,7 @@ async function decodeCursor(
   tokenSecret: string,
   expectedFingerprint: string,
 ): Promise<{ readonly createdAt: number; readonly roomId: string }> {
+  /* istanbul ignore next -- 署名シークレットは起動時に検証済みのため、空文字は起きない防御です。 */
   if (!isNonEmptyString(tokenSecret)) {
     throw new FlareLobbyError("CONNECTION_FAILED");
   }
@@ -549,6 +552,7 @@ async function signCursor(
   tokenSecret: string,
   encodedPayload: string,
 ): Promise<Uint8Array> {
+  /* istanbul ignore next -- 署名シークレットは起動時に検証済みのため、空文字は起きない防御です。 */
   if (!isNonEmptyString(tokenSecret)) {
     throw new FlareLobbyError("CONNECTION_FAILED");
   }

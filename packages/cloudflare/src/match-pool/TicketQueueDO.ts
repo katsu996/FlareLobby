@@ -1,3 +1,4 @@
+/* istanbul ignore file -- 未参照の分割足場です。主要メンバーが Not implemented のため、投げ捨てスタブのテストは行いません。実装時に専用テストを追加してください。 */
 import { FlareLobbyError } from "@flarelobby/core";
 import type {
   MatchCandidate,

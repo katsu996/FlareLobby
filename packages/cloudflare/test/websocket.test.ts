@@ -1387,4 +1387,177 @@ describe("Room Durable Object の WebSocket Upgrade とハンドラ検証", () =
 
     await closeSocket(socket);
   });
+
+  it("参加者なしトークンの Upgrade は認証を拒否する", async () => {
+    const owner = await createRoom();
+    const issued = await issueJoinToken(env.FLARE_LOBBY_TOKEN_SECRET, {
+      principal: {
+        id: "principal-no-participant",
+        playerId: "player-no-participant",
+      },
+      roomId: owner.roomId,
+      role: "player",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    if (!issued.ok) {
+      throw issued.error;
+    }
+
+    const response = await fetchUpgrade(owner.roomId, issued.value);
+    expect(response.status).toBe(401);
+  });
+
+  it("退出で無効化された再開トークンは直接 Upgrade でも拒否される", async () => {
+    const principalId = `principal-direct-resume-${crypto.randomUUID()}`;
+    const owner = await createRoom(principalId);
+    await joinRoom(owner.roomId);
+    const socket = await connect(owner);
+    const initial = await waitForMessage(socket);
+    const resumeToken = initial.payload?.resumeToken as string;
+
+    const leaveResponse = await testWorker.fetch(
+      new Request("https://example.test/v1/custom-rooms/leave", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-principal": principalId,
+        },
+        body: JSON.stringify({
+          requestId: `leave-${crypto.randomUUID()}`,
+          roomId: owner.roomId,
+          joinToken: owner.joinToken,
+          participantId: owner.participantId,
+          role: "player",
+        }),
+      }) as unknown as Parameters<typeof testWorker.fetch>[0],
+      env,
+      {} as ExecutionContext,
+    );
+    expect(leaveResponse.status).toBe(200);
+
+    const direct = await fetchUpgrade(owner.roomId, resumeToken, {
+      query: "?lastRevision=0",
+    });
+    const directBody = (await direct.json()) as { code?: string };
+    expect(directBody.code).toBe("FORBIDDEN");
+
+    await closeSocket(socket);
+  });
+
+  it("接続行の不一致は直接 Upgrade でも拒否される", async () => {
+    const owner = await createRoom();
+    const socket = await connect(owner);
+    const initial = await waitForMessage(socket);
+    const resumeToken = initial.payload?.resumeToken as string;
+
+    // 接続行の主体を書き換えると再開検証で不一致になる。
+    await runInDurableObject(
+      env.FLARE_LOBBY_ROOMS.getByName(owner.roomId),
+      (_instance, state) => {
+        state.storage.sql.exec(
+          "UPDATE flarelobby_room_connections SET principal_id = ? WHERE room_id = ?",
+          "principal-tampered",
+          owner.roomId,
+        );
+      },
+    );
+
+    const direct = await fetchUpgrade(owner.roomId, resumeToken, {
+      query: "?lastRevision=0",
+    });
+    const directBody = (await direct.json()) as { code?: string };
+    expect(directBody.code).toBe("FORBIDDEN");
+
+    await closeSocket(socket);
+  });
+
+  it("壊れたスナップショットの Upgrade は安全な失敗応答になる", async () => {
+    const owner = await createRoom();
+
+    await runInDurableObject(
+      env.FLARE_LOBBY_ROOMS.getByName(owner.roomId),
+      (_instance, state) => {
+        state.storage.sql.exec(
+          "UPDATE flarelobby_rooms SET invitation_code = NULL WHERE singleton_id = 1",
+        );
+      },
+    );
+
+    const response = await fetchUpgrade(owner.roomId, owner.joinToken);
+    expect(response.status).toBeGreaterThanOrEqual(400);
+  });
+
+  it("ホスト系コマンドを WebSocket 経由で実行できる", async () => {
+    const owner = await createRoom();
+    const guest = await joinRoom(owner.roomId);
+    const ownerSocket = await connect(owner);
+    await waitForMessage(ownerSocket);
+    const guestSocket = await connect(guest);
+    await waitForMessage(guestSocket);
+
+    const waitForResponse = async (
+      webSocket: WebSocket,
+      requestId: string,
+    ): Promise<WebSocketEvent> => {
+      for (let index = 0; index < 10; index += 1) {
+        const message = await waitForMessage(webSocket);
+        if (
+          (message.kind === "success" || message.kind === "failure") &&
+          message.requestId === requestId
+        ) {
+          return message;
+        }
+      }
+      throw new Error(`応答が届きませんでした: ${requestId}`);
+    };
+
+    sendCommand(
+      ownerSocket,
+      "room.select_team",
+      { teamId: null },
+      "select-team",
+    );
+    await expect(
+      waitForResponse(ownerSocket, "select-team"),
+    ).resolves.toMatchObject({ kind: "success" });
+
+    sendCommand(
+      ownerSocket,
+      "room.transfer_host",
+      { targetParticipantId: guest.participantId },
+      "transfer-host",
+    );
+    await expect(
+      waitForResponse(ownerSocket, "transfer-host"),
+    ).resolves.toMatchObject({ kind: "success" });
+
+    sendCommand(
+      guestSocket,
+      "room.kick",
+      { targetParticipantId: owner.participantId },
+      "kick-owner",
+    );
+    await expect(
+      waitForResponse(guestSocket, "kick-owner"),
+    ).resolves.toMatchObject({ kind: "success" });
+
+    sendCommand(guestSocket, "room.start_match", {}, "start-match");
+    await expect(
+      waitForResponse(guestSocket, "start-match"),
+    ).resolves.toMatchObject({
+      kind: "failure",
+      error: { code: "CONFLICT" },
+    });
+
+    sendCommand(guestSocket, "room.close", {}, "close-room");
+    await expect(
+      waitForResponse(guestSocket, "close-room"),
+    ).resolves.toMatchObject({
+      kind: "success",
+    });
+
+    await closeSocket(ownerSocket);
+    await closeSocket(guestSocket);
+  });
 });

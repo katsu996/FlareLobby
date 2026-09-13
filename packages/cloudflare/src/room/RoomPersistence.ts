@@ -30,6 +30,7 @@ import {
   parseMatchmakingPool,
   parseJsonObject,
   parseJsonValue,
+  isJsonObject,
   deepFreeze as deepFreezeUtil,
 } from "../room.js";
 /**
@@ -846,22 +847,36 @@ export class RoomPersistence {
         currentRevision,
       )
       .toArray();
+    const revisions = new Set(rows.map((row) => row.revision));
 
-    const events = rows.map((row) =>
-      Object.freeze(
-        parseJsonValue(row.eventJson) as unknown as ProtocolMessage,
-      ),
-    );
-
-    if (events.length === 0) {
-      return { useSnapshot: false, events: [] };
+    for (
+      let revision = lastRevision + 1;
+      revision <= currentRevision;
+      revision += 1
+    ) {
+      if (!revisions.has(revision)) {
+        return { useSnapshot: true, events: [] };
+      }
     }
 
-    if (currentRevision - lastRevision > room.eventHistoryLimit) {
+    try {
+      return {
+        useSnapshot: false,
+        events: Object.freeze(
+          rows.map((row) => {
+            const event = parseJsonValue(row.eventJson);
+
+            if (!isJsonObject(event) || event["kind"] !== "event") {
+              throw new Error("invalid-room-event");
+            }
+
+            return Object.freeze(event as unknown as ProtocolMessage);
+          }),
+        ),
+      };
+    } catch {
       return { useSnapshot: true, events: [] };
     }
-
-    return { useSnapshot: false, events: Object.freeze(events) };
   }
 
   // ==================== WebSocket 接続管理 ====================

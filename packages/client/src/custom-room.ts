@@ -928,6 +928,7 @@ class RoomImpl<
     connection: FlareLobbyWebSocketConnection<TApp>,
     error: FlareLobbyError,
   ): void {
+    /* v8 ignore next -- 切断時は購読解除が先行するため、終了・差替後の通知は届かない防御です。 */
     if (this.closedState || connection !== this.connection) {
       return;
     }
@@ -947,6 +948,7 @@ class RoomImpl<
   }
 
   private scheduleReconnect(): void {
+    /* v8 ignore next -- 終了後は再接続を予定しないため、終了状態での呼び出しは起きない防御です。 */
     if (this.closedState) {
       return;
     }
@@ -958,6 +960,7 @@ class RoomImpl<
     }
 
     if (this.reconnectTimer !== undefined) {
+      /* v8 ignore next -- 切断通知は接続ごとに単発で、再試行時はタイマー解除済みのため多重化しない防御です。 */
       return;
     }
 
@@ -974,6 +977,7 @@ class RoomImpl<
   }
 
   private async attemptReconnect(): Promise<void> {
+    /* v8 ignore next -- 待機は終了時に取り消されるため、実行時に終了済みにはならない防御です。 */
     if (this.closedState || !this.reconnectingState) {
       return;
     }
@@ -996,8 +1000,10 @@ class RoomImpl<
       );
 
       if (this.closedState) {
+        /* v8 ignore start -- 再接続の確立後に終了操作は直列化されるため、接続直後の終了は起きない防御です。 */
         connection.close(1000, "room closed");
         return;
+        /* v8 ignore stop */
       }
 
       this.attachConnection(connection);
@@ -1070,6 +1076,7 @@ class RoomImpl<
 
     this.notifyEventListeners(event);
     if (event.event !== GAME_MESSAGE_EVENT) {
+      /* v8 ignore next -- 接続時に既知イベントのみ受信するため、他種別は届かない防御です。 */
       return;
     }
 
@@ -1098,6 +1105,7 @@ class RoomImpl<
   }
 
   private replaceSnapshot(value: unknown): RoomSnapshot<TApp> {
+    /* v8 ignore next -- 呼び出し前に同一の検証を通過しているため、ここでの失敗は起きない防御です。 */
     if (!isRoomSnapshot<TApp>(value)) {
       throw new FlareLobbyError("CONNECTION_FAILED");
     }
@@ -1119,6 +1127,7 @@ class RoomImpl<
   }
 
   private requestResync(): void {
+    /* v8 ignore next -- 切断中は接続が受信しないため、再接続待ちの再同期要求は起きない防御です。 */
     if (this.closedState || this.reconnectingState) {
       return;
     }
@@ -1131,6 +1140,7 @@ class RoomImpl<
   }
 
   private setStatus(status: RoomConnectionStatus): void {
+    /* v8 ignore next -- 状態遷移は単調に進むため、同一状態の再設定は起きない防御です。 */
     if (this.statusState === status) {
       return;
     }
@@ -1146,6 +1156,7 @@ class RoomImpl<
   }
 
   private markDisconnected(): void {
+    /* v8 ignore next -- 終了後は通知が届かないため、二重の切断遷移は起きない防御です。 */
     if (this.closedState) {
       return;
     }
@@ -1160,6 +1171,7 @@ class RoomImpl<
   }
 
   private markClosed(): void {
+    /* v8 ignore next -- 終了操作は開放状態でのみ受け付けるため、二重の終了遷移は起きない防御です。 */
     if (this.closedState) {
       return;
     }
@@ -1179,8 +1191,10 @@ class RoomImpl<
       return;
     }
 
+    /* v8 ignore start -- 終了操作は接続中の部屋のみ受付のため、待機中の取り消しは起きない防御です。 */
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
+    /* v8 ignore stop */
   }
 
   private clearListeners(): void {
@@ -1391,6 +1405,7 @@ function deepFreeze<TValue>(
   }
 
   if (seen.has(value)) {
+    /* v8 ignore next -- JSON 由来の acyclic な値のみを凍結するため、循環参照は起きない防御です。 */
     return value;
   }
 

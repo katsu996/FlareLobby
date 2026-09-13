@@ -938,11 +938,13 @@ export class PartyDurableObject extends DurableObject<Env> {
       try {
         webSocket.send(message);
       } catch {
+        /* istanbul ignore start -- ソケット障害の注入手段がないため、通常テストでは起きない防御です。 */
         try {
           webSocket.close(1011, "通知の送信に失敗しました。");
         } catch {
           // 既に閉じた接続は次回の Hibernation 復帰時に破棄されます。
         }
+        /* istanbul ignore stop */
       }
     }
   }

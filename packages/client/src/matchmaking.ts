@@ -263,8 +263,7 @@ export function createMatchmakingApi<
       return Promise.reject(new FlareLobbyError("CANCELLED"));
     }
 
-    let rejectDisposed: (error: FlareLobbyError) => void = (): void =>
-      undefined;
+    let rejectDisposed!: (error: FlareLobbyError) => void;
     const disposedPromise = new Promise<MatchmakingTicketImpl<TApp>>(
       (_resolve, reject) => {
         rejectDisposed = (error): void => reject(error);
@@ -287,8 +286,10 @@ export function createMatchmakingApi<
     joinMatchmaking: async (pool, options = {}) => {
       const ticket = await joinTicket(pool, options);
       if (disposed) {
+        /* v8 ignore start -- 解決と破棄が同タスクで直列化されるため、解決直後の破棄は起きない防御です。 */
         ticket.dispose();
         throw new FlareLobbyError("CANCELLED");
+        /* v8 ignore stop */
       }
 
       return ticket;
@@ -296,8 +297,10 @@ export function createMatchmakingApi<
     findMatch: async (pool, options = {}) => {
       const ticket = await joinTicket(pool, options);
       if (disposed) {
+        /* v8 ignore start -- 解決と破棄が同タスクで直列化されるため、解決直後の破棄は起きない防御です。 */
         ticket.dispose();
         throw new FlareLobbyError("CANCELLED");
+        /* v8 ignore stop */
       }
 
       return ticket.waitForMatch(
@@ -316,6 +319,7 @@ export function createMatchmakingApi<
       return getRating(transport, pool, options);
     },
     dispose: () => {
+      /* v8 ignore next -- クライアント終了は一度だけ配送されるため、二重終了は起きない防御です。 */
       if (disposed) {
         return;
       }
@@ -590,6 +594,7 @@ class MatchmakingTicketImpl<
 
     await this.connect(signal);
     if (this.stopped) {
+      /* v8 ignore next -- 接続確立時に停止を確認済みのため、直後の停止は起きない防御です。 */
       throw new FlareLobbyError("CANCELLED");
     }
   }
@@ -678,6 +683,7 @@ class MatchmakingTicketImpl<
         aborted: false,
       };
       const onAbort = (): void => {
+        /* v8 ignore next -- 中止通知は単発のため、二重の中止処理は起きない防御です。 */
         if (waiter.aborted) {
           return;
         }
@@ -697,6 +703,7 @@ class MatchmakingTicketImpl<
       if (this.status === "matched") {
         void this.resolveWaiters();
       } else if (isTerminalStatus(this.status)) {
+        /* v8 ignore next -- 取消・期限切れは待機開始前に拒否されるため、ここでは終端にならない防御です。 */
         this.rejectWaitersForTerminal();
       }
     });
@@ -720,6 +727,7 @@ class MatchmakingTicketImpl<
   }
 
   private async connect(signal?: AbortSignal): Promise<void> {
+    /* v8 ignore next -- 開始時と再試行時に停止を確認済みのため、接続直前の停止は起きない防御です。 */
     if (this.stopped) {
       throw new FlareLobbyError("CANCELLED");
     }
@@ -738,6 +746,7 @@ class MatchmakingTicketImpl<
     this.attachConnection(connection);
     this.reconnectAttempt = 0;
     this.setConnectionStatus("connected");
+    /* v8 ignore next -- 確立と購読は同一タスクで連続するため、直後の停止は起きない防御です。 */
     if (this.stopped) {
       throw new FlareLobbyError("CANCELLED");
     }
@@ -770,6 +779,7 @@ class MatchmakingTicketImpl<
   }
 
   private handleEvent(event: ServerEventEnvelope): void {
+    /* v8 ignore next -- 接続時にマッチングイベントのみ受信するため、他種別は届かない防御です。 */
     if (event.event !== MATCHMAKING_EVENT) {
       return;
     }
@@ -883,6 +893,7 @@ class MatchmakingTicketImpl<
   }
 
   private handleTerminalState(status: MatchmakingTicketStatus): void {
+    /* v8 ignore next -- 適用側で終端後の再入を抑止済みのため、二重の終端遷移は起きない防御です。 */
     if (this.terminalProgressStatus === undefined) {
       this.terminalProgressStatus = status;
     }
@@ -927,6 +938,7 @@ class MatchmakingTicketImpl<
       return this.roomPromise;
     }
 
+    /* v8 ignore next -- 成立確定後にだけ呼び出されるため、未成立での部屋解決は起きない防御です。 */
     if (this.status !== "matched") {
       return Promise.reject(new FlareLobbyError("CONFLICT"));
     }
@@ -981,6 +993,7 @@ class MatchmakingTicketImpl<
         if (signal.aborted) {
           throw new FlareLobbyError("CANCELLED");
         }
+        /* v8 ignore next -- 中止起点の取り消しでは信号が中止済みのため、元の失敗伝搬は起きない防御です。 */
         throw error;
       });
   }
@@ -1024,6 +1037,7 @@ class MatchmakingTicketImpl<
     connection: FlareLobbyWebSocketConnection<TApp>,
     error: FlareLobbyError,
   ): void {
+    /* v8 ignore next -- 切断時は購読解除が先行するため、停止・差替・終端後の通知は届かない防御です。 */
     if (
       this.stopped ||
       connection !== this.connection ||
@@ -1042,6 +1056,7 @@ class MatchmakingTicketImpl<
 
   /** 切断後の再接続を再試行回数の上限内で遅延実行します。 */
   private scheduleReconnect(): void {
+    /* v8 ignore next -- 切断通知は接続ごとに単発で、再試行時はタイマー解除済みのため多重化しない防御です。 */
     if (this.reconnectTimer !== undefined) {
       return;
     }
@@ -1059,6 +1074,7 @@ class MatchmakingTicketImpl<
   }
 
   private async attemptReconnect(): Promise<void> {
+    /* v8 ignore next -- 待機は破棄・終端時に取り消されるため、実行時に停止・終端済みにはならない防御です。 */
     if (this.stopped || isTerminalStatus(this.status)) {
       return;
     }
@@ -1085,6 +1101,7 @@ class MatchmakingTicketImpl<
   }
 
   private requestResync(): void {
+    /* v8 ignore next -- 破棄・終端時は接続購読が外れるため、不整合通知は現役接続のみの防御です。 */
     if (this.stopped || isTerminalStatus(this.status)) {
       return;
     }

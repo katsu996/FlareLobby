@@ -1102,3 +1102,149 @@ describe("Party Durable Object の冪等性と境界", () => {
     expect(response.status).toBe(401);
   });
 });
+
+describe("Party 追加の分岐", () => {
+  it("主体証明なしの作成は UNAUTHENTICATED になる", async () => {
+    const stub = env.FLARE_LOBBY_PARTIES.getByName(newPartyId());
+
+    expect(await errorOf(stub.createParty({} as never))).toBe(
+      "UNAUTHENTICATED",
+    );
+  });
+
+  it("未初期化パーティーの参照は空として扱う", async () => {
+    const stub = env.FLARE_LOBBY_PARTIES.getByName(newPartyId());
+    const leader = await createGatewayPrincipal(
+      `leader-${crypto.randomUUID()}`,
+    );
+
+    await expect(
+      stub.getSnapshot({ gatewayPrincipal: leader }),
+    ).resolves.toBeNull();
+    expect(
+      await errorOf(
+        stub.getEvents({ gatewayPrincipal: leader, afterSequence: 0 }),
+      ),
+    ).toBe("FORBIDDEN");
+
+    // 内部読み取りの未初期化分岐を直接呼ぶ。
+    const snapshot = await runInDurableObject(
+      stub,
+      async (instance: PartyDurableObject) =>
+        (instance as unknown as { readSnapshot(): unknown }).readSnapshot(),
+    );
+    expect(snapshot).toBeNull();
+    expect(
+      await errorOf(
+        runInDurableObject(stub, async (instance: PartyDurableObject) =>
+          (
+            instance as unknown as { requireSnapshot(): unknown }
+          ).requireSnapshot(),
+        ),
+      ),
+    ).toBe("CONNECTION_FAILED");
+
+    // 空スナップショットの組み立ても直接呼ぶ。
+    const empty = await runInDurableObject(
+      stub,
+      async (instance: PartyDurableObject) =>
+        (instance as unknown as { emptySnapshot(): unknown }).emptySnapshot(),
+    );
+    expect(empty).toMatchObject({ members: [] });
+  });
+
+  it("既存メンバーへの招待は CONFLICT になる", async () => {
+    const stub = env.FLARE_LOBBY_PARTIES.getByName(newPartyId());
+    const leaderPrincipalId = `leader-${crypto.randomUUID()}`;
+    const leader = await createGatewayPrincipal(leaderPrincipalId);
+    await stub.createParty({
+      gatewayPrincipal: leader,
+      requestId: `request-${crypto.randomUUID()}`,
+    });
+
+    expect(
+      await errorOf(
+        stub.inviteMember({
+          gatewayPrincipal: leader,
+          requestId: `request-${crypto.randomUUID()}`,
+          playerId: `${leaderPrincipalId}-player`,
+        }),
+      ),
+    ).toBe("CONFLICT");
+  });
+
+  it("参加済みメンバーの招待受諾は CONFLICT になる", async () => {
+    const partyId = newPartyId();
+    const stub = env.FLARE_LOBBY_PARTIES.getByName(partyId);
+    const leader = await createGatewayPrincipal(
+      `leader-${crypto.randomUUID()}`,
+    );
+    await stub.createParty({
+      gatewayPrincipal: leader,
+      requestId: `request-${crypto.randomUUID()}`,
+    });
+    const memberPrincipalId = `member-${crypto.randomUUID()}`;
+    const member = await createGatewayPrincipal(memberPrincipalId);
+    const invite = await stub.inviteMember({
+      gatewayPrincipal: leader,
+      requestId: `request-${crypto.randomUUID()}`,
+      playerId: `${memberPrincipalId}-player`,
+    });
+    await stub.acceptInvite({
+      gatewayPrincipal: member,
+      requestId: `request-${crypto.randomUUID()}`,
+      token: invite.token,
+    });
+
+    // 参加済みメンバー宛ての未使用招待を作り直し、受諾すると拒否される。
+    const plantedToken = crypto.randomUUID();
+    await runInDurableObject(stub, async (_instance, state) => {
+      state.storage.sql.exec(
+        `UPDATE flarelobby_party_invites
+         SET token = ?, expires_at_ms = ?, used_at_ms = NULL
+         WHERE party_id = ? AND player_id = ?`,
+        plantedToken,
+        Date.now() + 60_000,
+        partyId,
+        `${memberPrincipalId}-player`,
+      );
+    });
+    expect(
+      await errorOf(
+        stub.acceptInvite({
+          gatewayPrincipal: member,
+          requestId: `request-${crypto.randomUUID()}`,
+          token: plantedToken,
+        }),
+      ),
+    ).toBe("CONFLICT");
+  });
+
+  it("破損した解散の再送結果は CONFLICT になる", async () => {
+    const stub = env.FLARE_LOBBY_PARTIES.getByName(newPartyId());
+    const leader = await createGatewayPrincipal(
+      `leader-${crypto.randomUUID()}`,
+    );
+    const requestId = `request-${crypto.randomUUID()}`;
+    await stub.createParty({
+      gatewayPrincipal: leader,
+      requestId: `request-${crypto.randomUUID()}`,
+    });
+    await stub.dissolveParty({ gatewayPrincipal: leader, requestId });
+
+    // 保存済み結果を壊して再送すると、再送結果の検証で拒否される。
+    await runInDurableObject(stub, async (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE flarelobby_party_processed_commands SET result_json = ? WHERE request_id = ?",
+        "[1,2]",
+        requestId,
+      );
+    });
+
+    expect(
+      await errorOf(
+        stub.dissolveParty({ gatewayPrincipal: leader, requestId }),
+      ),
+    ).toBe("CONFLICT");
+  });
+});

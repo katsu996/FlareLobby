@@ -609,7 +609,9 @@ describe("Match Pool Durable Object", () => {
       waitingCount: 0,
       activeCount: 0,
     });
-  });
+    // Durable Object 経由で 20 件のチケットを逐次作成するため、
+    // 実行環境によっては既定の 5 秒を超える。表明内容は変えず制限だけ延ばす。
+  }, 30_000);
 
   it("プール識別子と成立 ID の生成ヘルパーは不正な入力を INVALID_PAYLOAD で拒否する", () => {
     const pool = createPool();
@@ -2100,5 +2102,82 @@ describe("Match Pool Durable Object", () => {
       new Request("https://match-pool.test/tickets/%/events"),
     );
     expect(response.status).toBe(404);
+  });
+});
+
+describe("MatchPool 破損データの処理", () => {
+  it("壊れた構成員 JSON のチケット読取は失敗する", async () => {
+    const { pool, stub } = await createInitializedPool();
+    const principal = await createGatewayPrincipal(
+      `principal-${crypto.randomUUID()}`,
+    );
+    const created = await stub.createTicket(
+      createTicketOptions(principal, { rating: 1_500, pool }),
+    );
+
+    for (const garbage of ["[]", '[{"id":1}]']) {
+      await runInDurableObject(stub, async (_instance, state) => {
+        state.storage.sql.exec(
+          "UPDATE flarelobby_matchmaking_tickets SET members_json = ? WHERE ticket_id = ?",
+          garbage,
+          created.id,
+        );
+      });
+      const code = await runInDurableObject(
+        stub,
+        async (instance: MatchPoolDurableObject) => {
+          try {
+            await instance.getTicket(created.id);
+          } catch (error) {
+            return extractErrorCode(error);
+          }
+          return undefined;
+        },
+      );
+      expect(code).toBe("CONNECTION_FAILED");
+    }
+  });
+
+  it("壊れた初期化 JSON の意図読取は失敗する", async () => {
+    const { pool, stub } = await createInitializedPool();
+    const now = Date.now();
+
+    for (const [matchId, initializationJson] of [
+      ["match_corrupt_array", "[1,2]"],
+      ["match_corrupt_syntax", "[1,2"],
+    ] as const) {
+      const candidateId = `candidate-${matchId}`;
+      await runInDurableObject(stub, async (_instance, state) => {
+        state.storage.sql.exec(
+          `INSERT INTO flarelobby_matchmaking_match_intents (
+            match_id, candidate_id, pool_id, room_id, candidate_json,
+            initialization_json, status, attempt_count, max_attempts,
+            next_attempt_at, last_error_code, result_json,
+            created_at, updated_at, completed_at
+          ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, 3, ?, NULL, NULL, ?, ?, NULL)`,
+          matchId,
+          candidateId,
+          pool.id,
+          `room-${matchId}`,
+          "{}",
+          initializationJson,
+          now,
+          now,
+          now,
+        );
+      });
+      const code = await runInDurableObject(
+        stub,
+        async (instance: MatchPoolDurableObject) => {
+          try {
+            await instance.getMatchIntent(matchId);
+          } catch (error) {
+            return extractErrorCode(error);
+          }
+          return undefined;
+        },
+      );
+      expect(code).toBe("CONNECTION_FAILED");
+    }
   });
 });

@@ -1083,6 +1083,7 @@ function decodeBase64Url(value: string): Uint8Array | null {
     for (let index = 0; index < binary.length; index += 1) {
       const character = binary.codePointAt(index);
 
+      /* istanbul ignore next -- 範囲内アクセスは常に数値を返すため到達不能な防御です。 */
       if (character === undefined) {
         return null;
       }

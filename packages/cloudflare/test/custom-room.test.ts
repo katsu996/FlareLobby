@@ -1227,3 +1227,226 @@ describe("カスタムルーム一覧の削除同期", () => {
     ).toBe(false);
   });
 });
+
+describe("カスタムルーム入力検証の分岐", () => {
+  it("退出の roomId 欠落と requestId 不正を拒否する", async () => {
+    const principal = `principal-leave-validation-${crypto.randomUUID()}`;
+
+    // roomId なしは INVALID_PAYLOAD になる。
+    const noRoom = await leaveRoom({ requestId: "request-1" }, principal);
+    expect(noRoom.status).toBe(400);
+
+    // 長すぎる requestId は INVALID_PAYLOAD になる。
+    const longId = await leaveRoom(
+      { requestId: "x".repeat(200), roomId: "room-1" },
+      principal,
+    );
+    expect(longId.status).toBe(400);
+
+    // 長すぎる Idempotency-Key は INVALID_PAYLOAD になる。
+    const longHeader = await testWorker.fetch(
+      new Request("https://example.test/v1/custom-rooms/leave", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-principal": principal,
+          "Idempotency-Key": "x".repeat(200),
+        },
+        body: JSON.stringify({ requestId: "request-1", roomId: "room-1" }),
+      }) as unknown as Parameters<typeof testWorker.fetch>[0],
+      env,
+      {} as ExecutionContext,
+    );
+    expect(longHeader.status).toBe(400);
+
+    // body とヘッダーの不一致は 400 になる。
+    const mismatch = await testWorker.fetch(
+      new Request("https://example.test/v1/custom-rooms/leave", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-principal": principal,
+          "Idempotency-Key": "header-id",
+        },
+        body: JSON.stringify({ requestId: "body-id", roomId: "room-1" }),
+      }) as unknown as Parameters<typeof testWorker.fetch>[0],
+      env,
+      {} as ExecutionContext,
+    );
+    expect(mismatch.status).toBe(400);
+  });
+
+  it("参加入力の形式不正を拒否する", async () => {
+    const principal = `principal-join-validation-${crypto.randomUUID()}`;
+
+    // 数値の roomId は INVALID_PAYLOAD になる。
+    const numericRoom = await joinRoom({ roomId: 123 }, principal);
+    expect(numericRoom.status).toBe(400);
+
+    // 長すぎる招待コードは INVALID_PAYLOAD になる。
+    const longCode = await joinRoom(
+      { invitationCode: "A".repeat(200) },
+      principal,
+    );
+    expect(longCode.status).toBe(400);
+
+    // roomId も招待コードもなしは INVALID_PAYLOAD になる。
+    const neither = await joinRoom({ requestId: "request-1" }, principal);
+    expect(neither.status).toBe(400);
+  });
+
+  it("同じ requestId の使い回しを拒否する", async () => {
+    const principal = `principal-reuse-${crypto.randomUUID()}`;
+    const first = await createRoom(
+      { requestId: "request-reuse", settings: { map: "forest" } },
+      principal,
+    );
+    expect(first.status).toBe(201);
+
+    // 同じ作成条件の再送は成功するが、条件違いは拒否される。
+    const replayed = await createRoom(
+      { requestId: "request-reuse", settings: { map: "forest" } },
+      principal,
+    );
+    expect(replayed.status).toBe(201);
+    const changed = await createRoom(
+      { requestId: "request-reuse", settings: { map: "desert" } },
+      principal,
+    );
+    expect(changed.status).toBe(400);
+
+    // 参加と退出での使い回しも拒否される。
+    const firstBody = (await first.json()) as {
+      roomId?: string;
+      room?: { id?: string };
+    };
+    const firstRoomId = firstBody.roomId ?? firstBody.room?.id;
+    expect(firstRoomId).toBeDefined();
+    const joinerId = `principal-reuse-join-${crypto.randomUUID()}`;
+    const reuseRequestId = `request-reuse-join-${crypto.randomUUID()}`;
+    const joined = await joinRoom(
+      { requestId: reuseRequestId, roomId: firstRoomId },
+      joinerId,
+    );
+    expect(joined.status).toBe(200);
+    const joinedBody = (await joined.json()) as {
+      participantId: string;
+      joinToken: string;
+    };
+    const leaveResponse = await leaveRoom(
+      {
+        requestId: reuseRequestId,
+        roomId: firstRoomId,
+        participantId: joinedBody.participantId,
+        role: "player",
+        joinToken: joinedBody.joinToken,
+      },
+      joinerId,
+    );
+    expect(leaveResponse.status).toBe(400);
+  });
+
+  it("破損した参加・退出の再送結果は失敗になる", async () => {
+    const principal = `principal-corrupt-${crypto.randomUUID()}`;
+    const created = await createRoom(
+      { requestId: `request-corrupt-create-${crypto.randomUUID()}` },
+      principal,
+    );
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as { roomId: string };
+
+    const joinRequestId = `request-corrupt-join-${crypto.randomUUID()}`;
+    const joinerPrincipalId = `principal-corrupt-join-${crypto.randomUUID()}`;
+    const joined = await joinRoom(
+      { requestId: joinRequestId, roomId: createdBody.roomId },
+      joinerPrincipalId,
+    );
+    expect(joined.status).toBe(200);
+    const roomId = createdBody.roomId;
+    const roomStub = env.FLARE_LOBBY_ROOMS.getByName(roomId);
+
+    // 参加結果を壊して再送すると失敗になる。
+    await runInDurableObject(roomStub, async (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE flarelobby_processed_commands SET result_json = ? WHERE request_id = ?",
+        "[1,2]",
+        `custom-room:${joinerPrincipalId}:${roomId}:${joinRequestId}`,
+      );
+    });
+    const replayedJoin = await joinRoom(
+      { requestId: joinRequestId, roomId },
+      joinerPrincipalId,
+    );
+    expect(replayedJoin.status).toBeGreaterThanOrEqual(400);
+  });
+
+  it("破損した退出・作成の再送結果は失敗になる", async () => {
+    const principal = `principal-corrupt-leave-${crypto.randomUUID()}`;
+    const created = await createRoom(
+      { requestId: `request-corrupt-create-${crypto.randomUUID()}` },
+      principal,
+    );
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as { roomId: string };
+    const roomId = createdBody.roomId;
+    const roomStub = env.FLARE_LOBBY_ROOMS.getByName(roomId);
+
+    const joinerPrincipalId = `principal-corrupt-leave-join-${crypto.randomUUID()}`;
+    const joined = await joinRoom(
+      {
+        requestId: `request-corrupt-leave-join-${crypto.randomUUID()}`,
+        roomId,
+      },
+      joinerPrincipalId,
+    );
+    expect(joined.status).toBe(200);
+    const joinedBody = (await joined.json()) as {
+      participantId: string;
+      joinToken: string;
+    };
+
+    // 退出結果を壊して再送すると失敗になる。
+    const leaveRequestId = `request-corrupt-leave-${crypto.randomUUID()}`;
+    const leaveBody = {
+      requestId: leaveRequestId,
+      roomId,
+      participantId: joinedBody.participantId,
+      role: "player",
+      joinToken: joinedBody.joinToken,
+    };
+    const left = await leaveRoom(leaveBody, joinerPrincipalId);
+    expect(left.status).toBe(200);
+    await runInDurableObject(roomStub, async (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE flarelobby_processed_commands SET result_json = ? WHERE request_id = ?",
+        "[1,2]",
+        `custom-room:${joinerPrincipalId}:${roomId}:${leaveRequestId}`,
+      );
+    });
+    const replayedLeave = await leaveRoom(leaveBody, joinerPrincipalId);
+    expect(replayedLeave.status).toBeGreaterThanOrEqual(400);
+
+    // 作成結果を壊して再送すると失敗になる。
+    const creatorPrincipalId = `principal-corrupt-create2-${crypto.randomUUID()}`;
+    const createRequestId = `request-corrupt-create2-${crypto.randomUUID()}`;
+    const created2 = await createRoom(
+      { requestId: createRequestId, settings: { map: "forest" } },
+      creatorPrincipalId,
+    );
+    expect(created2.status).toBe(201);
+    const created2Body = (await created2.json()) as { roomId: string };
+    const roomStub2 = env.FLARE_LOBBY_ROOMS.getByName(created2Body.roomId);
+    await runInDurableObject(roomStub2, async (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE flarelobby_processed_commands SET result_json = ? WHERE request_id = ?",
+        "[1,2]",
+        createRequestId,
+      );
+    });
+    const replayedCreate = await createRoom(
+      { requestId: createRequestId, settings: { map: "forest" } },
+      creatorPrincipalId,
+    );
+    expect(replayedCreate.status).toBeGreaterThanOrEqual(400);
+  });
+});

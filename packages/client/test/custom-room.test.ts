@@ -908,4 +908,278 @@ describe("@flarelobby/client custom room API", () => {
       code: "FORBIDDEN",
     });
   });
+
+  it("購読解除で空になった購読者集合を掃除する", async () => {
+    const client = createClient(vi.fn(async () => creationResponse()));
+    const room = await client.createCustomRoom();
+
+    const first = vi.fn();
+    const second = vi.fn();
+    const offFirst = room.onMessage("chat.message", first);
+    const offSecond = room.onMessage("chat.message", second);
+    offFirst();
+    offSecond();
+
+    const offStatus = room.onStatusChange(() => undefined);
+    offStatus();
+
+    FakeWebSocket.instances[0]?.receive({
+      protocolVersion: 1,
+      kind: "event",
+      event: "game.message",
+      revision: 2,
+      payload: {
+        name: "chat.message",
+        payload: { text: "やあ" },
+        sender: { participantId: "participant-guest", role: "player" },
+      },
+    });
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).not.toHaveBeenCalled();
+  });
+
+  it("maxAttempts 0 の再接続設定では再接続しない", async () => {
+    const client = createClient(vi.fn(async () => creationResponse()));
+    const room = await client.createCustomRoom({
+      reconnect: {
+        maxAttempts: 0,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+        jitterRatio: 0,
+      },
+    });
+
+    FakeWebSocket.instances[0]?.close(1006);
+    await flushAsync();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(room.connectionStatus).toBe("disconnected");
+  });
+
+  it("再接続ソケットの非再試行エラーでは切断状態で停止する", async () => {
+    FakeWebSocket.autoOpen = false;
+    const client = createClient(vi.fn(async () => creationResponse()));
+    const pending = client.createCustomRoom({
+      reconnect: {
+        maxAttempts: 3,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+        jitterRatio: 0,
+      },
+    });
+    await flushAsync();
+    FakeWebSocket.instances[0]?.open();
+    const room = await pending;
+
+    FakeWebSocket.instances[0]?.close(1006);
+    await flushAsync(5);
+
+    const pendingSocket = FakeWebSocket.instances[1];
+    expect(pendingSocket?.readyState).toBe(0);
+    pendingSocket?.close(4403);
+    await flushAsync(5);
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(room.connectionStatus).toBe("disconnected");
+  });
+
+  it("再接続待ちの不正イベントは再同期要求を重ねない", async () => {
+    const client = createClient(vi.fn(async () => creationResponse()));
+    const room = await client.createCustomRoom({
+      reconnect: {
+        maxAttempts: 3,
+        baseDelayMs: 60_000,
+        maxDelayMs: 60_000,
+        jitterRatio: 0,
+      },
+    });
+
+    FakeWebSocket.instances[0]?.close(1006);
+    expect(room.connectionStatus).toBe("reconnecting");
+    FakeWebSocket.instances[0]?.receive({
+      protocolVersion: 1,
+      kind: "event",
+      event: "room.snapshot",
+      revision: 99,
+      payload: createSnapshot(1),
+    });
+    await flushAsync();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(room.connectionStatus).toBe("reconnecting");
+  });
+
+  it("再接続の確立と購読の間に閉じると待機を終える", async () => {
+    FakeWebSocket.autoOpen = false;
+    const client = createClient(vi.fn(async () => creationResponse()));
+    const pending = client.createCustomRoom({
+      reconnect: {
+        maxAttempts: 3,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+        jitterRatio: 0,
+      },
+    });
+    await flushAsync();
+    FakeWebSocket.instances[0]?.open();
+    const room = await pending;
+
+    FakeWebSocket.instances[0]?.close(1006);
+    await flushAsync(5);
+
+    const pendingSocket = FakeWebSocket.instances[1];
+    expect(pendingSocket?.readyState).toBe(0);
+    // 開通と同時に閉じると、購読開始が不発に終わり再接続が継続する。
+    pendingSocket?.open();
+    pendingSocket?.close(1006);
+    await flushAsync(5);
+
+    expect(FakeWebSocket.instances).toHaveLength(3);
+    expect(room.connectionStatus).toBe("reconnecting");
+  });
+
+  it("記録でない game.message の payload は無視する", async () => {
+    const client = createClient(vi.fn(async () => creationResponse()));
+    const room = await client.createCustomRoom();
+    const messages: unknown[] = [];
+    room.onMessage("chat.message", (message) => {
+      messages.push(message);
+    });
+
+    FakeWebSocket.instances[0]?.receive({
+      protocolVersion: 1,
+      kind: "event",
+      event: "game.message",
+      revision: 2,
+      payload: "not-a-record",
+    });
+
+    expect(messages).toHaveLength(0);
+  });
+
+  it("事前中断のコマンドは送信せず CANCELLED になる", async () => {
+    const client = createClient(vi.fn(async () => creationResponse()));
+    const room = await client.createCustomRoom();
+    const socket = FakeWebSocket.instances[0];
+    if (socket === undefined) {
+      throw new Error("Room WebSocket が作成されていません。");
+    }
+    const sentCount = socket.sent.length;
+
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      room.setReady(true, { signal: controller.signal }),
+    ).rejects.toMatchObject({ code: "CANCELLED" });
+
+    expect(socket.sent).toHaveLength(sentCount);
+  });
+
+  it("確定後の応答と中断は無視される", async () => {
+    const client = createClient(vi.fn(async () => creationResponse()));
+    const room = await client.createCustomRoom();
+    const socket = FakeWebSocket.instances[0];
+    if (socket === undefined) {
+      throw new Error("Room WebSocket が作成されていません。");
+    }
+    const controller = new AbortController();
+
+    const promise = room.setReady(true, { signal: controller.signal });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    const { requestId } = lastCommand(socket);
+    socket.receive({
+      protocolVersion: 1,
+      kind: "success",
+      requestId,
+      payload: createSnapshot(2),
+    });
+    await promise;
+    controller.abort();
+
+    const lateController = new AbortController();
+    const late = room.setReady(false, { signal: lateController.signal });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    const lateId = lastCommand(socket).requestId;
+    lateController.abort();
+    await expect(late).rejects.toMatchObject({ code: "CANCELLED" });
+    socket.receive({
+      protocolVersion: 1,
+      kind: "success",
+      requestId: lateId,
+      payload: createSnapshot(3),
+    });
+    socket.receive({
+      protocolVersion: 1,
+      kind: "failure",
+      requestId: lateId,
+      error: { code: "FORBIDDEN", message: "遅延した失敗" },
+    });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+  });
+
+  it("応答待ちのタイムアウトは TIMEOUT になり、遅延応答は無視される", async () => {
+    const client = createClient(vi.fn(async () => creationResponse()));
+    const room = await client.createCustomRoom();
+    const socket = FakeWebSocket.instances[0];
+    if (socket === undefined) {
+      throw new Error("Room WebSocket が作成されていません。");
+    }
+
+    const timed = room.setReady(true, { timeoutMs: 5 });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    const { requestId } = lastCommand(socket);
+    await expect(timed).rejects.toMatchObject({ code: "TIMEOUT" });
+
+    socket.receive({
+      protocolVersion: 1,
+      kind: "success",
+      requestId,
+      payload: createSnapshot(2),
+    });
+
+    const failing = room.setReady(false, { timeoutMs: 5 });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    const failingId = lastCommand(socket).requestId;
+    await expect(failing).rejects.toMatchObject({ code: "TIMEOUT" });
+    socket.receive({
+      protocolVersion: 1,
+      kind: "failure",
+      requestId: failingId,
+      error: { code: "FORBIDDEN", message: "遅延した失敗" },
+    });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const preAborted = new AbortController();
+    preAborted.abort();
+    await expect(
+      room.setReady(true, { signal: preAborted.signal, timeoutMs: 5_000 }),
+    ).rejects.toMatchObject({ code: "CANCELLED" });
+  });
+
+  it("応答確定後のタイムアウト発火は無視される", async () => {
+    const client = createClient(vi.fn(async () => creationResponse()));
+    const room = await client.createCustomRoom();
+    const socket = FakeWebSocket.instances[0];
+    if (socket === undefined) {
+      throw new Error("Room WebSocket が作成されていません。");
+    }
+    const controller = new AbortController();
+
+    const promise = room.setReady(true, {
+      signal: controller.signal,
+      timeoutMs: 30,
+    });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    const { requestId } = lastCommand(socket);
+    socket.receive({
+      protocolVersion: 1,
+      kind: "success",
+      requestId,
+      payload: createSnapshot(2),
+    });
+    await promise;
+    controller.abort();
+    await new Promise<void>((resolve) => setTimeout(resolve, 40));
+  });
 });

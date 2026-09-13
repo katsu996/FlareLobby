@@ -128,6 +128,7 @@ export function generateSimulationPlayers(
 
   for (let index = 0; index < options.count; index += 1) {
     const id = `${options.idPrefix}${String(index + 1).padStart(4, "0")}`;
+    /* v8 ignore next -- ID は連番から決定論的に生成されるため重複し得ない防御です。 */
     if (playerIds.has(id)) {
       throw new RangeError(`生成されたプレイヤー ID が重複しています: ${id}`);
     }

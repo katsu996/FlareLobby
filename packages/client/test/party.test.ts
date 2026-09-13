@@ -1247,4 +1247,395 @@ describe("@flarelobby/client party", () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
     expect(party.connectionStatus).toBe("disconnected");
   });
+
+  it("joinParty の送信失敗は公開エラーへ正規化される", async () => {
+    const failingFetch = vi.fn(async () => {
+      throw new Error("network down");
+    }) as unknown as FetchImplementation;
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch: failingFetch,
+      webSocket,
+    });
+
+    await expect(
+      client.joinParty({ partyId: "party-1", token: "token" }),
+    ).rejects.toMatchObject({ code: "CONNECTION_FAILED" });
+    client.dispose();
+  });
+
+  it("停止後の start は再接続しない", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.getParty("party-1");
+
+    party.dispose();
+    // start は公開インターフェースにない内部操作だが、停止後の再開を
+    // 拒否するガードの対象である。
+    await (party as unknown as { start(): Promise<void> }).start();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(party.connectionStatus).toBe("disconnected");
+    client.dispose();
+  });
+
+  it("leave 後の refresh は解散後の Snapshot を破棄して状態を保つ", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.getParty("party-1");
+
+    await party.leave();
+    const snapshot = await party.refresh();
+
+    expect(snapshot.partyId).toBe("party-1");
+    expect(party.dissolved).toBe(true);
+    client.dispose();
+  });
+
+  it("leave を重ねると接続状態の再設定を省略する", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.getParty("party-1");
+
+    await party.leave();
+    await party.leave();
+
+    expect(party.dissolved).toBe(true);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    client.dispose();
+  });
+
+  it("再接続待ちの二重切断は単一の再接続にまとめる", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty({ reconnect: reconnectOptions });
+
+    FakeWebSocket.instances[0]?.drop();
+    FakeWebSocket.instances[0]?.drop();
+    await flushAsync(5);
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(party.connectionStatus).toBe("connected");
+    client.dispose();
+  });
+
+  it("再接続待ちの leave は保留中の再接続を取り消す", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty({ reconnect: reconnectOptions });
+
+    FakeWebSocket.instances[0]?.drop();
+    await party.leave();
+    await flushAsync(5);
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(party.dissolved).toBe(true);
+    client.dispose();
+  });
+
+  it("版番号が一致しても Snapshot が壊れたイベントは接続を作り直す", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty({ reconnect: reconnectOptions });
+
+    FakeWebSocket.instances[0]?.receive(
+      JSON.stringify({
+        sequence: 5,
+        partyRevision: 1,
+        type: "member_joined",
+        snapshot: { ...baseSnapshot(), members: "not-an-array" },
+        occurredAt: CREATED_AT,
+      }),
+    );
+
+    expect(FakeWebSocket.instances[0]?.readyState).toBe(3);
+    await flushAsync(5);
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(party.connectionStatus).toBe("connected");
+    client.dispose();
+  });
+
+  it("再接続の確立前に破棄されると接続を閉じて待機を終える", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty({ reconnect: reconnectOptions });
+
+    FakeWebSocket.autoOpen = false;
+    FakeWebSocket.instances[0]?.drop();
+    await flushAsync(5);
+
+    const pendingSocket = FakeWebSocket.instances[1];
+    expect(pendingSocket?.readyState).toBe(0);
+
+    party.dispose();
+    pendingSocket?.open();
+    await flushAsync();
+
+    expect(pendingSocket?.readyState).toBe(3);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    client.dispose();
+  });
+
+  it("接続確立の中止は待機を解除して CANCELLED にする", async () => {
+    const { fetch } = createFetch();
+    const controller = new AbortController();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+
+    FakeWebSocket.autoOpen = false;
+    const pending = client.createParty({
+      signal: controller.signal,
+      reconnect: reconnectOptions,
+    });
+    await flushAsync();
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(FakeWebSocket.instances[0]?.readyState).toBe(3);
+    client.dispose();
+  });
+
+  it("期限付き接続確立の中止は待機を解除して CANCELLED にする", async () => {
+    const { fetch } = createFetch();
+    const controller = new AbortController();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+      connectionTimeoutMs: 5_000,
+    });
+
+    FakeWebSocket.autoOpen = false;
+    const pending = client.createParty({
+      signal: controller.signal,
+      reconnect: reconnectOptions,
+    });
+    await flushAsync();
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(FakeWebSocket.instances[0]?.readyState).toBe(3);
+    client.dispose();
+  });
+
+  it("開通と中止が重なると開通側の確定を無視する", async () => {
+    const { fetch } = createFetch();
+    const controller = new AbortController();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+
+    FakeWebSocket.autoOpen = false;
+    const pending = client.createParty({
+      signal: controller.signal,
+      reconnect: reconnectOptions,
+    });
+    await flushAsync();
+    FakeWebSocket.instances[0]?.open();
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
+    client.dispose();
+  });
+
+  it("再同期後に退出すると二重終了を避けて購読を終える", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty({ reconnect: reconnectOptions });
+
+    FakeWebSocket.instances[0]?.receive(
+      JSON.stringify({
+        sequence: 1,
+        partyRevision: 2,
+        type: "member_joined",
+        snapshot: baseSnapshot(),
+        occurredAt: CREATED_AT,
+      }),
+    );
+    expect(FakeWebSocket.instances[0]?.readyState).toBe(3);
+
+    await party.leave();
+    await flushAsync(5);
+
+    expect(party.dissolved).toBe(true);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    client.dispose();
+  });
+
+  it("JSON でないメッセージは接続を作り直さず切断する", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+    });
+    const party = await client.createParty({ reconnect: reconnectOptions });
+
+    FakeWebSocket.instances[0]?.receive("not-json{{{");
+
+    expect(FakeWebSocket.instances[0]?.readyState).toBe(3);
+    await flushAsync();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(party.connectionStatus).toBe("disconnected");
+    client.dispose();
+  });
+
+  it("認証に失敗した作成要求は CONNECTION_FAILED になる", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => Promise.reject(new Error("token failed")),
+      fetch,
+      webSocket,
+    });
+
+    await expect(client.createParty()).rejects.toMatchObject({
+      code: "UNAUTHENTICATED",
+    });
+    client.dispose();
+  });
+
+  it("期限付き作成要求の認証失敗は UNAUTHENTICATED になる", async () => {
+    const { fetch } = createFetch();
+    let calls = 0;
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => {
+        calls += 1;
+        if (calls === 1) {
+          return "fast-token";
+        }
+        return Promise.reject(new Error("token failed"));
+      },
+      fetch,
+      webSocket,
+      connectionTimeoutMs: 5_000,
+    });
+
+    await expect(client.createParty()).rejects.toMatchObject({
+      code: "UNAUTHENTICATED",
+    });
+    client.dispose();
+  });
+
+  it("認証待ちの失敗が期限切れに後続しても TIMEOUT を優先する", async () => {
+    const { fetch } = createFetch();
+    let calls = 0;
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => {
+        calls += 1;
+        if (calls === 1) {
+          return "fast-token";
+        }
+        return new Promise<string>((_resolve, reject) => {
+          setTimeout(() => reject(new Error("slow token failed")), 20);
+        });
+      },
+      fetch,
+      webSocket,
+      connectionTimeoutMs: 5,
+    });
+
+    await expect(client.createParty()).rejects.toMatchObject({
+      code: "TIMEOUT",
+    });
+    // 遅延した認証失敗の到達を待ってから終了し、確定後の分岐を計測対象にする。
+    await flushAsync(10);
+    client.dispose();
+  });
+
+  it("認証待ちのイベント接続タイムアウトは TIMEOUT になる", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () =>
+        new Promise<string>((resolve) => {
+          setTimeout(() => resolve("slow-token"), 20);
+        }),
+      fetch,
+      webSocket,
+      connectionTimeoutMs: 5,
+    });
+
+    await expect(client.createParty()).rejects.toMatchObject({
+      code: "TIMEOUT",
+    });
+    // 遅延トークンの解決を待ってから終了し、確定後の分岐を計測対象にする。
+    await flushAsync(10);
+    client.dispose();
+  });
+
+  it("タイムアウト後の切断は待機を終える", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+      connectionTimeoutMs: 50,
+    });
+
+    FakeWebSocket.autoOpen = false;
+    const pending = client.createParty();
+    await flushAsync();
+    FakeWebSocket.instances[0]?.close(1006);
+
+    await expect(pending).rejects.toMatchObject({
+      code: "CONNECTION_FAILED",
+    });
+    client.dispose();
+  });
 });

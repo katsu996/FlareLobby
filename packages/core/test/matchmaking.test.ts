@@ -515,3 +515,132 @@ describe("検索幅と候補選択の境界", () => {
     expect(selected[0]!.candidate.ticketIds).toEqual(["a", "b"]);
   });
 });
+
+describe("候補探索の打ち切りと品質比較の分岐", () => {
+  it("評価上限で内側の探索と選択後の継続を打ち切る", () => {
+    const tickets = [
+      ticket("a", 1_500),
+      ticket("b", 1_500),
+      ticket("c", 1_500),
+      ticket("d", 1_500),
+    ];
+
+    const selected = selectMatchCandidates(tickets, {
+      now: NOW,
+      policy: { maxCandidatesPerSearch: 1 },
+    });
+
+    expect(selected).toHaveLength(1);
+    expect(selected[0]!.candidate.ticketIds).toEqual(["a", "b"]);
+  });
+
+  it("入力方式と最新待機時間の一致順で候補を比較する", () => {
+    const base = evaluateMatchCandidate(
+      ticket("a", 1_500),
+      ticket("b", 1_500),
+      {
+        now: NOW,
+      },
+    )!;
+    const withInputMatch = {
+      ...base,
+      quality: { ...base.quality, inputMethodMatch: true },
+    };
+    const withoutInputMatch = {
+      ...base,
+      quality: { ...base.quality, inputMethodMatch: false },
+    };
+
+    expect(
+      compareMatchCandidateQuality(withInputMatch, withoutInputMatch),
+    ).toBeLessThan(0);
+    expect(
+      compareMatchCandidateQuality(withoutInputMatch, withInputMatch),
+    ).toBeGreaterThan(0);
+
+    const newerWaiting = {
+      ...base,
+      quality: { ...base.quality, newestWaitingTimeMs: 200 },
+    };
+    const olderNewestWaiting = {
+      ...base,
+      quality: { ...base.quality, newestWaitingTimeMs: 100 },
+    };
+
+    expect(
+      compareMatchCandidateQuality(newerWaiting, olderNewestWaiting),
+    ).toBeLessThan(0);
+    expect(
+      compareMatchCandidateQuality(olderNewestWaiting, newerWaiting),
+    ).toBeGreaterThan(0);
+  });
+
+  it("検索ポリシーの上限値とチケット検証の異常系を拒否する", () => {
+    expect(() =>
+      normalizeMatchmakingSearchPolicy({ maxRatingDifference: -1 }),
+    ).toThrow("0 以上の安全な整数");
+
+    const malformed = (overrides: Record<string, unknown>) =>
+      ({
+        ...ticket("a", 1_500),
+        ...overrides,
+      }) as unknown as MatchmakingSearchTicket;
+    const select = (value: MatchmakingSearchTicket) =>
+      selectMatchCandidates([value, ticket("b", 1_500)], { now: NOW });
+
+    expect(() => select(malformed({ region: "" }))).toThrow(
+      "候補探索チケットの形式が不正",
+    );
+    expect(() =>
+      select(
+        malformed({
+          pool: { ...pool, teamSize: 0 },
+        }),
+      ),
+    ).toThrow("Pool 設定が不正");
+    expect(() => select(malformed({ players: [] }))).toThrow("1 人以上");
+    expect(() =>
+      select(
+        malformed({
+          players: [{ id: "player-a", ratingValue: -1 }],
+        }),
+      ),
+    ).toThrow("構成員の形式が不正");
+    expect(() =>
+      select(
+        malformed({
+          players: [
+            { id: "player-a", ratingValue: 1_500 },
+            { id: "player-a", ratingValue: 1_500 },
+          ],
+        }),
+      ),
+    ).toThrow("重複しない");
+    expect(() =>
+      select(
+        malformed({
+          players: [{ id: "other", ratingValue: 1_500 }],
+        }),
+      ),
+    ).toThrow("リーダーを含めて");
+    expect(() =>
+      select(
+        malformed({
+          rating: { playerId: "someone", poolId: pool.id, value: 1_500 },
+        }),
+      ),
+    ).toThrow("主体が一致");
+  });
+
+  it("queuedAt の ISO 文字列を受け付け、不正な形式を拒否する", () => {
+    expect(
+      getNextMatchmakingSearchAt(undefined, "2026-08-11T00:00:00.000Z", NOW),
+    ).toBeGreaterThanOrEqual(NOW);
+    expect(() =>
+      getNextMatchmakingSearchAt(undefined, "not-a-timestamp", NOW),
+    ).toThrow("ISO 8601");
+    expect(() => getNextMatchmakingSearchAt(undefined, -1, NOW)).toThrow(
+      "0 以上の安全な整数",
+    );
+  });
+});

@@ -1367,4 +1367,223 @@ describe("@flarelobby/client", () => {
     ).rejects.toMatchObject({ code: "INVALID_PAYLOAD" });
     expect(FakeWebSocket.instances[0]?.sent).toHaveLength(0);
   });
+
+  it("応答でない fetch 解決と認証失敗は CONNECTION_FAILED になる", async () => {
+    const notResponse = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "secret-token",
+      fetch: (async () => ({})) as unknown as FetchImplementation,
+    });
+    await expect(notResponse.request("/v1/rooms")).rejects.toMatchObject({
+      code: "CONNECTION_FAILED",
+    });
+
+    const rejectingToken = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () =>
+        Promise.reject(new Error("token failed")) as Promise<string>,
+      fetch: (async () => Response.json({})) as unknown as FetchImplementation,
+    });
+    await expect(rejectingToken.request("/v1/rooms")).rejects.toMatchObject({
+      code: "UNAUTHENTICATED",
+    });
+
+    const rejectingTokenTimeout = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () =>
+        Promise.reject(new Error("token failed")) as Promise<string>,
+      fetch: (async () => Response.json({})) as unknown as FetchImplementation,
+    });
+    await expect(
+      rejectingTokenTimeout.request("/v1/rooms", { timeoutMs: 5_000 }),
+    ).rejects.toMatchObject({
+      code: "UNAUTHENTICATED",
+    });
+
+    const slowRejectingToken = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () =>
+        new Promise<string>((_resolve, reject) => {
+          setTimeout(() => reject(new Error("slow token failed")), 20);
+        }),
+      fetch: (async () => Response.json({})) as unknown as FetchImplementation,
+    });
+    await expect(
+      slowRejectingToken.request("/v1/rooms", { timeoutMs: 5 }),
+    ).rejects.toMatchObject({
+      code: "TIMEOUT",
+    });
+    // 遅延した認証失敗の到達を待ってから終了し、確定後の分岐を計測対象にする。
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+
+  it("fetch の AbortError は CANCELLED に正規化される", async () => {
+    const abortingFetch = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "secret-token",
+      fetch: (async () => {
+        throw new DOMException("aborted", "AbortError");
+      }) as unknown as FetchImplementation,
+    });
+
+    await expect(
+      abortingFetch.request("/v1/rooms", { timeoutMs: 5_000 }),
+    ).rejects.toMatchObject({
+      code: "CANCELLED",
+    });
+  });
+
+  it("期限切れ後に確定した fetch は無視される", async () => {
+    let rejectFetch!: (error: Error) => void;
+    const pendingFetch = new Promise<Response>((_resolve, reject) => {
+      rejectFetch = reject;
+    });
+    const deferredFetch = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "secret-token",
+      fetch: (() => pendingFetch) as unknown as FetchImplementation,
+    });
+
+    const request = deferredFetch.request("/v1/rooms", { timeoutMs: 5 });
+    await expect(request).rejects.toMatchObject({ code: "TIMEOUT" });
+    rejectFetch(new Error("late failure"));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+
+  it("期限切れ後に受信した fetch 応答は無視される", async () => {
+    let resolveFetch!: (response: Response) => void;
+    const pendingFetch = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+    const deferredFetch = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "secret-token",
+      fetch: (() => pendingFetch) as unknown as FetchImplementation,
+    });
+
+    const request = deferredFetch.request("/v1/rooms", { timeoutMs: 5 });
+    await expect(request).rejects.toMatchObject({ code: "TIMEOUT" });
+    resolveFetch(Response.json({ late: true }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+
+  it("期限切れ後に失敗した本文読取は無視される", async () => {
+    let resolveFetch!: (response: Response) => void;
+    const pendingFetch = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+    const deferredFetch = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "secret-token",
+      fetch: (() => pendingFetch) as unknown as FetchImplementation,
+    });
+
+    const request = deferredFetch.request("/v1/rooms", { timeoutMs: 5 });
+    await expect(request).rejects.toMatchObject({ code: "TIMEOUT" });
+    resolveFetch(new Response("not-json{{{", {}));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+
+  it("期限切れ後に届いた本文は確定済みとして無視される", async () => {
+    let controller!: ReadableStreamDefaultController<string>;
+    const stream = new ReadableStream<string>({
+      start(c) {
+        controller = c;
+      },
+    });
+    const streamingFetch = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "secret-token",
+      fetch: (async () =>
+        new Response(stream, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })) as unknown as FetchImplementation,
+    });
+
+    const request = streamingFetch.request("/v1/rooms", { timeoutMs: 5 });
+    await expect(request).rejects.toMatchObject({ code: "TIMEOUT" });
+    controller.enqueue(JSON.stringify({ late: true }));
+    controller.close();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+
+  it("認証待ちの接続確立タイムアウトは TIMEOUT になる", async () => {
+    const slowToken = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () =>
+        new Promise<string>((resolve) => {
+          setTimeout(() => resolve("slow-token"), 20);
+        }),
+      webSocket: fakeWebSocketConstructor,
+    });
+
+    await expect(
+      slowToken.connect("/v1/rooms/room-1/ws", { timeoutMs: 5 }),
+    ).rejects.toMatchObject({ code: "TIMEOUT" });
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    // 遅延トークンの解決を待ってから終了し、確定後の分岐を計測対象にする。
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+
+  it("接続待機中の切断は待機を CANCELLED で終える", async () => {
+    FakeWebSocket.autoOpen = false;
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "secret-token",
+      webSocket: fakeWebSocketConstructor,
+    });
+
+    const connectionPromise = client.connect("/v1/rooms/room-1/ws", {
+      timeoutMs: 5_000,
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    FakeWebSocket.instances[0]?.close(1006);
+
+    await expect(connectionPromise).rejects.toMatchObject({
+      code: "CONNECTION_FAILED",
+    });
+  });
+
+  it("期限切れの接続確立は待機中のソケットを閉じる", async () => {
+    FakeWebSocket.autoOpen = false;
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "secret-token",
+      webSocket: fakeWebSocketConstructor,
+    });
+
+    const connectionPromise = client.connect("/v1/rooms/room-1/ws", {
+      timeoutMs: 5,
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(FakeWebSocket.instances[0]?.readyState).toBe(0);
+    await expect(connectionPromise).rejects.toMatchObject({
+      code: "TIMEOUT",
+    });
+
+    expect(FakeWebSocket.instances[0]?.readyState).toBe(3);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it("接続待機中の中止は待機を解除して CANCELLED にする", async () => {
+    FakeWebSocket.autoOpen = false;
+    const controller = new AbortController();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "secret-token",
+      webSocket: fakeWebSocketConstructor,
+    });
+
+    const connectionPromise = client.connect("/v1/rooms/room-1/ws", {
+      signal: controller.signal,
+      timeoutMs: 5_000,
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+
+    await expect(connectionPromise).rejects.toMatchObject({
+      code: "CANCELLED",
+    });
+  });
 });

@@ -5,7 +5,9 @@ import {
   attachObservabilityHeaders,
   createObservabilityContext,
   createObservabilitySink,
+  getObservabilityErrorCode,
   getObservabilityOperationName,
+  observeHttpOperation,
   observeOperation,
   readObservabilityContext,
 } from "../src/index.js";
@@ -192,5 +194,71 @@ describe("観測基盤", () => {
     };
     expect(record.result).toBe("failure");
     expect(record.level).toBe("error");
+  });
+});
+
+describe("観測基盤の分岐", () => {
+  it("成功ログのサンプリング除外と非有限メトリクスを送らない", () => {
+    const points: RecordedPoint[] = [];
+    const lines: string[] = [];
+    const context = createObservabilityContext(undefined, {
+      correlationId: "correlation-skip",
+      requestId: "request-skip",
+      sampled: false,
+      analyticsSampled: true,
+    });
+
+    // 成功かつ非サンプル・率 0 は記録しない。
+    const skipped = createRecordingSink(points, lines, {
+      logSampleRate: 0,
+    });
+    skipped.log({
+      context,
+      operation: "room.noop",
+      startedAt: Date.now(),
+      result: "success",
+    });
+    expect(lines).toHaveLength(0);
+
+    // 非有限の値は記録しない。
+    skipped.metric({
+      context,
+      name: "match_wait_time_ms",
+      value: Number.NaN,
+    });
+    expect(points).toHaveLength(0);
+  });
+
+  it("HTTP 操作の失敗を記録して再送出する", async () => {
+    const points: RecordedPoint[] = [];
+    const lines: string[] = [];
+    const sink = createRecordingSink(points, lines);
+    const context = createObservabilityContext(undefined, {
+      correlationId: "correlation-http",
+      requestId: "request-http",
+      sampled: true,
+      analyticsSampled: true,
+    });
+
+    await expect(
+      observeHttpOperation(sink, context, "room.fetch", async () => {
+        throw new Error("http failed");
+      }),
+    ).rejects.toThrow("http failed");
+    expect(lines).toHaveLength(1);
+  });
+
+  it("エラーコードを正規化し、不正な率は拒否する", () => {
+    expect(getObservabilityErrorCode({ code: "ROOM_FULL" })).toBe("ROOM_FULL");
+    expect(getObservabilityErrorCode({ code: "lowercase!" })).toBe(
+      "INTERNAL_ERROR",
+    );
+    expect(getObservabilityErrorCode(undefined)).toBe("INTERNAL_ERROR");
+
+    const points: RecordedPoint[] = [];
+    const lines: string[] = [];
+    expect(() =>
+      createRecordingSink(points, lines, { logSampleRate: 2 }),
+    ).toThrow(RangeError);
   });
 });

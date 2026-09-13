@@ -361,3 +361,77 @@ describe("1 対 1 Glicko-2 レーティングエンジン", () => {
     expect(() => glicko2(null as unknown as Glicko2Options)).toThrow("設定");
   });
 });
+
+describe("レーティング計算の検証分岐", () => {
+  it("ELO の未知の設定項目と非オブジェクト入力を拒否する", () => {
+    expect(() => elo({ unknown: 1 } as unknown as EloOptions)).toThrow(
+      "解釈できません",
+    );
+
+    const engine = elo();
+    expect(() =>
+      engine.calculate(null as unknown as RatingCalculationInput),
+    ).toThrow("オブジェクト");
+  });
+
+  it("安全な整数に収まらない ELO 差分を拒否する", () => {
+    const engine = elo({ kFactor: 1e16 });
+
+    expect(() =>
+      engine.calculate({ ratingA: 0, ratingB: 4_000, result: 1 }),
+    ).toThrow("安全な整数");
+  });
+
+  it("Glicko-2 の初期レーティングと volatility 指定を検証する", () => {
+    expect(() => glicko2({ initialRating: -1 })).toThrow("初期レーティング");
+
+    const engine = glicko2();
+    expect(() =>
+      engine.calculate({
+        ratingA: 1_500,
+        ratingB: 1_500,
+        result: 1,
+        volatilityA: 0,
+      }),
+    ).toThrow("volatilityA");
+    expect(() =>
+      engine.calculate({
+        ratingA: 1_500,
+        ratingB: 1_500,
+        result: 1,
+        volatilityB: Number.NaN,
+      }),
+    ).toThrow("volatilityB");
+  });
+
+  it("極端な volatility とレート差で非有限になる更新を拒否する", () => {
+    const engine = glicko2({ volatility: 1e308 });
+
+    expect(() =>
+      engine.calculate({ ratingA: 1e308, ratingB: 0, result: 1 }),
+    ).toThrow("有限の数値にならない");
+  });
+
+  it("丸めで -0 になる微小な差分を 0 へ正規化する", () => {
+    const calculation = elo().calculate({
+      ratingA: 0,
+      ratingB: 4_000,
+      result: 0,
+    });
+
+    expect(calculation.deltaA).toBe(0);
+    expect(Object.is(calculation.deltaA, -0)).toBe(false);
+  });
+
+  it("大きな tau と volatility の引き分けでボラティリティ探索を反復する", () => {
+    const engine = glicko2({ tau: 3, volatility: 30 });
+    const calculation = engine.calculate({
+      ratingA: 1_500,
+      ratingB: 1_500,
+      result: 0.5,
+    });
+
+    expect(Number.isFinite(calculation.updatedRatingA)).toBe(true);
+    expect(Number.isFinite(calculation.updatedRatingB)).toBe(true);
+  });
+});

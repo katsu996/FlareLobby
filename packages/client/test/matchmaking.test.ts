@@ -1490,4 +1490,252 @@ describe("@flarelobby/client matchmaking", () => {
     expect(FakeWebSocket.instances).toHaveLength(1);
     expect(ticket.connectionStatus).toBe("disconnected");
   });
+
+  it("終了後の参加・評価取得は CANCELLED で拒否される", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+      requestIdFactory: () => "request-disposed",
+    });
+    client.dispose();
+
+    await expect(client.joinMatchmaking(pool)).rejects.toMatchObject({
+      code: "CANCELLED",
+    });
+    await expect(client.getRating(pool)).rejects.toMatchObject({
+      code: "CANCELLED",
+    });
+  });
+
+  it("破棄後のチケット操作は CANCELLED で拒否される", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+      requestIdFactory: () => "request-ticket",
+    });
+    const ticket = await client.joinMatchmaking(pool);
+    (ticket as unknown as { dispose(): void }).dispose();
+
+    await expect(
+      (ticket as unknown as { start(): Promise<void> }).start(),
+    ).rejects.toMatchObject({ code: "CANCELLED" });
+    await expect(ticket.refresh()).rejects.toMatchObject({
+      code: "CANCELLED",
+    });
+    await expect(ticket.cancel()).rejects.toMatchObject({
+      code: "CANCELLED",
+    });
+  });
+
+  it("終端後の開始は再接続しない", async () => {
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+      requestIdFactory: () => "request-terminal",
+    });
+    const ticket = await client.joinMatchmaking(pool);
+    await ticket.cancel();
+    expect(ticket.status).toBe("cancelled");
+
+    await (ticket as unknown as { start(): Promise<void> }).start();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it("開始中の破棄は確立した接続を閉じて CANCELLED にする", async () => {
+    FakeWebSocket.autoOpen = false;
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+      requestIdFactory: () => "request-starting",
+    });
+    const pendingJoin = client.joinMatchmaking(pool);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    FakeWebSocket.instances[0]?.open();
+    const ticket = await pendingJoin;
+    const pending = (ticket as unknown as { start(): Promise<void> }).start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const pendingSocket = FakeWebSocket.instances[1];
+    expect(pendingSocket?.readyState).toBe(0);
+    (ticket as unknown as { dispose(): void }).dispose();
+    pendingSocket?.open();
+    await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
+
+    expect(pendingSocket?.readyState).toBe(3);
+  });
+
+  it("中断後の応答は確定済みとして無視される", async () => {
+    const failingCancel: FetchImplementation = vi.fn(async (input) => {
+      const url = input.toString();
+      if (url.endsWith("/tickets")) {
+        return Response.json({ ticket: waitingTicket() });
+      }
+      throw new Error("cancel failed");
+    });
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch: failingCancel,
+      webSocket,
+      requestIdFactory: () => "request-abort-race",
+    });
+    const ticket = await client.joinMatchmaking(pool);
+    const socket = FakeWebSocket.instances[0];
+    if (socket === undefined) {
+      throw new Error("Ticket WebSocket が作成されていません。");
+    }
+    const controller = new AbortController();
+    const wait = ticket.waitForMatch({ signal: controller.signal });
+    controller.abort();
+    await expect(wait).rejects.toMatchObject({ code: "CANCELLED" });
+
+    const sent = JSON.parse(socket.sent.at(-1) ?? "{}") as {
+      requestId: string;
+    };
+    socket.receive(
+      JSON.stringify({
+        protocolVersion: 1,
+        kind: "success",
+        requestId: sent.requestId,
+        payload: {},
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  it("応募と異なるチケットの refresh は CONNECTION_FAILED になる", async () => {
+    const { fetch } = createFetch();
+    const mismatched: FetchImplementation = vi.fn(async (input, init) => {
+      const url = input.toString();
+      if (url.endsWith("/tickets")) {
+        return Response.json({ ticket: waitingTicket() });
+      }
+      if (/\/tickets\/[^/]+$/.test(url)) {
+        return Response.json({
+          ticket: { ...waitingTicket(), id: "ticket-9" },
+        });
+      }
+      return fetch(input, init);
+    });
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch: mismatched,
+      webSocket,
+      requestIdFactory: () => "request-mismatch",
+    });
+    const ticket = await client.joinMatchmaking(pool);
+
+    await expect(ticket.refresh()).rejects.toMatchObject({
+      code: "CONNECTION_FAILED",
+    });
+  });
+
+  it("切断後の refresh で終端すると保留中の再接続を取り消す", async () => {
+    const { fetch, state } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+      requestIdFactory: () => "request-refresh-terminal",
+    });
+    const ticket = await client.joinMatchmaking(pool, {
+      reconnect: {
+        maxAttempts: 3,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+        jitterRatio: 0,
+      },
+    });
+
+    FakeWebSocket.instances[0]?.drop();
+    state.ticket = matchedTicket();
+    const snapshot = await ticket.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(snapshot.status).toBe("matched");
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it("再接続ソケットの非再試行エラーでは切断状態で停止する", async () => {
+    FakeWebSocket.autoOpen = false;
+    const { fetch } = createFetch();
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch,
+      webSocket,
+      requestIdFactory: () => "request-reconnect-fail",
+    });
+    const pendingJoin = client.joinMatchmaking(pool, {
+      reconnect: {
+        maxAttempts: 3,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+        jitterRatio: 0,
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    FakeWebSocket.instances[0]?.open();
+    const ticket = await pendingJoin;
+
+    FakeWebSocket.instances[0]?.drop();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const pendingSocket = FakeWebSocket.instances[1];
+    expect(pendingSocket?.readyState).toBe(0);
+    pendingSocket?.close(4403);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(ticket.connectionStatus).toBe("disconnected");
+  });
+
+  it("対戦 Room 接続情報の Snapshot 不正は CONNECTION_FAILED になる", async () => {
+    const { fetch } = createFetch();
+    const badConnection: FetchImplementation = vi.fn(async (input, init) => {
+      const url = input.toString();
+      if (url.endsWith("/connection")) {
+        return Response.json({
+          ticket: matchedTicket(),
+          connection: {
+            roomId: "room_match-1",
+            participantId: "participant_match-1_1",
+            joinToken: "join-token",
+            websocketUrl: "wss://example.test/v1/custom-rooms/room_match-1/ws",
+            snapshot: 42,
+          },
+        });
+      }
+      return fetch(input, init);
+    });
+    const client = createFlareLobbyClient({
+      endpoint: "https://example.test",
+      getAccessToken: () => "access-token",
+      fetch: badConnection,
+      webSocket,
+      requestIdFactory: () => "request-bad-connection",
+    });
+    const ticket = await client.joinMatchmaking(pool, { rating: 1_500 });
+    const wait = ticket.waitForMatch();
+
+    FakeWebSocket.instances[0]?.receive(event(matchedTicket(), 1));
+    await expect(wait).rejects.toMatchObject({
+      code: "CONNECTION_FAILED",
+    });
+  });
 });
