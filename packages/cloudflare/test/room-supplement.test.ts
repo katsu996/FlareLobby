@@ -434,7 +434,8 @@ describe("Room 追加の分岐", () => {
     expect(resumedKind.useSnapshot).toBe(true);
   });
 
-  it("未初期化ルームのゲームメッセージは無視される", async () => {    const stub = env.FLARE_LOBBY_ROOMS.getByName(
+  it("未初期化ルームのゲームメッセージは無視される", async () => {
+    const stub = env.FLARE_LOBBY_ROOMS.getByName(
       `room-fresh-${crypto.randomUUID()}`,
     );
 
@@ -611,8 +612,9 @@ describe("Room 追加の分岐", () => {
       await instance.alarm();
     });
 
-    const remaining = await runInDurableObject(stub, (instance: RoomDurableObject) =>
-      instance.listScheduledOperations(),
+    const remaining = await runInDurableObject(
+      stub,
+      (instance: RoomDurableObject) => instance.listScheduledOperations(),
     );
     expect(
       remaining.some(
