@@ -39,6 +39,9 @@ TypeScript の Client SDK から、認証済みのルーム作成・参加、パ
 
 ## まず読む文書
 
+[スライド形式のドキュメント](https://katsu996.github.io/FlareLobby/) から
+主要機能と導入手順を確認できます。詳細な API と手順は以下の文書にまとめています。
+
 | 目的                                               | 文書                                                                                                                                    |
 | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | npm から導入する（本体 clone 不要）                | [導入とローカルサンプル](./docs/getting-started.md) の npm 利用者向け手順と [Standalone テンプレート](./templates/standalone/README.md) |
@@ -167,7 +170,26 @@ pnpm changeset
 pnpm version-packages
 ```
 
-このリポジトリの CI は公開やデプロイを自動実行しません。
+パッケージと Cloudflare Worker の CI は公開やデプロイを自動実行しません。
+ドキュメントは次の GitHub Pages ワークフローで公開します。
+
+## ドキュメントサイト
+
+[Slidev](https://ja.sli.dev/) の原稿は `docs/slides.md` です。
+
+```sh
+pnpm docs:dev
+pnpm docs:build
+```
+
+開発サーバーは `http://localhost:3030`、ビルド出力は `dist/docs/` です。
+GitHub Pages の `/FlareLobby/` 配下で配信し、ハッシュ形式の URL により
+途中のスライドへの直接アクセスと再読み込みにも対応します。
+
+GitHub の Settings → Pages → Build and deployment で Source を
+**GitHub Actions** に設定します。`Documentation Pages` ワークフローは
+Pull Request でビルドを検証し、`main` への push または `main` 上の手動実行で
+`https://katsu996.github.io/FlareLobby/` へ公開します。
 
 ## 変更履歴、Release Note、ライセンス
 

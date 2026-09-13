@@ -15,6 +15,8 @@
   "author": "katsu996",
   "type": "module",
   "scripts": {
+    "docs:dev": "slidev docs/slides.md",
+    "docs:build": "slidev build docs/slides.md --base /FlareLobby/ --out ../dist/docs",
     "build": "pnpm --filter @flarelobby/core run build && pnpm --filter @flarelobby/cloudflare run build && pnpm --filter @flarelobby/client run build && pnpm --filter @flarelobby/testing run build && pnpm --filter @flarelobby/example-local-demo run build:browser",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
@@ -45,6 +47,8 @@
   "devDependencies": {
     "@changesets/cli": "2.31.1",
     "@cloudflare/vitest-pool-workers": "0.20.3",
+    "@slidev/cli": "52.19.1",
+    "@slidev/theme-default": "0.25.0",
     "@vitest/coverage-istanbul": "4.1.10",
     "oxfmt": "0.63.0",
     "oxlint": "1.78.0",
