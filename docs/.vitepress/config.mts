@@ -7,6 +7,7 @@ export default defineConfig({
   description:
     "Cloudflare Workers と Durable Objects 向けゲームロビーライブラリ",
   base: "/FlareLobby/",
+  head: [["link", { rel: "describedby", href: "/FlareLobby/llms.txt" }]],
   outDir: "../dist/docs",
   markdown: { config: (md) => md.use(MermaidMarkdown) },
   vite: {
@@ -17,6 +18,7 @@ export default defineConfig({
     nav: [
       { text: "ガイド", link: "/getting-started" },
       { text: "API リファレンス", link: "/api-reference" },
+      { text: "llms.txt", link: "/FlareLobby/llms.txt" },
     ],
     sidebar: [
       {

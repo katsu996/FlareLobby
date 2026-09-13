@@ -1,0 +1,56 @@
+# FlareLobby
+
+> Cloudflare Workers と Durable Objects を使う、TypeScript / ES Modules のゲームロビーライブラリ。カスタムルーム、観戦、パーティー、1 対 1 およびチーム単位のマッチメイキング、再接続、ELO / Glicko-2 を提供します。
+
+この索引は https://katsu996.github.io/FlareLobby/ のドキュメントを案内します。リンク先は GitHub の main ブランチの Markdown またはソースコードで、HTML のナビゲーションを含まずに取得できます。説明は日本語、API の識別子は英語です。
+
+まず導入ガイドと API リファレンスを読み、利用する機能のガイド、通信プロトコル、認証・認可の契約を確認してください。コード例を生成するときは、公開 API の引数・戻り値・権限を参照し、必要に応じて型検査対象のコード例を確認してください。
+
+- パッケージは @flarelobby/core（型・純粋ロジック）、@flarelobby/cloudflare（Worker・Durable Objects・D1）、@flarelobby/client（ブラウザ SDK）、@flarelobby/testing（決定論的テスト補助）に分かれます。
+- ゲーム本体の権威同期、物理演算、ボイス・映像・WebRTC 本体は対象外です。
+- 認証・認可はアプリケーション側で接続します。ローカルデモの認証を本番へ流用せず、試合結果は信頼できるサーバー側から登録します。
+- Room Durable Object がルーム状態と参加可否の正本です。D1 の公開一覧は投影であり、参加の最終判定には使いません。
+- 現行機能は導入・機能ガイドと API リファレンスを参照してください。v0.1.0 リリースノートや過去の設計判断に書かれた当時の制限を、現行版の制限と混同しないでください。
+- npm の公開状態と利用するバージョンを確認してください。公開前の検証には導入ガイドの tarball 手順があります。
+
+## 導入と仕様の入口
+
+- [導入ガイド](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/getting-started.md): npm 利用者とリポジトリ開発者の導入手順、環境、認証接続、ローカル起動、デプロイ準備。
+- [API リファレンス](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/api-reference.md): 4 パッケージの公開 API、型、HTTP API、イベント、エラーコード。
+- [Client SDK](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/client.md): クライアント初期化、HTTP / WebSocket、Room・パーティー操作、タイムアウトと再接続。
+- [公開ドメイン型](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/domain-model.md): 識別子、ルーム、参加者、チケット、Snapshot のモデル。
+- [JSON 通信プロトコル](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/protocol.md): コマンド、応答、イベント、revision、冪等性とエラーの契約。
+
+## 機能ガイド
+
+- [カスタムルーム](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/custom-room-guide.md): 作成・参加・観戦、招待とパスワード、ホスト権限、状態購読、再接続。
+- [参加・退出・観戦](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/custom-room-participation.md): 参加者の役割、定員、退出、ホスト移譲。
+- [公開ルーム一覧](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/custom-room-list.md): D1 投影、検索条件、ページング、公開する情報の範囲。
+- [マッチメイキング](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/matchmaking-guide.md): Pool 設定、チケット、成立待機、キャンセル、パーティーとチーム単位のマッチング。
+- [マッチングプール](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/match-pool.md): 候補探索、検索幅、チケット状態と永続化。
+- [レーティング](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/rating.md): ELO / Glicko-2、シーズン、試合結果と履歴、計算と保存の責務。
+
+## 設定・運用・検証
+
+- [Cloudflare 設定](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/cloudflare-configuration.md): Binding、Durable Object / D1 Migration、Secret、環境別のデプロイ設定。
+- [セキュリティ](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/security.md): 認証、認可、入力検証、トークン、利用制限。
+- [観測基盤](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/observability.md): 構造化ログ、メトリクス、機密情報の扱い。
+- [テストと検証](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/testing.md): 仮想時計、固定乱数、シミュレーター、Workers 統合テスト、コード例の型検査。
+
+## 実装例
+
+- [Standalone テンプレート](https://raw.githubusercontent.com/katsu996/FlareLobby/main/templates/standalone/README.md): 本体リポジトリの clone を前提としない、別プロジェクト向け導入手順。
+- [Worker の型検査対象例](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/examples/npm-standalone-worker.ts): 公開パッケージを使う Worker と Durable Object の定義。
+- [Cloudflare 設定の型検査対象例](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/examples/cloudflare-config.ts): Gateway、認証 Hook、Binding の接続。
+- [Client SDK の型検査対象例](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/examples/client-api.ts): 型付きルーム作成、メッセージ、購読、タイムアウト、エラー処理。
+
+## Optional
+
+- [README](https://raw.githubusercontent.com/katsu996/FlareLobby/main/README.md): 全体の対象範囲、パッケージ構成、開発コマンド。
+- [アーキテクチャ](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/architecture.md): 保存境界、整合性、状態遷移、復旧経路。v0.1.0 を基点とする記述は現行ガイドと併読。
+- [ADR: 再接続と revision](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/adr/0002-reconnect-and-revision.md): 再開トークンと差分・完全 Snapshot に関する設計判断。
+- [ADR: 試合結果の信頼境界](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/adr/0004-match-result-trust-boundary.md): 結果登録をサーバー側の責務とする理由。
+- [ADR: パーティーとチーム編成](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/adr/0005-party-matching-and-team-composition.md): パーティー単位のチケットとチーム編成の設計判断。
+- [ADR: Glicko-2](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/adr/0006-rating-strategy-and-glicko2.md): レーティング方式を差し替える契約。
+- [変更履歴](https://raw.githubusercontent.com/katsu996/FlareLobby/main/CHANGELOG.md): リリースごとの変更。
+- [v0.1.0 リリースノート](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/releases/v0.1.0.md): 当時の範囲と制限を記録した歴史資料。

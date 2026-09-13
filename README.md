@@ -190,6 +190,10 @@ pnpm docs:preview
 GitHub Pages の `/FlareLobby/` 配下へ HTML を生成するため、各ページへの
 直接アクセスと再読み込みにも対応します。リンク切れはビルド時に検出します。
 
+AI 向けの仕様索引は [llms.txt](https://katsu996.github.io/FlareLobby/llms.txt) です。
+原稿は `docs/public/llms.txt` にあり、主要ガイドとコード例の Markdown / ソースへの
+リンクをまとめています。文書の追加・移動時はこの索引も更新してください。
+
 GitHub の Settings → Pages → Build and deployment で Source を
 **GitHub Actions** に設定します。`Documentation Pages` ワークフローは
 Pull Request でビルドを検証し、`main` への push または `main` 上の手動実行で
