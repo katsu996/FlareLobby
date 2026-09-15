@@ -1,5 +1,9 @@
 # `@flarelobby/testing`
 
+English overview: [README.en.md](https://github.com/katsu996/FlareLobby/blob/main/README.en.md).
+Role: deterministic clocks, random sources, matchmaking simulation, and test helpers.
+English setup: [Quick Start](https://github.com/katsu996/FlareLobby/blob/main/docs/en/getting-started.md).
+
 FlareLobby の仮想時計、版固定乱数、決定論的マッチングシミュレーター、統計出力を
 提供する ES Modules パッケージです。
 

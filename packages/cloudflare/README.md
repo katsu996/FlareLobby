@@ -1,5 +1,9 @@
 # `@flarelobby/cloudflare`
 
+English overview: [README.en.md](https://github.com/katsu996/FlareLobby/blob/main/README.en.md).
+Role: Cloudflare Worker gateway, Durable Objects, D1, and authentication boundary.
+English setup: [Quick Start](https://github.com/katsu996/FlareLobby/blob/main/docs/en/getting-started.md).
+
 FlareLobby の Gateway Worker、Durable Objects、D1、認証・認可境界を提供する
 Cloudflare Workers 向け ES Modules パッケージです。5 種類の Durable Objects
 （Room、MatchPool、Party、PartyMembership、RateLimit）と `v1`〜`v3` の

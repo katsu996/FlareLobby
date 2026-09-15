@@ -2,6 +2,8 @@
 
 [![Codecov](https://codecov.io/gh/katsu996/FlareLobby/graph/badge.svg)](https://app.codecov.io/gh/katsu996/FlareLobby)
 
+[English README](./README.en.md)
+
 FlareLobby は、Cloudflare Workers と Durable Objects を利用するゲーム向けの
 マッチメイキング、カスタムルーム、リアルタイム状態管理ライブラリです。
 TypeScript の Client SDK から、認証済みのルーム作成・参加、パーティー作成・招待、

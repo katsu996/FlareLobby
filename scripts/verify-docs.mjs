@@ -24,6 +24,11 @@ function requireText(relativePath, text) {
 
 const requiredFiles = [
   "README.md",
+  "README.en.md",
+  "docs/en/index.md",
+  "docs/en/getting-started.md",
+  "docs/examples/english-quick-start.ts",
+  "docs/public/llms.txt",
   "docs/getting-started.md",
   "docs/custom-room-guide.md",
   "docs/matchmaking-guide.md",
@@ -49,6 +54,22 @@ for (const file of requiredFiles) read(file);
 requireText("README.md", "./docs/getting-started.md");
 requireText("README.md", "./docs/api-reference.md");
 requireText("README.md", "./docs/architecture.md");
+requireText("README.md", "./README.en.md");
+requireText("README.en.md", "./README.md");
+requireText("README.en.md", "@flarelobby/cloudflare");
+requireText("README.en.md", "getAccessToken");
+requireText("README.en.md", "two browser windows");
+requireText("docs/en/index.md", "/en/getting-started");
+requireText("docs/en/index.md", "Japanese:");
+requireText("docs/en/getting-started.md", "FLARE_LOBBY_TOKEN_SECRET");
+requireText("docs/en/getting-started.md", "verifyApplicationToken");
+requireText("docs/en/getting-started.md", "two browser windows");
+requireText("docs/public/llms.txt", "README.en.md");
+requireText("docs/public/llms.txt", "docs/en/getting-started.md");
+requireText("docs/.vitepress/config.mts", "locales:");
+requireText("docs/.vitepress/config.mts", 'link: "/en/"');
+requireText("docs/.vitepress/config.mts", "i18nRouting: false");
+requireText("docs/.vitepress/config.mts", 'buttonText: "Search"');
 requireText("README.md", "pnpm check:docs");
 requireText("README.md", "pnpm release:check");
 requireText("README.md", "MIT License");
@@ -64,6 +85,16 @@ requireText("docs/releases/v0.1.0.md", "## 対象外");
 requireText(".github/ISSUE_TEMPLATE/bug_report.md", "## 完了条件");
 requireText(".github/ISSUE_TEMPLATE/feature_request.md", "設計の正本 #1");
 requireText(".github/pull_request_template.md", "Closes #");
+
+for (const packageDirectory of [
+  "packages/core",
+  "packages/client",
+  "packages/cloudflare",
+  "packages/testing",
+]) {
+  requireText(`${packageDirectory}/README.md`, "README.en.md");
+  requireText(`${packageDirectory}/README.md`, "docs/en/getting-started.md");
+}
 
 function exportedNames(entryPath) {
   const entry = read(entryPath);
@@ -154,6 +185,9 @@ for (const code of [
 
 const markdownFiles = [
   "README.md",
+  "README.en.md",
+  "docs/en/index.md",
+  "docs/en/getting-started.md",
   "docs/getting-started.md",
   "docs/custom-room-guide.md",
   "docs/matchmaking-guide.md",

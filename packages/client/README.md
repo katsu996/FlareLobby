@@ -1,5 +1,9 @@
 # `@flarelobby/client`
 
+English overview: [README.en.md](https://github.com/katsu996/FlareLobby/blob/main/README.en.md).
+Role: browser TypeScript Client SDK for the HTTP and WebSocket APIs.
+English setup: [Quick Start](https://github.com/katsu996/FlareLobby/blob/main/docs/en/getting-started.md).
+
 FlareLobby の HTTP と WebSocket を扱うブラウザ向け TypeScript Client SDK です。
 カスタムルーム、パーティー、再接続、1 対 1 およびパーティー/チーム単位の
 マッチング、ELO/Glicko-2 取得を型付き API で利用できます。

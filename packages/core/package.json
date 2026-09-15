@@ -1,7 +1,7 @@
 {
   "name": "@flarelobby/core",
   "version": "0.1.0",
-  "description": "FlareLobby のプラットフォーム非依存ドメインロジック",
+  "description": "Platform-independent domain types, protocol, matchmaking, and ratings for FlareLobby",
   "license": "MIT",
   "author": "katsu996",
   "keywords": [

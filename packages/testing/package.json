@@ -1,7 +1,7 @@
 {
   "name": "@flarelobby/testing",
   "version": "0.1.0",
-  "description": "FlareLobby のテスト補助",
+  "description": "Deterministic clocks, random sources, matchmaking simulation, and test helpers for FlareLobby",
   "license": "MIT",
   "author": "katsu996",
   "keywords": [

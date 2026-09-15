@@ -43,6 +43,8 @@ features:
     linkText: テストする
 ---
 
+[English home](/en/) · [English Quick Start](/en/getting-started)
+
 ## FlareLobby の担当範囲
 
 FlareLobby は、ロビーと対戦成立後の接続境界を提供します。
