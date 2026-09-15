@@ -2,7 +2,7 @@
 
 > Cloudflare Workers と Durable Objects を使う、TypeScript / ES Modules のゲームロビーライブラリ。カスタムルーム、観戦、パーティー、1 対 1 およびチーム単位のマッチメイキング、再接続、ELO / Glicko-2 を提供します。
 
-この索引は https://katsu996.github.io/FlareLobby/ のドキュメントを案内します。リンク先は GitHub の main ブランチの Markdown またはソースコードで、HTML のナビゲーションを含まずに取得できます。説明は日本語、API の識別子は英語です。
+この索引は https://katsu996.github.io/FlareLobby/ のドキュメントを案内します。リンク先は GitHub の main ブランチの Markdown またはソースコードで、HTML のナビゲーションを含まずに取得できます。説明は日本語、API の識別子は英語です。英語の入口は README.en.md、英語トップ、英語 Quick Start です。詳細ガイドは現時点で日本語です。
 
 まず導入ガイドと API リファレンスを読み、利用する機能のガイド、通信プロトコル、認証・認可の契約を確認してください。コード例を生成するときは、公開 API の引数・戻り値・権限を参照し、必要に応じて型検査対象のコード例を確認してください。
 
@@ -12,6 +12,17 @@
 - Room Durable Object がルーム状態と参加可否の正本です。D1 の公開一覧は投影であり、参加の最終判定には使いません。
 - 現行機能は導入・機能ガイドと API リファレンスを参照してください。v0.1.0 リリースノートや過去の設計判断に書かれた当時の制限を、現行版の制限と混同しないでください。
 - npm の公開状態と利用するバージョンを確認してください。公開前の検証には導入ガイドの tarball 手順があります。
+
+## English entry points
+
+- [English README](https://raw.githubusercontent.com/katsu996/FlareLobby/main/README.en.md): English overview, installation entry, minimal Client SDK code, local demo, package roles, and scope.
+- [English home](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/en/index.md): English VitePress home and links to Japanese detailed guides.
+- [English Quick Start](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/en/getting-started.md): requirements, standalone template acquisition, secret and authentication setup, two-player check, and terminology.
+- [English package entry points](https://github.com/katsu996/FlareLobby/tree/main/packages): Each published package README includes its English role and Quick Start link.
+- [@flarelobby/core package README](https://raw.githubusercontent.com/katsu996/FlareLobby/main/packages/core/README.md): Platform-independent domain types, protocol, matchmaking, and ratings.
+- [@flarelobby/client package README](https://raw.githubusercontent.com/katsu996/FlareLobby/main/packages/client/README.md): Browser HTTP and WebSocket Client SDK.
+- [@flarelobby/cloudflare package README](https://raw.githubusercontent.com/katsu996/FlareLobby/main/packages/cloudflare/README.md): Worker gateway, Durable Objects, D1, and authentication boundary.
+- [@flarelobby/testing package README](https://raw.githubusercontent.com/katsu996/FlareLobby/main/packages/testing/README.md): Deterministic clocks, random sources, and matchmaking simulation.
 
 ## 導入と仕様の入口
 

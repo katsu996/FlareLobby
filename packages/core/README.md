@@ -1,5 +1,9 @@
 # `@flarelobby/core`
 
+English overview: [README.en.md](https://github.com/katsu996/FlareLobby/blob/main/README.en.md).
+Role: platform-independent domain types, protocol, matchmaking, and ratings.
+English setup: [Quick Start](https://github.com/katsu996/FlareLobby/blob/main/docs/en/getting-started.md).
+
 FlareLobby のプラットフォーム非依存な公開型、プロトコル、1 対 1 および
 パーティー/チーム単位のマッチング、ELO/Glicko-2 レーティングを提供する
 ES Modules パッケージです。

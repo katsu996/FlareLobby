@@ -1,7 +1,7 @@
 {
   "name": "@flarelobby/cloudflare",
   "version": "0.1.0",
-  "description": "FlareLobby の Cloudflare Workers 実装",
+  "description": "Cloudflare Workers implementation for FlareLobby with Gateway, Durable Objects, D1, and auth boundaries",
   "license": "MIT",
   "author": "katsu996",
   "keywords": [

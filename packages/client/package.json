@@ -1,7 +1,7 @@
 {
   "name": "@flarelobby/client",
   "version": "0.1.0",
-  "description": "FlareLobby のブラウザ向け TypeScript クライアント",
+  "description": "Browser TypeScript Client SDK for FlareLobby HTTP and WebSocket APIs",
   "license": "MIT",
   "author": "katsu996",
   "keywords": [

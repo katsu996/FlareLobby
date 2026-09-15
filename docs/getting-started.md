@@ -1,5 +1,7 @@
 # 導入とローカルサンプル
 
+[English home](/en/) · [English Quick Start](/en/getting-started)
+
 このページは、npm 利用者向けの導入手順を正本とします。本体リポジトリを
 clone せずに導入できます。公式の導入例は
 [Standalone テンプレート](https://github.com/katsu996/FlareLobby/blob/main/templates/standalone/README.md) です。

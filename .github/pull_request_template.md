@@ -35,4 +35,5 @@ pnpm check:docs
 
 - [ ] Issue 本文の完了条件を一つずつ確認した
 - [ ] 文書コード例を型検査または自動テストした
+- [ ] 機能・導入手順を変更した場合、英語入口（README.en.md、docs/en、package README、llms.txt）への影響を確認した
 - [ ] 破壊的変更、Migration、Secret、デプロイ手順を必要に応じて記載した
