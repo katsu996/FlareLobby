@@ -70,6 +70,7 @@ TypeScript の Client SDK から、認証済みのルーム作成・参加、パ
 | `packages/testing`     | `@flarelobby/testing`              | 仮想時計、固定乱数、マッチングシミュレーター               |
 | `examples/local-demo`  | `@flarelobby/example-local-demo`   | ローカル確認用の最小 Worker（リポジトリ開発者向け）        |
 | `templates/standalone` | （配布テンプレート、非 workspace） | 別リポジトリ向け最小導入例。公開パッケージ名だけで解決     |
+| `templates/supabase`   | （配布テンプレート、非 workspace） | Supabase Auth 接続済みの導入例。JWT/JWKS、招待、1v1        |
 
 すべてのパッケージは ES Modules です。公開識別子は TypeScript の慣習に従って
 英語、説明文とコメントは日本語で記載しています。
@@ -95,8 +96,9 @@ pnpm install --frozen-lockfile
 
 mise を使わない場合も、上記と同じ Node.js/pnpm のバージョンを用意してください。
 
-npm 利用者側の必要条件は [Standalone テンプレート](./templates/standalone/README.md)
-と [導入とローカルサンプル](./docs/getting-started.md) の npm 利用者向け手順を
+npm 利用者側の必要条件は [Standalone テンプレート](./templates/standalone/README.md)、
+[Supabase スターターテンプレート](./templates/supabase/README.md)、
+および [導入とローカルサンプル](./docs/getting-started.md) の npm 利用者向け手順を
 参照してください。テンプレートは `engines` として Node.js `>=22.12.0` と
 `pnpm@11.21.0` を宣言しています。未検証のランタイム互換性は断言しません。
 

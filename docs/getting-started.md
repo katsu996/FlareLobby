@@ -5,6 +5,10 @@
 このページは、npm 利用者向けの導入手順を正本とします。本体リポジトリを
 clone せずに導入できます。公式の導入例は
 [Standalone テンプレート](https://github.com/katsu996/FlareLobby/blob/main/templates/standalone/README.md) です。
+Supabase Auth を使う場合は、認証済みの Worker とブラウザ UI を含む
+[Supabase スターターテンプレート](https://github.com/katsu996/FlareLobby/blob/main/templates/supabase/README.md)
+を使えます。JWT の検証、ログイン、招待ルーム、準備同期、1v1 の確認までを
+このテンプレートにまとめています。
 リポジトリ開発者向けの手順は後半の「リポジトリ開発者向け」に分けています。
 
 現行機能（パーティー、チーム単位のマッチング、ELO/Glicko-2）の詳細は

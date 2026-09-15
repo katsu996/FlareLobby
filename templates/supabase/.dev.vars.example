@@ -1,0 +1,2 @@
+SUPABASE_URL=https://your-project.supabase.co
+FLARE_LOBBY_TOKEN_SECRET=local-only-secret-change-me
