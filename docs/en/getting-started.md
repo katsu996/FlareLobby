@@ -17,6 +17,10 @@ player.
 
 The official starting point is the
 [standalone template on GitHub](https://github.com/katsu996/FlareLobby/tree/main/templates/standalone).
+For a ready-made Supabase Auth connection, use the
+[Supabase starter template](https://github.com/katsu996/FlareLobby/tree/main/templates/supabase)
+and follow its README for JWT verification, login, invitation rooms, ready
+synchronization, and 1v1 checks.
 Copy `templates/standalone` into your own project, or clone the repository and
 copy it:
 
