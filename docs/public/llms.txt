@@ -60,6 +60,9 @@
 
 - [README](https://raw.githubusercontent.com/katsu996/FlareLobby/main/README.md): 全体の対象範囲、パッケージ構成、開発コマンド。
 - [アーキテクチャ](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/architecture.md): 保存境界、整合性、状態遷移、復旧経路。v0.1.0 を基点とする記述は現行ガイドと併読。
+- [現行リリース情報](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/releases/current.md): 公開済み版と未公開 main の区別、契約版、検証済み環境、参照リリース。
+- [バージョン方針](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/versioning.md): 独立 package 版、1.0 未満と 1.0 以降の互換範囲、protocol 版と観測 schema 版の扱い。
+- [更新手順](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/upgrading.md): バックアップ確認、package 更新、D1・DO Migration、staging 検証、本番反映、ロールバック。
 - [ADR: 再接続と revision](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/adr/0002-reconnect-and-revision.md): 再開トークンと差分・完全 Snapshot に関する設計判断。
 - [ADR: 試合結果の信頼境界](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/adr/0004-match-result-trust-boundary.md): 結果登録をサーバー側の責務とする理由。
 - [ADR: パーティーとチーム編成](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/adr/0005-party-matching-and-team-composition.md): パーティー単位のチケットとチーム編成の設計判断。

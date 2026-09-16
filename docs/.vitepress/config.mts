@@ -101,6 +101,18 @@ export default defineConfig({
             text: "Japanese: Releases",
             items: [
               {
+                text: "Japanese: Current release status",
+                link: "/releases/current",
+              },
+              {
+                text: "Japanese: Versioning policy",
+                link: "/versioning",
+              },
+              {
+                text: "Japanese: Upgrading guide",
+                link: "/upgrading",
+              },
+              {
                 text: "Japanese: v0.1.0 release notes",
                 link: "/releases/v0.1.0",
               },
@@ -212,6 +224,9 @@ export default defineConfig({
       {
         text: "リリース",
         items: [
+          { text: "現行リリース情報", link: "/releases/current" },
+          { text: "バージョン方針", link: "/versioning" },
+          { text: "更新手順", link: "/upgrading" },
           { text: "v0.1.0 リリースノート", link: "/releases/v0.1.0" },
           {
             text: "変更履歴",

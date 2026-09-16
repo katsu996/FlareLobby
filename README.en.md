@@ -76,6 +76,14 @@ the full flow.
 - [Standalone template](./templates/standalone/README.md)
 - [Supabase starter template](./templates/supabase/README.md)
 
+## Releases
+
+- [Changelog](./CHANGELOG.md)
+- [Current release status](./docs/releases/current.md) (Japanese)
+- [Versioning policy](./docs/versioning.md) (Japanese)
+- [Upgrading guide](./docs/upgrading.md) (Japanese)
+- [v0.1.0 release notes](./docs/releases/v0.1.0.md) (Japanese, historical record)
+
 The detailed API and feature guides remain Japanese for now. The English
 pages identify those links as Japanese so you can choose the right entry point
 before opening them.
