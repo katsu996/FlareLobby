@@ -51,6 +51,7 @@
 ## 実装例
 
 - [Standalone テンプレート](https://raw.githubusercontent.com/katsu996/FlareLobby/main/templates/standalone/README.md): 本体リポジトリの clone を前提としない、別プロジェクト向け導入手順。
+- [Supabase スターターテンプレート](https://raw.githubusercontent.com/katsu996/FlareLobby/main/templates/supabase/README.md): Supabase Auth、固定 JWKS 検証、招待ルーム、準備同期、1v1 の導入手順。
 - [Worker の型検査対象例](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/examples/npm-standalone-worker.ts): 公開パッケージを使う Worker と Durable Object の定義。
 - [Cloudflare 設定の型検査対象例](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/examples/cloudflare-config.ts): Gateway、認証 Hook、Binding の接続。
 - [Client SDK の型検査対象例](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/examples/client-api.ts): 型付きルーム作成、メッセージ、購読、タイムアウト、エラー処理。

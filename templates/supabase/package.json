@@ -1,0 +1,38 @@
+{
+  "name": "flarelobby-supabase",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FlareLobby の Supabase 認証付き導入テンプレート",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "generate:types": "wrangler types worker-configuration.d.ts --config wrangler.jsonc",
+    "check:types": "wrangler types worker-configuration.d.ts --config wrangler.jsonc --check",
+    "typecheck": "pnpm run generate:types && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.browser.json --noEmit",
+    "test": "vitest run",
+    "build": "pnpm run build:browser",
+    "build:browser": "vite build",
+    "dev:worker": "wrangler dev --config wrangler.jsonc --port 8787",
+    "dev:browser": "vite --port 5173 --strictPort",
+    "db:apply:local": "wrangler d1 migrations apply flare-lobby-supabase --local --config wrangler.jsonc",
+    "deploy:dry-run": "wrangler deploy --config wrangler.jsonc --dry-run"
+  },
+  "dependencies": {
+    "@flarelobby/client": "0.1.0",
+    "@flarelobby/cloudflare": "0.1.0",
+    "@flarelobby/core": "0.1.0",
+    "@supabase/supabase-js": "2.116.0",
+    "jose": "6.2.12"
+  },
+  "devDependencies": {
+    "@types/node": "26.5.0",
+    "typescript": "7.0.2",
+    "vite": "8.2.2",
+    "vitest": "4.1.10",
+    "wrangler": "4.120.0"
+  },
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

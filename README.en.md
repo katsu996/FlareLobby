@@ -74,6 +74,7 @@ the full flow.
 - [Japanese documentation](https://katsu996.github.io/FlareLobby/)
 - [llms.txt](https://katsu996.github.io/FlareLobby/llms.txt)
 - [Standalone template](./templates/standalone/README.md)
+- [Supabase starter template](./templates/supabase/README.md)
 
 The detailed API and feature guides remain Japanese for now. The English
 pages identify those links as Japanese so you can choose the right entry point
