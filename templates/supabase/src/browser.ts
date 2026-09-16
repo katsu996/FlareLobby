@@ -255,8 +255,10 @@ async function cancelQueue(notify = true): Promise<void> {
   if (ticket === undefined) {
     return;
   }
-  activeTicket = undefined;
   await ticket.cancel({ requestId: crypto.randomUUID() });
+  if (activeTicket === ticket) {
+    activeTicket = undefined;
+  }
   if (notify) {
     log("1v1キューを取り消しました。");
   }
@@ -430,6 +432,9 @@ void supabase.auth.getSession().then((result) => {
 });
 
 const authState = supabase.auth.onAuthStateChange((_event, nextSession) => {
+  if (nextSession === null) {
+    disposeClient();
+  }
   renderSession(nextSession);
 });
 
