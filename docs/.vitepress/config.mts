@@ -146,6 +146,7 @@ export default defineConfig({
         items: [
           { text: "導入とローカルサンプル", link: "/getting-started" },
           { text: "じゃんけんデモ", link: "/local-demo" },
+          { text: "公開じゃんけんデモ", link: "/hosted-demo" },
           { text: "Client SDK", link: "/client" },
         ],
       },
