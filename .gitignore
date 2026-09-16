@@ -9,3 +9,5 @@ coverage/
 *.tsbuildinfo
 examples/local-demo/public/app.js
 examples/local-demo/public/app.js.map
+examples/hosted-demo/public/app.js
+examples/hosted-demo/public/app.js.map
