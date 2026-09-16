@@ -1,16 +1,16 @@
-# Graph Report - FlareLobby  (2026-09-15)
+# Graph Report - FlareLobby  (2026-09-16)
 
 ## Corpus Check
-- 203 files · ~263,690 words
+- 231 files · ~272,979 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 5455 nodes · 9729 edges · 355 communities (188 shown, 167 thin omitted)
-- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 154 edges (avg confidence: 0.75)
+- 5750 nodes · 10208 edges · 377 communities (208 shown, 169 thin omitted)
+- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 156 edges (avg confidence: 0.75)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `120da509`
+- Built from commit: `216a34c1`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -18,11 +18,11 @@
 - Cloudflare: Worker
 - room.ts
 - IMatchPoolDurableObject
-- cloudflare/src/rating.ts
-- cloudflare/src/party.ts
+- cloudflare/src/index.ts
+- PartyDurableObject
 - RoomDurableObject
 - cloudflare/src/custom-room.ts
-- cloudflare/src/index.ts
+- observability.ts
 - PartyImpl
 - client.ts
 - RoomWebSocketDependencies
@@ -35,7 +35,7 @@
 - protocol.ts
 - cloudflare/src/matchmaking.ts
 - core/src/index.ts
-- party-gateway.ts
+- GatewayPrincipalEnvelope
 - RoomImpl
 - ServiceWorkerGlobalScope
 - `@flarelobby/cloudflare`
@@ -44,12 +44,12 @@
 - custom-room-list.test.ts
 - core/src/rating.ts
 - Party
-- normalizeTicketId
+- .readTicketEvents
 - local-demo/src/browser.ts
 - match-pool.test.ts
 - English Quick Start
 - Event
-- rps.ts
+- local-demo/src/rps.ts
 - simulator.ts
 - public-types.type-test.ts
 - match-pool.ts
@@ -60,11 +60,11 @@
 - client-integration.test.ts
 - websocket.test.ts
 - client/package.json
-- MatchPoolGatewayStub
+- scripts
 - testing/package.json
 - toEpochMilliseconds
 - distributions.ts
-- FakeWebSocket
+- hosted-demo/src/browser.ts
 - compilerOptions
 - Console
 - local-demo/package.json
@@ -72,11 +72,11 @@
 - TransformStream
 - URL
 - cloudflare/package.json
-- .readPoolRow
+- .synchronizeAlarm
 - createRequestId
 - verify-package-migrations.mjs
 - compilerOptions
-- GatewayPrincipalEnvelope
+- IRoomDurableObject
 - getting-started.md
 - .oxfmtrc.json
 - URLSearchParams
@@ -88,7 +88,7 @@
 - DurableObjectStorage
 - verify-packages.mjs
 - package.json
-- RoomAuth.ts
+- RoomOperations.ts
 - Container
 - Element
 - Headers
@@ -108,7 +108,7 @@
 - WorkerEntrypoint
 - verify-rating-schema.mjs
 - ADR-0005: パーティーマッチングとチーム編成をパーティー単位のチケットで行う
-- .handleFetch
+- TicketQueueDO
 - cloudflare/test/rating.test.ts
 - StreamError
 - SeededRandom
@@ -117,7 +117,7 @@
 - アーキテクチャ
 - 決定論的シミュレーターとテスト補助
 - local-demo/src/index.ts
-- FakeWebSocket
+- cloudflare/src/party.ts
 - Flagship
 - R2ObjectBody
 - FlareLobby
@@ -154,7 +154,7 @@
 - 認証・認可・入力検証・利用制限
 - compilerOptions
 - FakeWebSocket
-- TicketQueueDO
+- hosted-demo/src/rps.ts
 - AiSearchInstance
 - DurableObjectNamespace
 - R2Bucket
@@ -165,11 +165,11 @@
 - Cloudflare 設定
 - JSON 通信プロトコル v1
 - レーティングエンジン
-- durable-objects.ts
+- include
 - pull_request_template.md
-- isNonEmptyString
+- durable-objects.ts
 - compilerOptions
-- MatchmakingMatchIntent
+- compilerOptions
 - Ai
 - AiSearchNamespace
 - ReadableStreamBYOBReader
@@ -181,7 +181,7 @@
 - 公開ドメイン型
 - core-api.ts
 - 観測基盤
-- TicketQueueDO.ts
+- gateway.ts
 - AiSearchItem
 - AiSearchItems
 - Artifacts
@@ -194,7 +194,7 @@
 - TextDecoder
 - カスタムルームの参加・退出・観戦
 - Documentation
-- .handleWebSocketMessageInternal
+- TicketQueueDO.ts
 - rps.test.ts
 - Cloudflare: Src
 - Cloudflare: Src
@@ -242,9 +242,9 @@
 - WorkflowEntrypoint
 - cloudflare-config.ts
 - standalone/src/browser.ts
-- client.test.ts
+- compilerOptions
 - .coderabbit.yaml
-- registerMatchResult
+- showError
 - Cloudflare: Worker
 - Cloudflare: Worker
 - Cloudflare: Worker
@@ -320,150 +320,175 @@
 - FakeWebSocket
 - matchmaking-gateway.test.ts
 - 0002_rating.sql
-- rating.type-test.ts
-- MatchmakingTicketEventQueryOptions
+- compilerOptions
+- party-gateway.test.ts
+- configuration.type-test.ts
 - client/test/matchmaking.test.ts
 - ADR-0004: 試合結果の信頼境界をサーバー側に置く
-- MatchmakingSearchOptions
+- 公開じゃんけんデモ（hosted-demo）
 - npm-standalone-worker.ts
 - standalone/src/index.ts
 - MatchRoomGatewayStub
-- listMatchHistory
+- invite.ts
 - build-browser.mjs
 - renderCustomResult
 - MatchPoolDurableObject
 - 0001_custom_room_index.sql
 - 0003_local_demo_rps.sql
-- MatchmakingTicketImpl
-- isRatingResult
-- getRating
-- readMatchedPlayers
-- party-matchmaking.test.ts
+- FlareLobbyObservabilityContext
+- openRoom
+- .fetch
+- .beginQueueTicket
+- cloudflare/test/party.test.ts
 - en/index.md
 - english-quick-start.ts
+- MatchmakingMatchResult
+- verify-migrations.mjs
+- startGuestSession
+- MatchmakingMatchIntent
+- TurnstileApi
+- MatchmakingSearchOptions
+- 0002_base_rating.sql
+- MatchmakingPool
+- flarelobby_team_rating_matches
+- hosted-demo 専用マイグレーション
+- hosted-demo/scripts/build-browser.mjs
+- refreshRankedState
+- flarelobby_team_rating_matches
+- MatchmakingTicketEventQueryOptions
+- 0001_base_custom_room_index.sql
+- 0005_hosted_demo_rps.sql
+- flarelobby_rating_seasons
+- flarelobby_ratings
+- flarelobby_rating_seasons
+- flarelobby_ratings
 
 ## God Nodes (most connected - your core abstractions)
-1. `RoomDurableObject` - 93 edges
-2. `MatchPoolDurableObject` - 90 edges
+1. `RoomDurableObject` - 94 edges
+2. `MatchPoolDurableObject` - 91 edges
 3. `RoomWebSocketDependencies` - 67 edges
 4. `GatewayPrincipalEnvelope` - 62 edges
 5. `MatchmakingTicketImpl` - 49 edges
-6. `PartyDurableObject` - 46 edges
+6. `PartyDurableObject` - 47 edges
 7. `RoomImpl` - 44 edges
-8. `IMatchPoolDurableObject` - 41 edges
-9. `RoomPersistence` - 40 edges
-10. `MatchmakingTicketRecord` - 39 edges
+8. `MatchmakingTicketRecord` - 41 edges
+9. `IMatchPoolDurableObject` - 41 edges
+10. `RoomPersistence` - 40 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `MatchedPlayers` --references--> `MatchmakingPool`  [EXTRACTED]
-  examples/local-demo/src/rps.ts → packages/core/src/index.ts
-- `handleDemoRpsRequest()` --calls--> `createErrorResponse()`  [EXTRACTED]
-  examples/local-demo/src/rps.ts → packages/cloudflare/src/security.ts
-- `authenticateDemoRpsRequest()` --calls--> `authenticateGatewayRequest()`  [EXTRACTED]
-  examples/local-demo/src/rps.ts → packages/cloudflare/src/security.ts
-- `authenticateDemoRpsRequest()` --calls--> `createErrorResponse()`  [EXTRACTED]
-  examples/local-demo/src/rps.ts → packages/cloudflare/src/security.ts
+- `createHostedDemoGateway()` --calls--> `defineFlareLobby()`  [EXTRACTED]
+  examples/hosted-demo/src/gateway.ts → packages/cloudflare/src/config.ts
+- `handleHostedRpsRequest()` --calls--> `createErrorResponse()`  [EXTRACTED]
+  examples/hosted-demo/src/rps.ts → packages/cloudflare/src/security.ts
+- `authenticateHostedRpsRequest()` --calls--> `authenticateGatewayRequest()`  [EXTRACTED]
+  examples/hosted-demo/src/rps.ts → packages/cloudflare/src/security.ts
+- `authenticateHostedRpsRequest()` --calls--> `createErrorResponse()`  [EXTRACTED]
+  examples/hosted-demo/src/rps.ts → packages/cloudflare/src/security.ts
 - `readMatchedPlayers()` --calls--> `createMatchmakingPoolKey()`  [EXTRACTED]
-  examples/local-demo/src/rps.ts → packages/cloudflare/src/match-pool.ts
+  examples/hosted-demo/src/rps.ts → packages/cloudflare/src/match-pool.ts
 
 ## Import Cycles
 - 2-file cycle: `packages/cloudflare/src/match-pool.ts -> packages/cloudflare/src/match-pool/IMatchPool.ts -> packages/cloudflare/src/match-pool.ts`
 - 2-file cycle: `packages/cloudflare/src/room.ts -> packages/cloudflare/src/room/IRoom.ts -> packages/cloudflare/src/room.ts`
-- 2-file cycle: `packages/cloudflare/src/room.ts -> packages/cloudflare/src/room/RoomAuth.ts -> packages/cloudflare/src/room.ts`
-- 2-file cycle: `packages/cloudflare/src/room.ts -> packages/cloudflare/src/room/RoomIndexSync.ts -> packages/cloudflare/src/room.ts`
-- 2-file cycle: `packages/cloudflare/src/room.ts -> packages/cloudflare/src/room/RoomOperations.ts -> packages/cloudflare/src/room.ts`
 - 2-file cycle: `packages/cloudflare/src/room.ts -> packages/cloudflare/src/room/RoomStateMachine.ts -> packages/cloudflare/src/room.ts`
+- 2-file cycle: `packages/cloudflare/src/room.ts -> packages/cloudflare/src/room/RoomOperations.ts -> packages/cloudflare/src/room.ts`
+- 2-file cycle: `packages/cloudflare/src/room.ts -> packages/cloudflare/src/room/RoomIndexSync.ts -> packages/cloudflare/src/room.ts`
+- 2-file cycle: `packages/cloudflare/src/room.ts -> packages/cloudflare/src/room/RoomAuth.ts -> packages/cloudflare/src/room.ts`
 
 ## Hyperedges (group relationships)
 - **Client Room API** — api_client_create, api_client_room_handles, api_client_matchmaking_ticket [EXTRACTED 1.00]
 - **Cloudflare Gateway Stack** — api_cloudflare_gateway, api_cloudflare_http_ws, api_cloudflare_custom_room, api_cloudflare_match_pool [EXTRACTED 1.00]
 - **Core Domain Package** — api_domain_types, api_matchmaking_search, api_elo, api_glicko2, api_json_protocol [EXTRACTED 1.00]
 
-## Communities (355 total, 167 thin omitted)
+## Communities (377 total, 169 thin omitted)
 
 ### Community 0 - "Cloudflare: Worker"
 Cohesion: 0.00
 Nodes (848): RFC-2253, RFC-3339, RFC-5246, RFC-9440, AgentMemoryGetSummaryOptions, AgentMemoryGetSummaryResponse, AgentMemoryIncomingMemory, AgentMemoryIngestOptions (+840 more)
 
 ### Community 1 - "room.ts"
-Cohesion: 0.06
-Nodes (76): assertJoinCredentials(), AuthenticatedRoomActor, createWebSocketTags(), decodeBase64Url(), digestPassword(), encodeBase64Url(), getParticipantWebSocketTag(), getPrincipalWebSocketTag() (+68 more)
+Cohesion: 0.05
+Nodes (82): assertJoinCredentials(), AuthenticatedRoomActor, createWebSocketTags(), decodeBase64Url(), digestPassword(), encodeBase64Url(), getParticipantWebSocketTag(), getPrincipalWebSocketTag() (+74 more)
 
 ### Community 2 - "IMatchPoolDurableObject"
-Cohesion: 0.09
-Nodes (9): IMatchPoolDurableObject, MatchmakingTicketCancellationOptions, MatchmakingTicketCreationOptions, MatchmakingTicketMatchOptions, MatchmakingTicketRecord, MatchmakingTicketReservationOptions, MatchPoolInitializationOptions, MatchPoolSnapshot (+1 more)
+Cohesion: 0.10
+Nodes (8): IMatchPoolDurableObject, MatchmakingTicketCancellationOptions, MatchmakingTicketCreationOptions, MatchmakingTicketMatchOptions, MatchmakingTicketRecord, MatchmakingTicketReservationOptions, MatchPoolSnapshot, MatchmakingTicketGatewayResponse
 
-### Community 3 - "cloudflare/src/rating.ts"
-Cohesion: 0.07
-Nodes (33): applyMatchResult, DEFAULT_RATING_CONFLICT_RETRY_COUNT, getPlayerRating, HistoryCursor, MatchHistoryPage, MatchHistoryQuery, MatchResultRegistration, MatchRow (+25 more)
+### Community 3 - "cloudflare/src/index.ts"
+Cohesion: 0.04
+Nodes (112): CustomRoomCreationOptions, CustomRoomCreationResponse, CustomRoomJoinMethod, CustomRoomJoinOptions, CustomRoomJoinResponse, CustomRoomLeaveInput, CustomRoomLeaveResult, applyMatchResult (+104 more)
 
-### Community 4 - "cloudflare/src/party.ts"
-Cohesion: 0.07
-Nodes (39): compareStrings(), DEFAULT_PARTY_IDLE_TTL_MS, DEFAULT_PARTY_INVITE_TTL_MS, DEFAULT_PARTY_MAX_SIZE, EventRow, InviteRow, isNonEmptyString(), MatchPoolCancellationStub (+31 more)
+### Community 4 - "PartyDurableObject"
+Cohesion: 0.20
+Nodes (6): isNonEmptyString(), parseReplayDissolveResult(), PartyDurableObject, rejectProcessedCommandConflict(), requireGatewayPrincipal(), sameProcessedCommand()
 
 ### Community 5 - "RoomDurableObject"
 Cohesion: 0.08
-Nodes (7): assertActiveRoom(), closeWebSocketSafely(), createRoomSnapshotEvent(), getDisconnectOperationId(), normalizeWebSocketError(), parseRoomSnapshotResult(), RoomDurableObject
+Nodes (8): observeOperation(), assertActiveRoom(), closeWebSocketSafely(), createRoomSnapshotEvent(), getDisconnectOperationId(), normalizeWebSocketError(), parseRoomSnapshotResult(), RoomDurableObject
 
 ### Community 6 - "cloudflare/src/custom-room.ts"
-Cohesion: 0.06
-Nodes (67): createCustomRoom(), createInvitationCode(), createPasswordFingerprint(), createWebSocketUrl(), CustomRoomCreationInput, CustomRoomCreationOptions, CustomRoomCreationResponse, CustomRoomCreationResult (+59 more)
+Cohesion: 0.07
+Nodes (57): consumeRoomCreationRateLimit(), createCustomRoom(), createInvitationCode(), createPasswordFingerprint(), createWebSocketUrl(), CustomRoomCreationInput, CustomRoomCreationResult, CustomRoomGatewayStub (+49 more)
 
-### Community 7 - "cloudflare/src/index.ts"
-Cohesion: 0.05
-Nodes (52): FlareLobbyConfiguration, FlareLobbyCorsConfiguration, createMatchPoolKey, DEFAULT_MATCHMAKING_MATCH_MAX_ATTEMPTS, DEFAULT_MATCHMAKING_MATCH_MAX_RETRY_DELAY_MS, DEFAULT_MATCHMAKING_MATCH_RETRY_DELAY_MS, DEFAULT_MATCHMAKING_MATCH_TEAM_IDS, DEFAULT_MATCHMAKING_TICKET_TTL_MS (+44 more)
+### Community 7 - "observability.ts"
+Cohesion: 0.09
+Nodes (30): attachObservabilityHeaders(), FLARE_LOBBY_ANALYTICS_SAMPLED_HEADER, FLARE_LOBBY_CORRELATION_ID_HEADER, FLARE_LOBBY_LOG_SAMPLED_HEADER, FLARE_LOBBY_OBSERVABILITY_SCHEMA_VERSION, FLARE_LOBBY_REQUEST_ID_HEADER, FlareLobbyObservabilityAttributeValue, FlareLobbyObservabilityConfiguration (+22 more)
 
 ### Community 8 - "PartyImpl"
-Cohesion: 0.09
-Nodes (23): assertPartyId(), compactJsonObject(), createPartyApi(), createPartyPath(), createRequestId(), deepFreeze(), isFiniteNonNegativeNumber(), isNonEmptyString() (+15 more)
+Cohesion: 0.07
+Nodes (26): NormalizedReconnectOptions, assertPartyId(), compactJsonObject(), createPartyApi(), createPartyPath(), createRequestId(), deepFreeze(), isCancelledError() (+18 more)
 
 ### Community 9 - "client.ts"
 Cohesion: 0.07
-Nodes (35): ClientEventListener, COMPATIBLE_PROTOCOLS, createErrorWithRequestId(), createRequestId(), createWebSocketProtocols(), effectivePort(), encodeBase64Url(), FlareLobbyClientImpl (+27 more)
+Nodes (36): ClientEventListener, COMPATIBLE_PROTOCOLS, createErrorWithRequestId(), createRequestId(), createWebSocketProtocols(), effectivePort(), encodeBase64Url(), FlareLobbyClientImpl (+28 more)
+
+### Community 10 - "RoomWebSocketDependencies"
+Cohesion: 0.04
+Nodes (12): FLARE_LOBBY_OPERATION_HEADER, NormalizedOperationRequest, readPositiveHeader(), ROOM_WEBSOCKET_ATTACHMENT_VERSION, RoomConnectionRow, RoomRow, RoomWebSocketAttachment, RoomWebSocketDependencies (+4 more)
 
 ### Community 11 - "client/src/index.ts"
-Cohesion: 0.05
-Nodes (65): ClientCommandOptions, ClientRequestOptions, FlareLobbyClientOptions, appendQueryValue(), createCreationBody(), createCustomRoom(), createCustomRoomApi(), createJoinBody() (+57 more)
+Cohesion: 0.04
+Nodes (75): ClientCommandOptions, ClientRequestOptions, ClientWebSocketOptions, FlareLobbyClientOptions, appendQueryValue(), createCreationBody(), createCustomRoom(), createCustomRoomApi() (+67 more)
 
 ### Community 12 - "RoomOperationsDependencies"
-Cohesion: 0.20
-Nodes (5): assertWaitingRoom(), normalizeOperationRequest(), RoomOperationResult, RoomOperations, RoomOperationsDependencies
+Cohesion: 0.12
+Nodes (10): assertWaitingRoom(), normalizeOperationRequest(), RoomHostOperationOptions, RoomKickOptions, RoomOperationResult, RoomOperations, RoomOperationsDependencies, RoomStartMatchOptions (+2 more)
 
 ### Community 13 - "core/src/matchmaking.ts"
 Cohesion: 0.07
-Nodes (59): JsonObject, MatchCandidate, MatchmakingPool, MatchmakingTicketId, Player, PlayerId, Rating, Timestamp (+51 more)
+Nodes (58): JsonObject, MatchCandidate, MatchmakingTicketId, Player, PlayerId, Rating, Timestamp, averageMemberRating() (+50 more)
 
 ### Community 14 - "config.ts"
 Cohesion: 0.05
-Nodes (48): MatchedPlayers, assertCorsConfiguration(), assertCustomRoomConfiguration(), assertInputLimits(), assertMatchmakingPools(), assertObservabilityConfiguration(), consumeRateLimit(), consumeRoomCreationRateLimit() (+40 more)
+Nodes (46): assertCorsConfiguration(), assertCustomRoomConfiguration(), assertInputLimits(), assertMatchmakingPools(), assertObservabilityConfiguration(), consumeRateLimit(), consumeWebSocketMessageRateLimit(), createGatewayWorker() (+38 more)
 
 ### Community 15 - "security.ts"
-Cohesion: 0.07
-Nodes (62): upgradeCustomRoomWebSocket(), authenticateGatewayRequest(), authenticateRequest(), authorizeGatewayOperation(), createGatewayPrincipalEnvelope(), createSignedToken(), createTokenNonce(), decodeBase64Url() (+54 more)
+Cohesion: 0.08
+Nodes (57): upgradeCustomRoomWebSocket(), authenticateGatewayRequest(), authenticateRequest(), authorizeGatewayOperation(), createGatewayPrincipalEnvelope(), createRateLimitError(), createSignedToken(), createTokenNonce() (+49 more)
 
 ### Community 16 - "custom-room-list.ts"
-Cohesion: 0.12
-Nodes (29): CustomRoomIndexJoinMethod, queryCustomRoomIndex(), constantTimeEqual(), createQueryFingerprint(), CURSOR_VERSION, CursorPayload, CustomRoomListQuery, CustomRoomListResult (+21 more)
+Cohesion: 0.13
+Nodes (28): CustomRoomIndexJoinMethod, constantTimeEqual(), createQueryFingerprint(), CURSOR_VERSION, CursorPayload, CustomRoomListQuery, CustomRoomListResult, decodeBase64Url() (+20 more)
 
 ### Community 17 - "protocol.ts"
 Cohesion: 0.07
 Nodes (47): JsonValue, Revision, classifyEventRevision(), ClientCommandEnvelope, decodeClientCommand(), decodeProtocolMessage(), decodeServerMessage(), defaultErrorMessages (+39 more)
 
 ### Community 18 - "cloudflare/src/matchmaking.ts"
-Cohesion: 0.12
-Nodes (42): ADR-0004, cancelTicket(), createMatchmakingPoolKey(), createMatchRoomConnection(), createRoomWebSocketUrl(), createTicket(), decodePathSegments(), findPoolConfiguration() (+34 more)
+Cohesion: 0.10
+Nodes (44): ADR-0004, cancelTicket(), createMatchmakingPoolKey(), createMatchRoomConnection(), createRoomWebSocketUrl(), createTicket(), decodePathSegments(), findPoolConfiguration() (+36 more)
 
 ### Community 19 - "core/src/index.ts"
 Cohesion: 0.05
 Nodes (48): AppBound, AppGameMessages, AppRoomMetadata, AppRoomSettings, CancelledMatchmakingTicket, CreatingMatchmakingTicket, CustomRoom, CustomRoomSnapshot (+40 more)
 
-### Community 20 - "party-gateway.ts"
-Cohesion: 0.09
-Nodes (30): getPartyWebSocketRoute(), handlePartyRequest(), normalizeGatewayError(), notFound(), parsePartyJsonBody(), parsePartyRoute(), PartyEventsWebSocketRoute, PartyGatewayStub (+22 more)
+### Community 20 - "GatewayPrincipalEnvelope"
+Cohesion: 0.14
+Nodes (21): handlePartyRequest(), normalizeGatewayError(), notFound(), parsePartyJsonBody(), parsePartyRoute(), PartyEventsWebSocketRoute, PartyGatewayStub, PartyRoute (+13 more)
 
 ### Community 21 - "RoomImpl"
-Cohesion: 0.08
-Nodes (15): compactJsonObject(), deepFreeze(), freezeSnapshot(), isCustomRoomJoinMethod(), isCustomRoomParticipantRole(), isHostSnapshot(), isNonEmptyString(), isRecord() (+7 more)
+Cohesion: 0.10
+Nodes (6): FlareLobbyWebSocketConnection, compactJsonObject(), freezeSnapshot(), isHostSnapshot(), isRetryableReconnectError(), RoomImpl
 
 ### Community 22 - "ServiceWorkerGlobalScope"
 Cohesion: 0.04
@@ -474,36 +499,36 @@ Cohesion: 0.05
 Nodes (45): ADR References (ADR-0005, ADR-0006), createFlareLobbyClient, Matchmaking Ticket API, Room Handles (PlayerRoom, HostRoom, SpectatorRoom), Custom Room Functions (createCustomRoom, joinCustomRoom, leaveCustomRoom, listCustomRooms), Gateway Configuration (defineFlareLobby, createGatewayWorker), Gateway HTTP/WebSocket API Endpoints, Match Pool Durable Object Methods (+37 more)
 
 ### Community 24 - "client/src/matchmaking.ts"
-Cohesion: 0.10
-Nodes (41): createRoomHandle(), RoomConnectionResult, RoomCreationConnectionResult, compactJsonObject(), createMatchmakingApi(), createPoolPath(), createRequestId(), createTicketPath() (+33 more)
+Cohesion: 0.06
+Nodes (44): createRoomHandle(), RoomConnectionResult, RoomCreationConnectionResult, compactJsonObject(), createMatchmakingApi(), createPoolPath(), createRequestId(), createTicketPath() (+36 more)
 
 ### Community 25 - "RoomPersistence"
-Cohesion: 0.04
-Nodes (19): createRoomState(), deepFreeze(), NextAlarmRow, ParticipantRow, ProcessedCommandRow, AuthenticatedRoomActor, RoomConnectionRow, RoomEventRow (+11 more)
+Cohesion: 0.05
+Nodes (18): createRoomState(), deepFreeze(), deleteRoomState(), isJsonObject(), NextAlarmRow, parseJsonObject(), parseJsonValue(), ProcessedCommandRow (+10 more)
 
 ### Community 26 - "custom-room-list.test.ts"
-Cohesion: 0.06
-Nodes (40): CUSTOM_ROOM_INDEX_RETRY_DELAY_MS, CUSTOM_ROOM_INDEX_SYNC_OPERATION_ID, CustomRoomIndexRecord, CustomRoomIndexRow, deleteCustomRoomIndex(), ensureCustomRoomIndex(), ensureCustomRoomInvitationIndex(), ensureOnce() (+32 more)
+Cohesion: 0.07
+Nodes (36): CUSTOM_ROOM_INDEX_RETRY_DELAY_MS, CUSTOM_ROOM_INDEX_SYNC_OPERATION_ID, CustomRoomIndexRecord, CustomRoomIndexRow, deleteCustomRoomIndex(), ensureCustomRoomIndex(), ensureCustomRoomInvitationIndex(), ensureOnce() (+28 more)
 
 ### Community 27 - "core/src/rating.ts"
-Cohesion: 0.13
-Nodes (26): applyGlicko2Update(), computeGlicko2Volatility(), DEFAULT_ELO_INITIAL_RATING, DEFAULT_ELO_K_FACTOR, DEFAULT_GLICKO2_INITIAL_RATING, DEFAULT_GLICKO2_INITIAL_RATING_DEVIATION, DEFAULT_GLICKO2_TAU, DEFAULT_GLICKO2_VOLATILITY (+18 more)
+Cohesion: 0.09
+Nodes (36): applyGlicko2Update(), computeGlicko2Volatility(), DEFAULT_ELO_INITIAL_RATING, DEFAULT_ELO_K_FACTOR, DEFAULT_GLICKO2_INITIAL_RATING, DEFAULT_GLICKO2_INITIAL_RATING_DEVIATION, DEFAULT_GLICKO2_TAU, DEFAULT_GLICKO2_VOLATILITY (+28 more)
 
 ### Community 28 - "Party"
 Cohesion: 0.08
 Nodes (5): FlareLobbyClient, MatchmakingJoinOptions, MatchmakingPoolReference, MatchmakingTicket, Party
 
-### Community 29 - "normalizeTicketId"
-Cohesion: 0.12
-Nodes (10): invalidSequence(), isSafeTimestamp(), normalizeEventQuery(), normalizeNow(), normalizeSearchNow(), normalizeTicketId(), parseAfterSequence(), parseAfterSequenceFromMessage() (+2 more)
+### Community 29 - ".readTicketEvents"
+Cohesion: 0.17
+Nodes (9): getTicketSearchWidth(), invalidSequence(), isMatchmakingTicketStatus(), isSafeTimestamp(), normalizeNow(), parseAfterSequence(), parseAfterSequenceFromMessage(), parseStoredTicketResult() (+1 more)
 
 ### Community 30 - "local-demo/src/browser.ts"
 Cohesion: 0.05
 Nodes (37): appScreen, customConnection, customInvitationCode, customMoveActions, customMoves, customPanel, customParticipants, customReady (+29 more)
 
 ### Community 31 - "match-pool.test.ts"
-Cohesion: 0.11
-Nodes (14): createMatchmakingMatchId(), createMatchRoomInitialization(), getTicketMemberIds(), MATCHMAKING_POOL_KEY_SEPARATOR, parseMatchRoomOptions(), parseTicketMembers(), captureErrorCode(), createGatewayPrincipal() (+6 more)
+Cohesion: 0.10
+Nodes (15): createMatchmakingMatchId(), createMatchmakingRoomId(), MATCHMAKING_POOL_KEY_SEPARATOR, parseMatchRoomOptions(), captureErrorCode(), createGatewayPrincipal(), createInitializedPool(), errorCodeOf() (+7 more)
 
 ### Community 32 - "English Quick Start"
 Cohesion: 0.10
@@ -513,9 +538,9 @@ Nodes (18): 1. Requirements, 2. Get the standalone template, 3. Install and conf
 Cohesion: 0.06
 Nodes (6): CloseEvent, CustomEvent, ErrorEvent, Event, MessageEvent, PromiseRejectionEvent
 
-### Community 34 - "rps.ts"
-Cohesion: 0.21
-Nodes (20): acceptRpsMove(), DEMO_RANKED_POOL_ID, ensureRpsMatch(), createRpsResultId(), getRpsOutcome(), isRatingResult(), isRpsMove(), resolveRpsResult() (+12 more)
+### Community 34 - "local-demo/src/rps.ts"
+Cohesion: 0.17
+Nodes (22): acceptRpsMove(), DEMO_RANKED_POOL_ID, ensureRpsMatch(), createRpsResultId(), getRpsOutcome(), isRatingResult(), isRpsMove(), resolveRpsResult() (+14 more)
 
 ### Community 35 - "simulator.ts"
 Cohesion: 0.15
@@ -523,11 +548,11 @@ Nodes (28): assertNonEmptyString(), assertRecord(), compareSearchPolicies(), com
 
 ### Community 36 - "public-types.type-test.ts"
 Cohesion: 0.06
-Nodes (30): FlareLobbyApp, GameMessage, InferFlareLobbyApp, MatchmakingTicket, RoomSnapshot, RoomState, RoomStatus, FlareLobbyError (+22 more)
+Nodes (29): GameMessage, InferFlareLobbyApp, MatchmakingTicket, RoomSnapshot, RoomState, RoomStatus, FlareLobbyError, _appCanBeInferredFromMessage (+21 more)
 
 ### Community 37 - "match-pool.ts"
-Cohesion: 0.11
-Nodes (47): createMatchmakingPoolKey(), createMatchmakingRoomId(), createMatchRoomRecord(), deepFreeze(), EventRow, InFlightCreateRequest, isGatewayPrincipalEnvelope(), isJsonObject() (+39 more)
+Cohesion: 0.08
+Nodes (58): createMatchmakingPoolKey(), createMatchPoolKey, createMatchRoomInitialization(), createMatchRoomRecord(), deepFreeze(), DEFAULT_MATCHMAKING_MATCH_MAX_ATTEMPTS, DEFAULT_MATCHMAKING_MATCH_MAX_RETRY_DELAY_MS, DEFAULT_MATCHMAKING_MATCH_RETRY_DELAY_MS (+50 more)
 
 ### Community 38 - "testing/src/index.ts"
 Cohesion: 0.10
@@ -550,12 +575,16 @@ Cohesion: 0.13
 Nodes (12): activeClients, createClient(), createCloseEvent(), createMatchedRooms(), EventListener, integrationLobby, integrationPool, integrationWorker (+4 more)
 
 ### Community 43 - "websocket.test.ts"
-Cohesion: 0.11
-Nodes (17): connect(), connectViaStub(), connectWithToken(), createDirectUpgradeRequest(), createPrincipalEnvelope(), createWebSocketRequest(), DirectUpgradeOptions, encodeWebSocketToken() (+9 more)
+Cohesion: 0.12
+Nodes (15): connect(), connectViaStub(), connectWithToken(), createDirectUpgradeRequest(), createWebSocketRequest(), DirectUpgradeOptions, encodeWebSocketToken(), fetchUpgrade() (+7 more)
 
 ### Community 44 - "client/package.json"
 Cohesion: 0.05
 Nodes (37): author, bugs, url, dependencies, @flarelobby/core, description, exports, files (+29 more)
+
+### Community 45 - "scripts"
+Cohesion: 0.06
+Nodes (33): dependencies, @flarelobby/client, @flarelobby/cloudflare, @flarelobby/core, jose, @supabase/supabase-js, devDependencies, esbuild (+25 more)
 
 ### Community 46 - "testing/package.json"
 Cohesion: 0.05
@@ -569,17 +598,21 @@ Nodes (10): addMilliseconds(), AdvancingClock, Clock, isNonNegativeSafeInteger()
 Cohesion: 0.20
 Nodes (18): assertFiniteNumber(), assertNonEmptyString(), clamp(), compareStrings(), generateSimulationPlayers(), isFiniteNonNegativeNumber(), isNonEmptyString(), isNonNegativeSafeInteger() (+10 more)
 
+### Community 49 - "hosted-demo/src/browser.ts"
+Cohesion: 0.05
+Nodes (43): appScreen, customConnection, customInvitationCode, customInviteLink, customMoveActions, customMoves, customPanel, customParticipants (+35 more)
+
 ### Community 50 - "compilerOptions"
 Cohesion: 0.09
 Nodes (21): compilerOptions, composite, declaration, declarationMap, exactOptionalPropertyTypes, forceConsistentCasingInFileNames, isolatedModules, lib (+13 more)
 
 ### Community 52 - "local-demo/package.json"
 Cohesion: 0.08
-Nodes (23): esbuild, dependencies, @flarelobby/client, @flarelobby/cloudflare, @flarelobby/core, devDependencies, esbuild, vitest (+15 more)
+Nodes (23): dependencies, @flarelobby/client, @flarelobby/cloudflare, @flarelobby/core, devDependencies, esbuild, vitest, esbuild (+15 more)
 
 ### Community 53 - ".processPendingMatches"
 Cohesion: 0.14
-Nodes (8): getMatchSettlementErrorCode(), getMatchSettlementRetryDelay(), isRetryableMatchSettlementError(), normalizePositiveSafeInteger(), createObservabilityContext(), createObservabilitySink(), normalizeSampleRate(), observeOperation()
+Nodes (7): getMatchSettlementErrorCode(), getMatchSettlementRetryDelay(), isRetryableMatchSettlementError(), normalizePositiveSafeInteger(), createObservabilityContext(), createObservabilitySink(), normalizeSampleRate()
 
 ### Community 54 - "TransformStream"
 Cohesion: 0.10
@@ -589,9 +622,9 @@ Nodes (7): CompressionStream, DecompressionStream, FixedLengthStream, IdentityTr
 Cohesion: 0.04
 Nodes (45): author, bugs, url, dependencies, @flarelobby/core, description, devDependencies, @flarelobby/client (+37 more)
 
-### Community 57 - ".readPoolRow"
+### Community 57 - ".synchronizeAlarm"
 Cohesion: 0.18
-Nodes (3): getTicketSearchWidth(), parseSearchPolicy(), toPool()
+Nodes (3): normalizeSearchNow(), parseSearchPolicy(), toPool()
 
 ### Community 58 - "createRequestId"
 Cohesion: 0.24
@@ -605,9 +638,9 @@ Nodes (37): applyMigrations(), archiveDirectory, assert(), assertEqual(), config
 Cohesion: 0.08
 Nodes (23): compilerOptions, composite, declaration, declarationMap, lib, noEmit, paths, extends (+15 more)
 
-### Community 61 - "GatewayPrincipalEnvelope"
-Cohesion: 0.06
-Nodes (36): FLARE_LOBBY_OPERATION_HEADER, FlareLobbyObservabilityContext, observeHttpOperation(), IRoomDurableObject, readPositiveHeader(), ROOM_WEBSOCKET_ATTACHMENT_VERSION, RoomCloseOptions, RoomHostOperationOptions (+28 more)
+### Community 61 - "IRoomDurableObject"
+Cohesion: 0.07
+Nodes (13): IRoomDurableObject, RoomCloseOptions, RoomParticipantDisconnectOptions, RoomParticipantJoinOptions, RoomParticipantJoinResult, RoomParticipantLeaveOptions, RoomParticipantLeaveResult, RoomParticipantOperationOptions (+5 more)
 
 ### Community 63 - ".oxfmtrc.json"
 Cohesion: 0.25
@@ -641,9 +674,9 @@ Nodes (34): checkEntryPoints(), checkHistoricalDocuments(), checkPackedFiles(), 
 Cohesion: 0.12
 Nodes (16): author, bugs, url, description, engines, node, homepage, license (+8 more)
 
-### Community 73 - "RoomAuth.ts"
-Cohesion: 0.21
-Nodes (10): assertActiveRoom(), assertInitializedRoom(), assertPlayerRole(), assertWaitingRoom(), authenticateHost(), authenticateParticipant(), readRequiredSnapshot(), resolveGatewayPrincipal() (+2 more)
+### Community 73 - "RoomOperations.ts"
+Cohesion: 0.09
+Nodes (22): ParticipantRow, assertActiveRoom(), assertInitializedRoom(), assertPlayerRole(), assertWaitingRoom(), AuthenticatedRoomActor, authenticateHost(), authenticateParticipant() (+14 more)
 
 ### Community 78 - "compilerOptions"
 Cohesion: 0.09
@@ -685,9 +718,13 @@ Nodes (10): errors, migrationSql, migrationStatements, ratingSource, root, state
 Cohesion: 0.18
 Nodes (11): ADR-0005: パーティーマッチングとチーム編成をパーティー単位のチケットで行う, D1 スキーマ変更, Match Pool チケットの N 人拡張, Party Durable Object, `revision` と再開トークンとの整合, 代替案, 後続 Issue への分割線, 探索幅とレーティング参照値 (+3 more)
 
+### Community 93 - "TicketQueueDO"
+Cohesion: 0.13
+Nodes (7): normalizeCancellation(), normalizeCandidate(), normalizeEventQuery(), parseCandidate(), parseStoredTicketResult(), StorageAdapter, TicketQueueDO
+
 ### Community 94 - "cloudflare/test/rating.test.ts"
 Cohesion: 0.15
-Nodes (6): getMatchHistory, createGatewayPrincipal(), FakePreparedStatement, FakeSchemaDatabase, readStoredRating(), readStoredRatingState()
+Nodes (6): createGatewayPrincipal(), createGatewayWorker(), FakePreparedStatement, FakeSchemaDatabase, readStoredRating(), readStoredRatingState()
 
 ### Community 95 - "StreamError"
 Cohesion: 0.18
@@ -714,8 +751,12 @@ Cohesion: 0.14
 Nodes (14): Issue #26 完了条件と検証先, v0.1.0 公開前チェック, Workers 横断統合テスト, シミュレーション, 固定時計と固定乱数, 失敗ログの場所, 実行, 所要時間とタイムアウト (+6 more)
 
 ### Community 101 - "local-demo/src/index.ts"
-Cohesion: 0.25
-Nodes (8): DemoApp, DemoAssets, DemoEnv, demoWorker, gateway, lobby, readDemoPlayer(), authenticateDemoRpsRequest()
+Cohesion: 0.14
+Nodes (13): demoWorker, HostedDemoAssets, HostedDemoEnv, authenticateHostedRpsRequest(), DemoApp, DemoAssets, DemoEnv, demoWorker (+5 more)
+
+### Community 102 - "cloudflare/src/party.ts"
+Cohesion: 0.10
+Nodes (25): compareStrings(), DEFAULT_PARTY_IDLE_TTL_MS, DEFAULT_PARTY_INVITE_TTL_MS, DEFAULT_PARTY_MAX_SIZE, EventRow, InviteRow, MatchPoolCancellationStub, MemberRow (+17 more)
 
 ### Community 105 - "FlareLobby"
 Cohesion: 0.18
@@ -762,8 +803,8 @@ Cohesion: 0.31
 Nodes (7): createRequest(), createRoom(), joinRoom(), leaveRoom(), operationRequest(), testLobby, testWorker
 
 ### Community 118 - "matchmaking-settlement.test.ts"
-Cohesion: 0.06
-Nodes (23): defineFlareLobby(), FlareLobbyGatewayWorker, EnvWithoutD1, EnvWithoutRateLimits, Equal, ExampleApp, Expect, fullConfiguration (+15 more)
+Cohesion: 0.11
+Nodes (11): defineFlareLobby(), FlareLobbyGatewayWorker, createGatewayPrincipal(), createInitializedPool(), createResultLobby(), createTestParty(), deniedWorker, PartyUnderTest (+3 more)
 
 ### Community 119 - "compilerOptions"
 Cohesion: 0.15
@@ -813,9 +854,9 @@ Nodes (8): CORS とプリフライト処理, 共通入力検証, 利用制限, �
 Cohesion: 0.11
 Nodes (17): compilerOptions, composite, lib, module, moduleResolution, noEmit, paths, extends (+9 more)
 
-### Community 139 - "TicketQueueDO"
-Cohesion: 0.13
-Nodes (6): normalizeCancellation(), normalizeCandidate(), parseCandidate(), parseStoredTicketResult(), StorageAdapter, TicketQueueDO
+### Community 139 - "hosted-demo/src/rps.ts"
+Cohesion: 0.25
+Nodes (18): acceptRpsMove(), ensureRpsMatch(), createRpsResultId(), getRpsOutcome(), isRatingResult(), isRpsMove(), resolveRpsResult(), RPS_MOVES (+10 more)
 
 ### Community 145 - "core/tsconfig.json"
 Cohesion: 0.22
@@ -837,25 +878,25 @@ Nodes (7): JSON 通信プロトコル v1, エンコード、デコード、検�
 Cohesion: 0.29
 Nodes (7): D1 への永続化, ELO の利用, Glicko-2 の利用, チーム対応の試合結果, レーティングエンジン, 入力検証, 計算式と丸め
 
-### Community 150 - "durable-objects.ts"
-Cohesion: 0.15
-Nodes (11): FlareLobbyBindings, developmentLobby, allowedRateLimitDecision(), deniedRateLimitDecision(), migrateRateLimitSchema(), RateLimitDurableObject, RateLimitRow, PartyMembershipDurableObject (+3 more)
+### Community 150 - "include"
+Cohesion: 0.11
+Nodes (18): compilerOptions, composite, noEmit, paths, extends, include, ../../packages/cloudflare/src/index.ts, ../../packages/cloudflare/worker-configuration.d.ts (+10 more)
 
 ### Community 151 - "pull_request_template.md"
 Cohesion: 0.29
 Nodes (6): 変更内容, 完了条件, 対応 Issue, 検証, 概要, 設計・公開契約への影響
 
-### Community 152 - "isNonEmptyString"
-Cohesion: 0.20
-Nodes (18): asRecord(), findExistingMatch(), findExistingTeamMatch(), firstResultRow(), isFiniteNumber(), isNonEmptyString(), isNonNegativeSafeInteger(), isSafeInteger() (+10 more)
+### Community 152 - "durable-objects.ts"
+Cohesion: 0.16
+Nodes (10): developmentLobby, allowedRateLimitDecision(), deniedRateLimitDecision(), migrateRateLimitSchema(), RateLimitDurableObject, RateLimitRow, PartyMembershipDurableObject, FLARE_LOBBY_RATE_LIMIT_SCOPES (+2 more)
 
 ### Community 153 - "compilerOptions"
 Cohesion: 0.09
 Nodes (22): compilerOptions, declaration, declarationMap, exactOptionalPropertyTypes, forceConsistentCasingInFileNames, isolatedModules, lib, module (+14 more)
 
-### Community 154 - "MatchmakingMatchIntent"
-Cohesion: 0.22
-Nodes (4): MatchmakingMatchIntent, MatchmakingMatchProcessingOptions, MatchmakingMatchResult, normalizeMatchResult()
+### Community 154 - "compilerOptions"
+Cohesion: 0.11
+Nodes (18): compilerOptions, composite, lib, module, moduleResolution, noEmit, paths, extends (+10 more)
 
 ### Community 160 - "ADR-0001: Durable Object と SQLite を正本にする"
 Cohesion: 0.33
@@ -881,9 +922,9 @@ Nodes (6): calculation, decoded, glicko2Calculation, policy, revision, width
 Cohesion: 0.33
 Nodes (5): Analytics Engine, サンプリング, 構造化ログ, 秘匿方針, 観測基盤
 
-### Community 166 - "TicketQueueDO.ts"
+### Community 166 - "gateway.ts"
 Cohesion: 0.15
-Nodes (13): MatchmakingTicketMember, NormalizedCancellation, NormalizedCreation, ProcessedCommandRow, InFlightCreateRequest, isNonEmptyString(), isRecord(), normalizeCreation() (+5 more)
+Nodes (12): allowedAlgorithms, authenticateHostedDemoRequest(), getJwks(), HostedDemoPrincipal, jwksCache, normalizeProjectUrl(), readBearerToken(), verifyHostedDemoAccessToken() (+4 more)
 
 ### Community 177 - "カスタムルームの参加・退出・観戦"
 Cohesion: 0.40
@@ -892,6 +933,10 @@ Nodes (4): カスタムルームの参加・退出・観戦, 参加, 検証, 退
 ### Community 178 - "Documentation"
 Cohesion: 0.50
 Nodes (4): ExampleApp, getAccessToken(), lobby, stop
+
+### Community 179 - "TicketQueueDO.ts"
+Cohesion: 0.15
+Nodes (13): MatchmakingTicketMember, NormalizedCancellation, NormalizedCreation, ProcessedCommandRow, InFlightCreateRequest, isNonEmptyString(), isRecord(), normalizeCreation() (+5 more)
 
 ### Community 180 - "rps.test.ts"
 Cohesion: 0.50
@@ -913,13 +958,13 @@ Nodes (4): 0.1.0 - 2026-08-12, 品質と公開準備, 変更履歴, 追加
 Cohesion: 0.27
 Nodes (17): cancelQueue(), closeRoom(), createRoom(), element(), getAccessToken(), getClient(), joinQueue(), joinRoom() (+9 more)
 
-### Community 227 - "client.test.ts"
-Cohesion: 0.12
-Nodes (3): WebSocketConstructor, fakeWebSocketConstructor, fakeWebSocketConstructor
+### Community 227 - "compilerOptions"
+Cohesion: 0.11
+Nodes (15): compilerOptions, composite, lib, module, moduleResolution, noEmit, types, extends (+7 more)
 
-### Community 229 - "registerMatchResult"
-Cohesion: 0.20
-Nodes (14): createRatingEngine(), createRatingUpdateExtraBinds(), createRatingUpdateSql(), hasOwn(), isRatingAlgorithm(), normalizeRatingConfiguration(), normalizeRetryCount(), readMatchRecord() (+6 more)
+### Community 229 - "showError"
+Cohesion: 0.34
+Nodes (14): createCustomRoom(), createRequestId(), element(), getClient(), isCancelled(), joinCustomRoom(), joinRankedQueue(), setBusy() (+6 more)
 
 ### Community 231 - "Cloudflare: Worker"
 Cohesion: 0.67
@@ -931,11 +976,11 @@ Nodes (3): RequestInitCfPropertiesVaryAcceptHeader, RequestInitCfPropertiesVaryA
 
 ### Community 259 - "compilerOptions"
 Cohesion: 0.08
-Nodes (23): ESNext.Disposable, node, vite/client, vite.config.ts, compilerOptions, exactOptionalPropertyTypes, forceConsistentCasingInFileNames, isolatedModules (+15 more)
+Nodes (23): ESNext.Disposable, vite/client, vite.config.ts, compilerOptions, exactOptionalPropertyTypes, forceConsistentCasingInFileNames, isolatedModules, lib (+15 more)
 
 ### Community 260 - "client/test/custom-room.test.ts"
-Cohesion: 0.13
-Nodes (12): createFlareLobbyClient(), FetchImplementation, createClient(), webSocket, createClient(), readRequestError(), RFC-850, createClient() (+4 more)
+Cohesion: 0.07
+Nodes (15): createFlareLobbyClient(), FetchImplementation, WebSocketConstructor, fakeWebSocketConstructor, createClient(), webSocket, createClient(), readRequestError() (+7 more)
 
 ### Community 312 - "room-supplement.test.ts"
 Cohesion: 0.18
@@ -946,8 +991,8 @@ Cohesion: 0.17
 Nodes (12): browser build, CORS, D1 Migration, deploy dry-run, FlareLobby Standalone テンプレート, 例で示す操作, 停止, 初期化 (+4 more)
 
 ### Community 315 - "client/test/party.test.ts"
-Cohesion: 0.26
-Nodes (9): baseSnapshot(), cancelledTicket(), createFetch(), dissolvedSnapshot(), joinedSnapshot(), pool, reconnectOptions, waitingTicket() (+1 more)
+Cohesion: 0.13
+Nodes (10): baseSnapshot(), cancelledTicket(), createFetch(), dissolvedSnapshot(), FakeWebSocket, joinedSnapshot(), pool, reconnectOptions (+2 more)
 
 ### Community 316 - "room-websocket-handler.test.ts"
 Cohesion: 0.31
@@ -958,24 +1003,32 @@ Cohesion: 0.25
 Nodes (6): createTicket(), fetchWorker(), pool, testLobby, testWorker, TicketResponse
 
 ### Community 319 - "0002_rating.sql"
-Cohesion: 0.39
-Nodes (6): flarelobby_rating_match_participants, flarelobby_rating_matches, flarelobby_rating_seasons, flarelobby_ratings, flarelobby_team_rating_match_participants, flarelobby_team_rating_matches
+Cohesion: 0.70
+Nodes (4): flarelobby_rating_match_participants, flarelobby_rating_matches, flarelobby_rating_seasons, flarelobby_ratings
 
-### Community 320 - "rating.type-test.ts"
+### Community 320 - "compilerOptions"
+Cohesion: 0.14
+Nodes (13): compilerOptions, allowImportingTsExtensions, composite, declaration, declarationMap, noEmit, types, extends (+5 more)
+
+### Community 321 - "party-gateway.test.ts"
+Cohesion: 0.18
+Nodes (10): getPartyWebSocketRoute(), baseConfiguration, createParty(), fetchWorker(), listEventTypes(), PartyMemberResponse, PartySnapshotResponse, pool (+2 more)
+
+### Community 322 - "configuration.type-test.ts"
 Cohesion: 0.17
-Nodes (10): EloCalculation, EloEngine, Glicko2Calculation, Glicko2CalculationInput, Glicko2Engine, RatingCalculation, RatingCalculationInput, RatingEngine (+2 more)
-
-### Community 321 - "MatchmakingTicketEventQueryOptions"
-Cohesion: 0.47
-Nodes (3): MatchmakingTicketEvent, MatchmakingTicketEventQueryOptions, normalizeEventQuery()
+Nodes (11): EnvWithoutD1, EnvWithoutRateLimits, Equal, ExampleApp, Expect, fullConfiguration, fullWorker, _generatedEnvSatisfiesBindingContract (+3 more)
 
 ### Community 323 - "client/test/matchmaking.test.ts"
-Cohesion: 0.24
-Nodes (6): createFetch(), matchedTicket(), matchRoomSnapshot(), pool, waitingTicket(), webSocket
+Cohesion: 0.13
+Nodes (7): createFetch(), FakeWebSocket, matchedTicket(), matchRoomSnapshot(), pool, waitingTicket(), webSocket
 
 ### Community 324 - "ADR-0004: 試合結果の信頼境界をサーバー側に置く"
 Cohesion: 0.40
 Nodes (5): ADR-0004: 試合結果の信頼境界をサーバー側に置く, 代替案, 決定, 結果, 背景
+
+### Community 325 - "公開じゃんけんデモ（hosted-demo）"
+Cohesion: 0.18
+Nodes (10): dry-run と deploy, マイグレーション, 保存データと削除（初期方針：最大7日）, 停止手順・費用対策, 公開じゃんけんデモ（hosted-demo）, 検証記録, 構成と境界, 環境作成 (+2 more)
 
 ### Community 326 - "npm-standalone-worker.ts"
 Cohesion: 0.67
@@ -985,9 +1038,9 @@ Nodes (3): lobby, NpmStandaloneApp, verifyApplicationToken()
 Cohesion: 0.67
 Nodes (3): lobby, StandaloneApp, verifyApplicationToken()
 
-### Community 336 - "listMatchHistory"
-Cohesion: 0.20
-Nodes (10): applyRatingSchemaUpgrades(), assertUpgradeColumnsExist(), encodeHistoryCursor(), ensureRatingSchema(), isDuplicateColumnError(), listMatchHistory(), normalizeHistoryLimit(), readMatchRecords() (+2 more)
+### Community 336 - "invite.ts"
+Cohesion: 0.31
+Nodes (9): renderInviteLink(), buildInviteUrl(), classifyInviteJoinError(), describeInviteJoinFailure(), INVITE_CODE_PATTERN, INVITE_FAILURE_MESSAGES, InviteJoinFailure, isInviteCode() (+1 more)
 
 ### Community 338 - "renderCustomResult"
 Cohesion: 0.67
@@ -995,47 +1048,91 @@ Nodes (3): renderCustomResult(), resolveResult(), submitCustomMove()
 
 ### Community 339 - "MatchPoolDurableObject"
 Cohesion: 0.12
-Nodes (5): MatchPoolDurableObject, PartyQueueStub, ticketEventTag(), recordQualityMetric(), PartyQueueStartResult
+Nodes (5): MatchPoolDurableObject, normalizeEventQuery(), normalizeTicketId(), parseTicketEventPath(), ticketEventTag()
 
-### Community 347 - "MatchmakingTicketImpl"
-Cohesion: 0.07
-Nodes (8): ClientWebSocketOptions, FlareLobbyWebSocketConnection, CustomRoomTransport, isRetryableReconnectError(), isTerminalStatus(), MatchmakingTicketImpl, MatchmakingTransport, PartyTransport
+### Community 347 - "FlareLobbyObservabilityContext"
+Cohesion: 0.20
+Nodes (3): MatchPoolGatewayStub, MatchPoolInitializationOptions, FlareLobbyObservabilityContext
 
-### Community 348 - "isRatingResult"
+### Community 348 - "openRoom"
 Cohesion: 0.29
-Nodes (8): compareStrings(), isRatingResult(), isRecord(), normalizeIdentifier(), normalizeMatchResultInput(), normalizePlayerIdList(), normalizeTeamMatchResultInput(), toRatingResult()
+Nodes (10): cancelRankedQueue(), isMove(), leaveRoom(), logout(), openRoom(), renderControls(), renderCustomResult(), renderRoom() (+2 more)
 
-### Community 349 - "getRating"
-Cohesion: 0.36
-Nodes (8): createDeviationBinds(), createRatingInsert(), ensureRatingRows(), ensureTeamRatingRows(), getRating(), normalizeRatingError(), readRatingRow(), toRating()
+### Community 349 - ".fetch"
+Cohesion: 0.22
+Nodes (5): normalizeNonNegativeSafeInteger(), parseAfterQueryValue(), verifyGatewayPrincipal(), hasWebSocketProtocol(), readGatewayToken()
 
-### Community 350 - "readMatchedPlayers"
+### Community 351 - "cloudflare/test/party.test.ts"
+Cohesion: 0.24
+Nodes (5): createGatewayPrincipal(), createPartyWithLeader(), DurableObjectSqlBoundary, newPartyId(), TestMember
+
+### Community 355 - "MatchmakingMatchResult"
+Cohesion: 0.29
+Nodes (3): MatchmakingMatchProcessingOptions, MatchmakingMatchResult, normalizeMatchResult()
+
+### Community 356 - "verify-migrations.mjs"
+Cohesion: 0.33
+Nodes (6): demoRoot, hostedDir, normalize(), packageDir, pairs, read()
+
+### Community 357 - "startGuestSession"
+Cohesion: 0.48
+Nodes (7): attachClient(), getAccessToken(), getSupabase(), refreshRating(), restoreSession(), showMode(), startGuestSession()
+
+### Community 358 - "MatchmakingMatchIntent"
+Cohesion: 0.33
+Nodes (4): MatchPoolGatewayStub, readMatchedPlayers(), toPool(), MatchmakingMatchIntent
+
+### Community 359 - "TurnstileApi"
+Cohesion: 0.33
+Nodes (3): initTurnstileWidget(), readCaptchaToken(), TurnstileApi
+
+### Community 361 - "0002_base_rating.sql"
+Cohesion: 0.70
+Nodes (4): flarelobby_rating_match_participants, flarelobby_rating_matches, flarelobby_rating_seasons, flarelobby_ratings
+
+### Community 362 - "MatchmakingPool"
 Cohesion: 0.50
-Nodes (3): MatchPoolGatewayStub, readMatchedPlayers(), toPool()
+Nodes (5): MatchedPlayers, MatchedPlayers, MatchmakingPoolConfiguration, MatchmakingMatchRoomOptions, MatchmakingPool
 
-### Community 351 - "party-matchmaking.test.ts"
+### Community 363 - "flarelobby_team_rating_matches"
+Cohesion: 0.67
+Nodes (3): flarelobby_team_rating_match_participants, flarelobby_team_rating_matches, flarelobby_rating_seasons
+
+### Community 364 - "hosted-demo 専用マイグレーション"
 Cohesion: 0.50
-Nodes (3): createGatewayPrincipal(), createTestParty(), PartyUnderTest
+Nodes (3): hosted-demo 専用マイグレーション, 適用手順, 適用順と元ファイルの照合
+
+### Community 365 - "hosted-demo/scripts/build-browser.mjs"
+Cohesion: 0.50
+Nodes (3): config, demoRoot, workspaceRoot
+
+### Community 366 - "refreshRankedState"
+Cohesion: 0.67
+Nodes (4): refreshRankedState(), renderRankedResult(), startRankedPolling(), stopRankedPolling()
+
+### Community 367 - "flarelobby_team_rating_matches"
+Cohesion: 0.67
+Nodes (3): flarelobby_team_rating_match_participants, flarelobby_team_rating_matches, flarelobby_rating_seasons
 
 ## Knowledge Gaps
-- **1880 isolated node(s):** `$schema`, `changelog`, `commit`, `fixed`, `linked` (+1875 more)
+- **2020 isolated node(s):** `$schema`, `changelog`, `commit`, `fixed`, `linked` (+2015 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **167 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **169 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `RoomDurableObject` connect `RoomDurableObject` to `room.ts`, `local-demo/src/index.ts`, `cloudflare/src/index.ts`, `client-integration.test.ts`, `websocket.test.ts`, `config.ts`, `cloudflare/test/custom-room.test.ts`, `durable-objects.ts`, `room-supplement.test.ts`, `RoomPersistence`, `custom-room-list.test.ts`, `GatewayPrincipalEnvelope`?**
-  _High betweenness centrality (0.082) - this node is a cross-community bridge._
-- **Why does `MatchPoolDurableObject` connect `MatchPoolDurableObject` to `IMatchPoolDurableObject`, `match-pool.ts`, `local-demo/src/index.ts`, `cloudflare/src/index.ts`, `party-matchmaking.test.ts`, `RoomDurableObject`, `MatchPoolGatewayStub`, `config.ts`, `.processPendingMatches`, `durable-objects.ts`, `matchmaking-settlement.test.ts`, `.readPoolRow`, `normalizeTicketId`, `match-pool.test.ts`?**
-  _High betweenness centrality (0.046) - this node is a cross-community bridge._
-- **Why does `IRoomDurableObject` connect `GatewayPrincipalEnvelope` to `room.ts`, `RoomDurableObject`, `cloudflare/src/custom-room.ts`, `cloudflare/src/index.ts`, `durable-objects.ts`, `RoomPersistence`?**
-  _High betweenness centrality (0.037) - this node is a cross-community bridge._
+- **Why does `RoomDurableObject` connect `RoomDurableObject` to `room.ts`, `room-supplement.test.ts`, `cloudflare/src/index.ts`, `local-demo/src/index.ts`, `client-integration.test.ts`, `websocket.test.ts`, `config.ts`, `security.ts`, `cloudflare/test/custom-room.test.ts`, `durable-objects.ts`, `RoomPersistence`, `custom-room-list.test.ts`, `IRoomDurableObject`?**
+  _High betweenness centrality (0.070) - this node is a cross-community bridge._
+- **Why does `MatchPoolDurableObject` connect `MatchPoolDurableObject` to `IMatchPoolDurableObject`, `cloudflare/src/index.ts`, `match-pool.ts`, `local-demo/src/index.ts`, `RoomDurableObject`, `config.ts`, `.processPendingMatches`, `matchmaking-settlement.test.ts`, `durable-objects.ts`, `.synchronizeAlarm`, `FlareLobbyObservabilityContext`, `.readTicketEvents`, `match-pool.test.ts`?**
+  _High betweenness centrality (0.034) - this node is a cross-community bridge._
+- **Why does `IRoomDurableObject` connect `IRoomDurableObject` to `room.ts`, `cloudflare/src/index.ts`, `RoomDurableObject`, `cloudflare/src/custom-room.ts`, `RoomWebSocketDependencies`, `RoomOperationsDependencies`, `durable-objects.ts`?**
+  _High betweenness centrality (0.032) - this node is a cross-community bridge._
 - **What connects `$schema`, `changelog`, `commit` to the rest of the system?**
-  _1880 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _2020 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Cloudflare: Worker` be split into smaller, more focused modules?**
   _Cohesion score 0.002347417840375587 - nodes in this community are weakly interconnected._
 - **Should `room.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.059940059940059943 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.05335628227194492 - nodes in this community are weakly interconnected._
 - **Should `IMatchPoolDurableObject` be split into smaller, more focused modules?**
-  _Cohesion score 0.0945945945945946 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.10338680926916222 - nodes in this community are weakly interconnected._
