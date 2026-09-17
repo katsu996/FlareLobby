@@ -70,6 +70,18 @@ requireText("docs/.vitepress/config.mts", "locales:");
 requireText("docs/.vitepress/config.mts", 'link: "/en/"');
 requireText("docs/.vitepress/config.mts", "i18nRouting: false");
 requireText("docs/.vitepress/config.mts", 'buttonText: "Search"');
+requireText("README.md", "./docs/releases/current.md");
+requireText("README.md", "./docs/versioning.md");
+requireText("README.md", "./docs/upgrading.md");
+requireText("README.en.md", "./docs/releases/current.md");
+requireText("README.en.md", "./docs/versioning.md");
+requireText("README.en.md", "./docs/upgrading.md");
+requireText("docs/public/llms.txt", "docs/releases/current.md");
+requireText("docs/public/llms.txt", "docs/versioning.md");
+requireText("docs/public/llms.txt", "docs/upgrading.md");
+requireText("docs/.vitepress/config.mts", "/releases/current");
+requireText("docs/.vitepress/config.mts", "/versioning");
+requireText("docs/.vitepress/config.mts", "/upgrading");
 requireText("README.md", "pnpm check:docs");
 requireText("README.md", "pnpm release:check");
 requireText("README.md", "MIT License");
@@ -204,7 +216,10 @@ const markdownFiles = [
   "docs/rating.md",
   "docs/security.md",
   "docs/testing.md",
+  "docs/versioning.md",
+  "docs/upgrading.md",
   "docs/releases/v0.1.0.md",
+  "docs/releases/current.md",
   "CHANGELOG.md",
   "packages/core/README.md",
   "packages/cloudflare/README.md",

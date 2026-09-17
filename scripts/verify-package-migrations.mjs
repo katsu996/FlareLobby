@@ -405,6 +405,15 @@ try {
   writeConfiguration("legacy-migrations");
   applyMigrations(legacyStateDirectory);
   execute(legacyStateDirectory, sampleDataSql);
+  execute(
+    legacyStateDirectory,
+    "INSERT INTO flarelobby_custom_room_index " +
+      "(room_id, room_name, mode, region, visibility, join_method, state, " +
+      "max_players, player_count, available_slots, max_spectators, " +
+      "spectator_count, available_spectator_slots, revision, created_at, updated_at) " +
+      "VALUES ('room-79', '検証ルーム', 'duel', 'jp', 'public', 'public', 'waiting', " +
+      "4, 1, 3, 0, 0, 0, 1, 1, 1)",
+  );
   const legacyBefore = schemaSnapshot(legacyStateDirectory);
   assert(
     !legacyBefore.columns.flarelobby_rating_seasons.includes("algorithm"),
@@ -443,6 +452,21 @@ try {
     countRows(legacyStateDirectory, "flarelobby_rating_matches"),
     1,
     "旧試合履歴が失われました",
+  );
+  assertEqual(
+    countRows(legacyStateDirectory, "flarelobby_custom_room_index"),
+    1,
+    "旧公開ルーム一覧のデータが失われました",
+  );
+  const preservedRoom = queryRows(
+    legacyStateDirectory,
+    "SELECT room_name, state, player_count FROM flarelobby_custom_room_index " +
+      "WHERE room_id = 'room-79'",
+  )[0];
+  assertEqual(
+    preservedRoom,
+    { room_name: "検証ルーム", state: "waiting", player_count: 1 },
+    "旧公開ルーム一覧の行が更新後も保持されていません",
   );
   assertEqual(
     countRows(legacyStateDirectory, demoTable),

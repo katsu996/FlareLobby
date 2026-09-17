@@ -55,6 +55,9 @@ TypeScript の Client SDK から、認証済みのルーム作成・参加、パ
 | Cloudflare Binding、Migration、デプロイを設定する  | [Cloudflare 設定](./docs/cloudflare-configuration.md)                                                                                   |
 | 設計境界と状態遷移を確認する                       | [アーキテクチャ](./docs/architecture.md)                                                                                                |
 | テスト、シミュレーション、文書検証を実行する       | [テストと検証](./docs/testing.md)                                                                                                       |
+| 現行の公開状態と未公開の区別を確認する             | [現行リリース情報](./docs/releases/current.md)                                                                                          |
+| 版の付け方と互換範囲を確認する                     | [バージョン方針](./docs/versioning.md)                                                                                                  |
+| データを失わずに更新する                           | [更新手順](./docs/upgrading.md)                                                                                                         |
 | v0.1.0 の既知の制限と公開前確認を読む              | [v0.1.0 Release Note](./docs/releases/v0.1.0.md)                                                                                        |
 
 設計の正本は GitHub の [Issue #1](https://github.com/katsu996/FlareLobby/issues/1) です。
@@ -206,7 +209,10 @@ Pull Request でビルドを検証し、`main` への push または `main` 上�
 ## 変更履歴、Release Note、ライセンス
 
 - [CHANGELOG](./CHANGELOG.md)
-- [v0.1.0 Release Note](./docs/releases/v0.1.0.md)
+- [現行リリース情報](./docs/releases/current.md)
+- [バージョン方針](./docs/versioning.md)
+- [更新手順](./docs/upgrading.md)
+- [v0.1.0 Release Note](./docs/releases/v0.1.0.md)（歴史記録）
 - [MIT License](./LICENSE)
 
 npm publish と GitHub Release 作成は、所有者の明示的な最終承認後にのみ実行します。
