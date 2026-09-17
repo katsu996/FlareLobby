@@ -79,4 +79,24 @@ describe("VirtualClock", () => {
     expect(() => addMilliseconds(1, -1)).toThrow(RangeError);
     expect(() => addMilliseconds(8_640_000_000_000_000, 1)).toThrow(RangeError);
   });
+
+  it("pins monotonic order guarantees (Issue #114)", () => {
+    const clock = createVirtualClock(1_000);
+
+    // 同一時刻への advanceTo と 0 進行は許容し、時刻は進まない。
+    expect(clock.advanceTo(1_000)).toBe(1_000);
+    expect(clock.advanceBy(0)).toBe(1_000);
+    expect(clock.now()).toBe(1_000);
+    expect(clock.nowTimestamp()).toBe(new Date(1_000).toISOString());
+
+    // 同じ操作列は同じ時刻列になる。
+    const first = createVirtualClock(0);
+    const second = createVirtualClock(0);
+    for (const step of [100, 0, 250, 1_000]) {
+      expect(first.advanceBy(step)).toBe(second.advanceBy(step));
+    }
+    expect(first.now()).toBe(1_350);
+    expect(second.now()).toBe(1_350);
+    expect(first.nowTimestamp()).toBe(second.nowTimestamp());
+  });
 });

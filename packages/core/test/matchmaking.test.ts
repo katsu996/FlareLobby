@@ -644,3 +644,116 @@ describe("候補探索の打ち切りと品質比較の分岐", () => {
     );
   });
 });
+
+describe("境界値の回帰（Issue #114）", () => {
+  it("非対称な待機時間では両者の検索幅を満たさないと不成立になる", () => {
+    // 片方が 60 秒待機（幅 400）でも、もう片方が参加直後（幅 75）なら
+    // レート差 100 は新しい側の幅を超えるため不成立。
+    expect(
+      evaluateMatchCandidate(
+        ticket("a", 1_500, NOW - 60_000),
+        ticket("b", 1_600, NOW),
+        { now: NOW },
+      ),
+    ).toBeNull();
+    expect(
+      evaluateMatchCandidate(
+        ticket("a", 1_500, NOW - 60_000),
+        ticket("b", 1_575, NOW),
+        { now: NOW },
+      ),
+    ).not.toBeNull();
+    // 両者が 60 秒待機すればレート差 100 は両幅 400 以内で成立する。
+    expect(
+      evaluateMatchCandidate(
+        ticket("a", 1_500, NOW - 60_000),
+        ticket("b", 1_600, NOW - 60_000),
+        { now: NOW },
+      ),
+    ).not.toBeNull();
+  });
+
+  it("レート差上限の境界を固定する（既定 400 とカスタム上限）", () => {
+    // 既定段階の最終幅 400：差 400 は成立、401 は不成立。
+    expect(
+      evaluateMatchCandidate(
+        ticket("a", 1_500, NOW - 60_000),
+        ticket("b", 1_900, NOW - 60_000),
+        { now: NOW },
+      ),
+    ).not.toBeNull();
+    expect(
+      evaluateMatchCandidate(
+        ticket("a", 1_500, NOW - 60_000),
+        ticket("b", 1_901, NOW - 60_000),
+        { now: NOW },
+      ),
+    ).toBeNull();
+
+    // カスタム上限 100：差 100 は成立、101 は不成立。
+    const policy: MatchmakingSearchPolicy = {
+      stages: [
+        { afterMs: 0, maxRatingDifference: 50 },
+        { afterMs: 10_000, maxRatingDifference: 100 },
+      ],
+      maxRatingDifference: 100,
+    };
+    expect(getMatchmakingSearchWidth(policy, 20_000)).toBe(100);
+    expect(
+      evaluateMatchCandidate(
+        ticket("a", 1_500, NOW - 20_000),
+        ticket("b", 1_600, NOW - 20_000),
+        { now: NOW, policy },
+      ),
+    ).not.toBeNull();
+    expect(
+      evaluateMatchCandidate(
+        ticket("a", 1_500, NOW - 20_000),
+        ticket("b", 1_601, NOW - 20_000),
+        { now: NOW, policy },
+      ),
+    ).toBeNull();
+  });
+
+  it("3 人チケットの最小ケースを平均レートで固定する", () => {
+    const trioPool: MatchmakingPool = { ...pool, teamSize: 3, maxPartySize: 3 };
+    const trio = (id: string, ratings: readonly number[]) =>
+      partyTicket(id, ratings, NOW, { pool: trioPool });
+
+    // 平均 1,520 同士は差 0 で成立し、最大構成員偏差は 20。
+    const evaluation = evaluateMatchCandidate(
+      trio("a", [1_500, 1_520, 1_540]),
+      trio("b", [1_500, 1_520, 1_540]),
+      { now: NOW },
+    );
+    expect(evaluation).not.toBeNull();
+    expect(evaluation?.quality.ratingDifference).toBe(0);
+    expect(evaluation?.quality.maxMemberDeviation).toBe(20);
+
+    // 平均差 120（1,520 と 1,640）は既定の初期幅 75 を超えて不成立。
+    expect(
+      evaluateMatchCandidate(
+        trio("a", [1_500, 1_520, 1_540]),
+        trio("c", [1_620, 1_640, 1_660]),
+        { now: NOW },
+      ),
+    ).toBeNull();
+  });
+
+  it("同時刻チケットの選択は入力順によらず決定論的になる", () => {
+    const tickets = [
+      ticket("c", 1_500),
+      ticket("a", 1_500),
+      ticket("b", 1_500),
+      ticket("d", 1_500),
+    ];
+    const options = { now: NOW } as const;
+
+    const forward = selectMatchCandidates(tickets, options);
+    const reversed = selectMatchCandidates([...tickets].reverse(), options);
+
+    expect(reversed).toEqual(forward);
+    expect(forward[0]?.candidate.ticketIds).toEqual(["a", "b"]);
+    expect(forward).toHaveLength(2);
+  });
+});
