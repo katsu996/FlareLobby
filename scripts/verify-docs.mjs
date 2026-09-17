@@ -254,6 +254,7 @@ const markdownFiles = [
   "docs/upgrading.md",
   "docs/releases/v0.1.0.md",
   "docs/releases/current.md",
+  "docs/public/llms.txt",
   "docs/adr/0001-durable-object-sqlite.md",
   "docs/adr/0002-reconnect-and-revision.md",
   "docs/adr/0003-public-room-index.md",
@@ -274,11 +275,19 @@ for (const markdownFile of markdownFiles) {
   const content = read(markdownFile);
   for (const match of content.matchAll(/\]\(([^)#]+)(?:#[^)]+)?\)/gu)) {
     const target = match[1];
-    if (
-      target === undefined ||
-      target.startsWith("/") ||
-      /^[a-z][a-z\d+.-]*:/i.test(target)
-    ) {
+    if (target === undefined) {
+      continue;
+    }
+    const rawPrefix =
+      "https://raw.githubusercontent.com/katsu996/FlareLobby/main/";
+    if (target.startsWith(rawPrefix)) {
+      const relativePath = target.slice(rawPrefix.length);
+      if (!existsSync(resolve(root, relativePath))) {
+        errors.push(`${markdownFile} のリンク先がありません: ${target}`);
+      }
+      continue;
+    }
+    if (target.startsWith("/") || /^[a-z][a-z\d+.-]*:/i.test(target)) {
       continue;
     }
     if (!existsSync(resolve(root, dirname(markdownFile), target))) {
