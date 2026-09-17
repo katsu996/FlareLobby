@@ -146,6 +146,8 @@ retryAfterSeconds?: number })`、公開プロパティは
 
 `client.dispose()` と `destroy()` はマッチング Ticket の待機・接続・購読・再接続タイマーも
 ローカルで解放します。サーバー上の Ticket の取消要求は送信しません。
+サーバー上の Ticket も取り消す場合は終了の前に既存の `ticket.cancel()` を呼び出し、
+利用者へ渡された対戦 Room は変更しない契約に注意してください。
 
 `ClientRequestOptions` は `method?`、`headers?`、JSON `body?`、`signal?`、
 `idempotent?`、`requestId?`、`timeoutMs?`、`ClientWebSocketOptions` は `signal?`、protocols、
@@ -162,12 +164,22 @@ HTTP の非成功応答は本文が JSON・非 JSON・空・不正のいずれ�
 `FlareLobbyError` へ `httpStatus` を保持し、有効な `Retry-After` があれば
 `retryAfterSeconds` も保持します（`429` に限らず `503` などでも保持）。
 `code` の意味は変えず、レート制限の `CONFLICT` を新しいコードへ変更しません。
+本文に有効な `code` と安全な `message` があればその `code` を保持し、本文に
+有効なエラーがないときだけ `400`/`422` → `INVALID_PAYLOAD`、`401` →
+`UNAUTHENTICATED`、`403` → `FORBIDDEN`、`409` → `CONFLICT`、その他 →
+`CONNECTION_FAILED` へ変換します。
 `Retry-After` は前後空白除去後に非負の整数秒または有効な HTTP 日時として解釈し、
 日時は `max(0, ceil((retryAt - now) / 1000))` で秒数化します。負数・小数・
 非数値・不正日時・極端に大きい値・欠落は `retryAfterSeconds` 未設定です。
 ネットワーク失敗など HTTP 応答前の失敗には `httpStatus` を付けません。
+`httpStatus` と `retryAfterSeconds` は `toJSON()` と通信 Envelope の wire 形式には
+含まれず、WebSocket エラーには付けません。
 自動リトライや認証更新は行いません。別オリジンでは CORS の
 `Access-Control-Expose-Headers: Retry-After` によりブラウザから読み取れます。
+401/403/満員/429/TIMEOUT の表示分け、pending 中の抑止、失敗後の戻し方は
+[Client SDK](./client.md#エラー表示レシピ) のレシピに従い、
+`code` で分岐します。`TIMEOUT` は `requestId` がある場合は保持し、新しい
+`requestId` で勝手に再送せず同じ `requestId` で確認します。
 
 ### Room ハンドル
 
@@ -477,6 +489,16 @@ Room の既定値は `DEFAULT_DISCONNECT_GRACE_PERIOD_MS`、`DEFAULT_EVENT_HISTO
 含まれ、Pool の `teamSize` を併せて指定することでパーティーキューを検証できます。
 
 ## エラーコード
+
+通信・操作エラーの一覧は `packages/core/src/protocol.ts` の
+`FLARE_LOBBY_ERROR_CODES` と一致します。未実装のコードは予告しません。
+ブラウザでの表示分け、pending 中の重複抑止、失敗後の再試行可能状態への戻し方、
+`TIMEOUT` 時の `requestId` 再送禁止、`dispose()` がサーバー Ticket を取り消さない
+契約は [Client SDK](./client.md#エラー表示レシピ) のレシピを
+正とします。型検査済みの分岐例は
+[`docs/examples/client-api.ts`](./examples/client-api.ts) の
+`describeLobbyError()`、`createRoomOnce()`、`requestWithTimeoutConfirmation()`、
+`disposeAfterCancel()` を参照してください。
 
 ### 通信・操作エラー
 

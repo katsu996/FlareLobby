@@ -80,6 +80,80 @@ try {
 }
 ```
 
+### エラー表示レシピ
+
+401/403/満員/429/TIMEOUT の表示分けは次の表に従います。分岐は `FlareLobbyError.code` だけで行い、`message` の文言では分岐しません。
+`httpStatus` は補助表示用、`retryAfterSeconds` は有効な `Retry-After` がある
+ときだけ設定されます。型検査済みの分岐例は
+[`docs/examples/client-api.ts`](./examples/client-api.ts) の
+`describeLobbyError()` を参照してください。
+
+| 利用者の表示分け | `code` | `httpStatus` の目安 | `retryAfterSeconds` |
+| --- | --- | --- | --- |
+| ログイン切れ・未認証として再認証へ誘導する | `UNAUTHENTICATED` | `401`（本文なし時） | 付かない |
+| 権限不足として設定・役割の確認へ誘導する | `FORBIDDEN` | `403`（本文なし時） | 付かない |
+| 満員として空き待ち・再参加へ誘導する | `ROOM_FULL` | サーバー本文の `code` を保持するため不定 | 付かないことが多い |
+| 終了済みとして新しい Room・結果へ誘導する | `ROOM_FINISHED` | サーバー本文の `code` を保持するため不定 | 付かない |
+| 状態変化・重複として最新状態の再取得へ誘導する。`requestId` を変えて再送しない | `CONFLICT` | `409`（本文なし時）。`429`/`503` でも本文の `CONFLICT` を保持する | 有効な `Retry-After` があるときだけ表示する |
+| 取り消しとして新しい要求の作り直しへ誘導する | `CANCELLED` | 付かない | 付かない |
+| 期限切れとして未処理確定とみなさず、同じ `requestId` での確認へ誘導する。勝手に再送しない | `TIMEOUT` | 付かない（`requestId` はある場合に保持する） | 付かない |
+| 通信失敗として有界な再試行・同じ `requestId` での確認へ誘導する | `CONNECTION_FAILED` | 本文なし時の既定（`429`/`503` などでも本文がなければこの `code`）。本文があれば本文の `code` を保持する | 有効な `Retry-After` があれば `429` に限らず保持する |
+
+読み分けの規則は `packages/client/src/client.ts` の実装どおりです。
+
+- HTTP 失敗は本文の形式（JSON・非 JSON・空・不正）にかかわらず `httpStatus`
+  を保持します。本文に有効な `code` と安全な `message` があれば、その `code`
+  を保持したまま `httpStatus`（と有効な `Retry-After` があれば
+  `retryAfterSeconds`）を付けます。本文に有効なエラーがないときだけ状態別の
+  既定へ変換します（`400`/`422` → `INVALID_PAYLOAD`、`401` →
+  `UNAUTHENTICATED`、`403` → `FORBIDDEN`、`409` → `CONFLICT`、その他 →
+  `CONNECTION_FAILED`）。
+- `httpStatus` と `retryAfterSeconds` は HTTP 失敗時のみ設定されます。
+  `toJSON()` と通信 Envelope の wire 形式には含まれず、WebSocket エラーには
+  付けません。
+- WebSocket 切断の `code` 変換は `1008`/`4003`/`4403` → `FORBIDDEN`、
+  `4001`/`4401` → `UNAUTHENTICATED`、`4009`/`4409` → `CONFLICT`、
+  `4410` → `ROOM_FINISHED`、その他 → `CONNECTION_FAILED` です。
+  切断理由の表示分けも `code` で行います。
+
+### 重複操作の抑止と失敗後の戻し方
+
+Client SDK に pending 中の自動抑止はありません。ボタンの二重押しなどは利用者側で
+抑止してください。失敗後は `dispose()` 後を除き、同じ Client・Room・Ticket
+ハンドルを再利用できます。
+
+```ts
+let pending = false;
+
+async function createRoomOnce(): Promise<void> {
+  if (pending) {
+    return;
+  }
+  pending = true;
+  try {
+    await client.createCustomRoom({ maxPlayers: 4 });
+  } catch (error) {
+    showErrorByCode(error);
+    // 失敗後のハンドルは再試行可能状態のままです。ボタン有効化など利用者側の
+    // 状態だけ戻し、新しい要求を作り直してください。
+  } finally {
+    pending = false;
+  }
+}
+```
+
+- 失敗した操作の `requestId` を変えた再送は、冪等確認ではなく新規操作になります。
+  コマンドと Payload を変更した再送に同じ `requestId` を再利用しないでください。
+- `TIMEOUT` は成功確定でも失敗確定でもありません。同じ `requestId` で結果を確認し、
+  必要なら新しい要求を作ってください。`TIMEOUT` を未処理確定とみなして新しい
+  `requestId` で勝手に再送しないでください。型検査例は
+  `requestWithTimeoutConfirmation()` を参照してください。
+- `dispose()`（別名 `destroy()`）以後の操作は `CANCELLED` になります。
+  終了はローカル解放であり、サーバー上の Ticket や利用者へ渡された対戦 Room は
+  変更しません。サーバー上の Ticket も取り消す場合は、終了の前に既存の
+  `ticket.cancel()` を呼び出してください。型検査例は `disposeAfterCancel()`
+  を参照してください。
+
 ## タイムアウト
 
 HTTP 要求、WebSocket 接続、WebSocket コマンドには期限を設定できます。
@@ -106,7 +180,8 @@ await connection.send("room.set_ready", { ready: true }, { timeoutMs: 5_000 });
 上限超過は `INVALID_PAYLOAD` です。期限切れは `TIMEOUT` になり、`requestId` が
 ある場合は保持します。`AbortSignal` や `dispose()` による中止は `CANCELLED` です。
 `TIMEOUT` が発生してもサーバー側処理は完了している可能性があるため、自動再送は
-しません。処理結果が不明なら同じ `requestId` で確認します。
+しません。`TIMEOUT` を未処理確定とみなして新しい `requestId` で勝手に再送せず、
+処理結果が不明なら同じ `requestId` で確認します。
 
 HTTP の期限は要求開始からトークン取得、`fetch`、本文受信・解析まで、WebSocket
 接続の期限は接続開始からトークン取得と `open` 完了まで、コマンドの期限は `send`
