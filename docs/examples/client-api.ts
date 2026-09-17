@@ -129,8 +129,11 @@ export async function requestWithTimeoutConfirmation(): Promise<void> {
 // 先に `ticket.cancel()` を呼ぶ。渡された対戦 Room も変更しない。
 export async function disposeAfterCancel(): Promise<void> {
   const ticket = await lobby.joinMatchmaking("ranked-1v1");
-  await ticket.cancel();
-  lobby.dispose();
+  try {
+    await ticket.cancel();
+  } finally {
+    lobby.dispose();
+  }
 }
 const timedConnection = await lobby.connect("/v1/rooms/room-1/ws", {
   timeoutMs: 5_000,
