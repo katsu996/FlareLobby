@@ -30,11 +30,17 @@ const requiredFiles = [
   "docs/examples/english-quick-start.ts",
   "docs/public/llms.txt",
   "docs/getting-started.md",
+  "docs/hosted-demo.md",
+  "docs/local-demo.md",
+  "docs/index.md",
   "docs/custom-room-guide.md",
   "docs/matchmaking-guide.md",
   "docs/api-reference.md",
   "docs/architecture.md",
   "docs/testing.md",
+  "docs/versioning.md",
+  "docs/upgrading.md",
+  "docs/releases/current.md",
   "docs/releases/v0.1.0.md",
   "CHANGELOG.md",
   "LICENSE",
@@ -43,6 +49,10 @@ const requiredFiles = [
   "docs/adr/0002-reconnect-and-revision.md",
   "docs/adr/0003-public-room-index.md",
   "docs/adr/0004-match-result-trust-boundary.md",
+  "docs/adr/0005-party-matching-and-team-composition.md",
+  "docs/adr/0006-rating-strategy-and-glicko2.md",
+  "templates/standalone/README.md",
+  "templates/supabase/README.md",
   "examples/local-demo/src/index.ts",
   ".github/ISSUE_TEMPLATE/bug_report.md",
   ".github/ISSUE_TEMPLATE/feature_request.md",
@@ -79,9 +89,30 @@ requireText("README.en.md", "./docs/upgrading.md");
 requireText("docs/public/llms.txt", "docs/releases/current.md");
 requireText("docs/public/llms.txt", "docs/versioning.md");
 requireText("docs/public/llms.txt", "docs/upgrading.md");
+requireText("docs/public/llms.txt", "docs/hosted-demo.md");
+requireText("docs/public/llms.txt", "docs/local-demo.md");
+requireText("docs/public/llms.txt", "templates/standalone/README.md");
+requireText("docs/public/llms.txt", "templates/supabase/README.md");
 requireText("docs/.vitepress/config.mts", "/releases/current");
 requireText("docs/.vitepress/config.mts", "/versioning");
 requireText("docs/.vitepress/config.mts", "/upgrading");
+requireText("docs/.vitepress/config.mts", "/hosted-demo");
+requireText("docs/.vitepress/config.mts", "/local-demo");
+requireText("README.md", "./templates/standalone/README.md");
+requireText("README.md", "./templates/supabase/README.md");
+requireText("README.en.md", "./templates/standalone/README.md");
+requireText("README.en.md", "./templates/supabase/README.md");
+requireText("README.en.md", "./docs/local-demo.md");
+requireText("README.md", "未検証のランタイム互換性は断言しません");
+requireText(
+  "docs/getting-started.md",
+  "未検証のランタイム互換性は断言しません",
+);
+requireText("docs/versioning.md", "未検証のランタイムは対応済みと表示しません");
+requireText(
+  "docs/releases/current.md",
+  "Firefox と WebKit は実行していないため未検証とします",
+);
 requireText("README.md", "pnpm check:docs");
 requireText("README.md", "pnpm release:check");
 requireText("README.md", "MIT License");
@@ -201,6 +232,9 @@ const markdownFiles = [
   "docs/en/index.md",
   "docs/en/getting-started.md",
   "docs/getting-started.md",
+  "docs/hosted-demo.md",
+  "docs/local-demo.md",
+  "docs/index.md",
   "docs/custom-room-guide.md",
   "docs/matchmaking-guide.md",
   "docs/api-reference.md",
@@ -220,7 +254,15 @@ const markdownFiles = [
   "docs/upgrading.md",
   "docs/releases/v0.1.0.md",
   "docs/releases/current.md",
+  "docs/adr/0001-durable-object-sqlite.md",
+  "docs/adr/0002-reconnect-and-revision.md",
+  "docs/adr/0003-public-room-index.md",
+  "docs/adr/0004-match-result-trust-boundary.md",
+  "docs/adr/0005-party-matching-and-team-composition.md",
+  "docs/adr/0006-rating-strategy-and-glicko2.md",
   "CHANGELOG.md",
+  "templates/standalone/README.md",
+  "templates/supabase/README.md",
   "packages/core/README.md",
   "packages/cloudflare/README.md",
   "packages/client/README.md",

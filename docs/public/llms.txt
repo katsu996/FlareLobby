@@ -52,6 +52,8 @@
 
 - [Standalone テンプレート](https://raw.githubusercontent.com/katsu996/FlareLobby/main/templates/standalone/README.md): 本体リポジトリの clone を前提としない、別プロジェクト向け導入手順。
 - [Supabase スターターテンプレート](https://raw.githubusercontent.com/katsu996/FlareLobby/main/templates/supabase/README.md): Supabase Auth、固定 JWKS 検証、招待ルーム、準備同期、1v1 の導入手順。
+- [公開じゃんけんデモ](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/hosted-demo.md): 招待リンクで遊べる公開用デモ。Supabase 匿名ログイン、サーバー側の結果確定、専用 staging / 本番環境の手順。
+- [ローカルじゃんけんサンプル](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/local-demo.md): 招待ルーム、ランク戦、再接続を一つの画面で確認する最小サンプル。ローカル専用認証の扱いに注意。
 - [Worker の型検査対象例](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/examples/npm-standalone-worker.ts): 公開パッケージを使う Worker と Durable Object の定義。
 - [Cloudflare 設定の型検査対象例](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/examples/cloudflare-config.ts): Gateway、認証 Hook、Binding の接続。
 - [Client SDK の型検査対象例](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/examples/client-api.ts): 型付きルーム作成、メッセージ、購読、タイムアウト、エラー処理。
@@ -63,7 +65,9 @@
 - [現行リリース情報](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/releases/current.md): 公開済み版と未公開 main の区別、契約版、検証済み環境、参照リリース。
 - [バージョン方針](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/versioning.md): 独立 package 版、1.0 未満と 1.0 以降の互換範囲、protocol 版と観測 schema 版の扱い。
 - [更新手順](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/upgrading.md): バックアップ確認、package 更新、D1・DO Migration、staging 検証、本番反映、ロールバック。
+- [ADR: Durable Object と SQLite](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/adr/0001-durable-object-sqlite.md): Room・Match Pool・Rate Limit の状態正本に関する設計判断。
 - [ADR: 再接続と revision](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/adr/0002-reconnect-and-revision.md): 再開トークンと差分・完全 Snapshot に関する設計判断。
+- [ADR: 公開ルーム一覧](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/adr/0003-public-room-index.md): D1 投影と Room による最終判定に関する設計判断。
 - [ADR: 試合結果の信頼境界](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/adr/0004-match-result-trust-boundary.md): 結果登録をサーバー側の責務とする理由。
 - [ADR: パーティーとチーム編成](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/adr/0005-party-matching-and-team-composition.md): パーティー単位のチケットとチーム編成の設計判断。
 - [ADR: Glicko-2](https://raw.githubusercontent.com/katsu996/FlareLobby/main/docs/adr/0006-rating-strategy-and-glicko2.md): レーティング方式を差し替える契約。
