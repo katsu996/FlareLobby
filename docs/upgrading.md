@@ -38,13 +38,18 @@ DB 先行が不可能な変更を無条件に当てはめません。
 pnpm add @flarelobby/cloudflare@<version> @flarelobby/core@<version> @flarelobby/client@<version>
 ```
 
+上記の registry からの導入は公開後に行います。公開前は `pnpm add` が成功すると
+断言しないため、本体リポジトリで `pnpm pack` した tarball を一時コピーへ導入する
+経路を使ってください。詳細は [導入とローカルサンプル](./getting-started.md) の
+npm 利用者向け手順を参照してください。
+
 `minor` 更新では破壊的変更と移行手順の有無を確認します。
 `protocolVersion` や観測 `schemaVersion` の変更がある場合は、
 Client と Worker を組み合わせた検証が必要です。
 
 ## 3. 新しい D1 Migration を適用する
 
-公開 package の Migration は `0001`、`0002`、`0004`、`0005` の 4 本です。
+公開対象 package の Migration は `0001`、`0002`、`0004`、`0005` の 4 本です。
 デモ専用 `0003_local_demo_rps.sql` は本体データベースに適用しません。
 既存データベースに `0003` の履歴とテーブルがある場合は、削除せずそのまま保持します。
 
