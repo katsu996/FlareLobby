@@ -435,3 +435,108 @@ describe("レーティング計算の検証分岐", () => {
     expect(Number.isFinite(calculation.updatedRatingB)).toBe(true);
   });
 });
+
+describe("既知値の固定（Issue #114）", () => {
+  it("ELO の K 係数と初期値を既知値どおりに固定する", () => {
+    expect(DEFAULT_ELO_INITIAL_RATING).toBe(1_500);
+    expect(DEFAULT_ELO_K_FACTOR).toBe(24);
+
+    // K=32 の同レート勝利は 32 * 0.5 = 16。
+    const k32 = elo({ kFactor: 32 }).calculate({
+      ratingA: 1_500,
+      ratingB: 1_500,
+      result: 1,
+    });
+    expect(k32.expectedScoreA).toBe(0.5);
+    expect(k32.rawDeltaA).toBe(16);
+    expect(k32.deltaA).toBe(16);
+    expect(k32.updatedRatingA).toBe(1_516);
+    expect(k32.updatedRatingB).toBe(1_484);
+  });
+
+  it("ELO のレート差 400 と 200 の既知値を固定する", () => {
+    // 1,700 対 1,300 の勝利：期待勝率 1/(1+10^-1) ≒ 0.90909、差分 +2。
+    const diff400 = elo().calculate({
+      ratingA: 1_700,
+      ratingB: 1_300,
+      result: 1,
+    });
+    expect(diff400.expectedScoreA).toBeCloseTo(0.9090909091, 8);
+    expect(diff400.rawDeltaA).toBeCloseTo(2.1818181818, 8);
+    expect(diff400.deltaA).toBe(2);
+    expect(diff400.updatedRatingA).toBe(1_702);
+    expect(diff400.updatedRatingB).toBe(1_298);
+
+    // 1,500 対 1,700 の勝利：格上撃破で +18。
+    const upset200 = elo().calculate({
+      ratingA: 1_500,
+      ratingB: 1_700,
+      result: 1,
+    });
+    expect(upset200.expectedScoreA).toBeCloseTo(0.2402530734, 8);
+    expect(upset200.rawDeltaA).toBeCloseTo(18.23392624, 6);
+    expect(upset200.deltaA).toBe(18);
+    expect(upset200.updatedRatingA).toBe(1_518);
+    expect(upset200.updatedRatingB).toBe(1_682);
+  });
+
+  it("ELO の敗北と引き分けの対称性を固定する", () => {
+    // 同レート敗北は勝利の符号反転。
+    const loss = elo().calculate({
+      ratingA: 1_500,
+      ratingB: 1_500,
+      result: 0,
+    });
+    expect(loss.expectedScoreA).toBe(0.5);
+    expect(loss.rawDeltaA).toBe(-12);
+    expect(loss.deltaA).toBe(-12);
+    expect(loss.deltaB).toBe(12);
+    expect(loss.updatedRatingA).toBe(1_488);
+    expect(loss.updatedRatingB).toBe(1_512);
+  });
+
+  it("Glicko-2 の既定引き分けと勝利の既知値を固定する", () => {
+    expect(DEFAULT_GLICKO2_INITIAL_RATING).toBe(1_500);
+    expect(DEFAULT_GLICKO2_INITIAL_RATING_DEVIATION).toBe(350);
+    expect(DEFAULT_GLICKO2_TAU).toBe(0.5);
+    expect(DEFAULT_GLICKO2_VOLATILITY).toBe(0.06);
+
+    // 既定条件の引き分け：レート不変、RD 縮小、volatility はほぼ不変。
+    const draw = glicko2().calculate({
+      ratingA: 1_500,
+      ratingB: 1_500,
+      result: 0.5,
+    });
+    expect(draw.deltaA).toBe(0);
+    expect(draw.updatedRatingA).toBe(1_500);
+    expect(draw.updatedDeviationA).toBeCloseTo(290.31896107, 6);
+    expect(draw.updatedVolatilityA).toBeCloseTo(0.05999896, 8);
+
+    // 既定条件の勝利：+162 で RD 縮小。
+    const win = glicko2().calculate({
+      ratingA: 1_500,
+      ratingB: 1_500,
+      result: 1,
+    });
+    expect(win.rawDeltaA).toBeCloseTo(162.31089427, 6);
+    expect(win.deltaA).toBe(162);
+    expect(win.updatedRatingA).toBe(1_662);
+    expect(win.deltaB).toBe(-162);
+    expect(win.updatedRatingB).toBe(1_338);
+    expect(win.updatedDeviationA).toBeCloseTo(290.31896318, 6);
+  });
+
+  it("同じ入力の再計算は完全に一致する", () => {
+    const engine = elo();
+    const input = { ratingA: 1_600, ratingB: 1_400, result: 1 as const };
+
+    expect(engine.calculate(input)).toEqual(engine.calculate(input));
+
+    const glicko = glicko2();
+    const glickoInput = { ratingA: 1_500, ratingB: 1_500, result: 1 as const };
+
+    expect(glicko.calculate(glickoInput)).toEqual(
+      glicko.calculate(glickoInput),
+    );
+  });
+});

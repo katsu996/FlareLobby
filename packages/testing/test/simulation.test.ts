@@ -406,6 +406,139 @@ describe("@flarelobby/testing の決定論的テスト補助", () => {
   });
 });
 
+describe("同時刻イベント順序の回帰（Issue #114）", () => {
+  it("同時刻では参加→キャンセル/期限切れ→成立の順に処理する", () => {
+    // キャンセルなし・期限なし：同時刻参加の直後に成立する。
+    const matched = simulateMatchmaking({
+      seed: "same-time-join-match",
+      players: [player("a", 1_500), player("b", 1_500)],
+      startAt: NOW,
+      durationMs: 1_000,
+      tickMs: 1_000,
+    });
+    const matchedTypes = matched.events.map((event) => event.type);
+
+    expect(matchedTypes).toEqual(["joined", "joined", "matched"]);
+    expect(matched.events[0]?.at).toBe(new Date(NOW).toISOString());
+    expect(matched.events[2]?.at).toBe(new Date(NOW).toISOString());
+    expect(matched.events.map((event) => event.sequence)).toEqual([1, 2, 3]);
+    expect(matched.statistics.matchCount).toBe(1);
+  });
+
+  it("期限切れが同時刻の成立より先に適用される", () => {
+    // TTL 0：参加と同時に期限切れとなり、成立候補にならない。
+    const expired = simulateMatchmaking({
+      seed: "same-time-expire-blocks-match",
+      players: [player("a", 1_500), player("b", 1_500)],
+      startAt: NOW,
+      durationMs: 1_000,
+      tickMs: 1_000,
+      ticketTtlMs: 0,
+    });
+
+    expect(expired.tickets.map((ticket) => ticket.status)).toEqual([
+      "expired",
+      "expired",
+    ]);
+    expect(expired.statistics).toMatchObject({
+      expiredTicketCount: 2,
+      cancelledTicketCount: 0,
+      matchCount: 0,
+    });
+    expect(expired.events.map((event) => event.type)).toEqual([
+      "joined",
+      "joined",
+      "expired",
+      "expired",
+    ]);
+  });
+
+  it("キャンセルと期限切れが同時刻ならキャンセルを優先する", () => {
+    // afterMs 0 かつ TTL 0：両方が同時刻に発生してもキャンセルが先に適用され、
+    // 期限切れにはならない。
+    const cancelled = simulateMatchmaking({
+      seed: "same-time-cancel-priority",
+      players: [player("a", 1_500), player("b", 1_500)],
+      startAt: NOW,
+      durationMs: 1_000,
+      tickMs: 1_000,
+      cancellation: { probability: 1, afterMs: 0 },
+      ticketTtlMs: 0,
+    });
+
+    expect(cancelled.tickets.map((ticket) => ticket.status)).toEqual([
+      "cancelled",
+      "cancelled",
+    ]);
+    expect(cancelled.statistics).toMatchObject({
+      cancelledTicketCount: 2,
+      expiredTicketCount: 0,
+      matchCount: 0,
+    });
+    expect(cancelled.events.map((event) => event.type)).toEqual([
+      "joined",
+      "joined",
+      "cancelled",
+      "cancelled",
+    ]);
+    expect(cancelled.events.map((event) => event.sequence)).toEqual([
+      1, 2, 3, 4,
+    ]);
+  });
+
+  it("3 人パーティーの最小ケースを平均レートで成立させる", () => {
+    const trioPool: MatchmakingPool = {
+      ...pool,
+      teamSize: 3,
+      maxPartySize: 3,
+    };
+    const result = simulateMatchmaking({
+      seed: "trio-minimal",
+      players: [
+        player("a", 1_000),
+        player("b", 1_000),
+        player("c", 1_000),
+        player("d", 1_020),
+        player("e", 1_020),
+        player("f", 1_020),
+      ],
+      partySize: 3,
+      startAt: NOW,
+      durationMs: 2_000,
+      tickMs: 1_000,
+      pool: trioPool,
+      searchPolicy: {
+        stages: [{ afterMs: 0, maxRatingDifference: 100 }],
+        maxRatingDifference: 100,
+      },
+    });
+
+    // ID 順に 3 人ずつグループ化され、平均 1,000 と 1,020 の差 20 で成立する。
+    expect(result.tickets.map((ticket) => ticket.playerIds)).toEqual([
+      ["a", "b", "c"],
+      ["d", "e", "f"],
+    ]);
+    expect(result.statistics).toMatchObject({
+      generatedPlayerCount: 6,
+      joinedTicketCount: 2,
+      matchedTicketCount: 2,
+      matchCount: 1,
+    });
+    expect(result.matches[0]?.quality).toMatchObject({
+      ratingDifference: 20,
+    });
+    expect(result.matches[0]?.playerIds).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+      "f",
+    ]);
+    expect(replaySimulation(result.replay)).toEqual(result);
+  });
+});
+
 describe("シミュレーション設定の検証分岐", () => {
   const baseConfig: MatchmakingSimulationConfig = {
     seed: "validation",
