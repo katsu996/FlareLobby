@@ -331,6 +331,12 @@ export function checkPackedManifest(
     );
   }
   for (const dependencyName of definition.dependencies) {
+    const actual = packedManifest?.dependencies?.[dependencyName];
+    if (typeof actual === "string" && actual.startsWith("file:")) {
+      errors.push(
+        `${definition.name} の tarball manifest に file 参照が残っています: ${dependencyName}`,
+      );
+    }
     const expected = versionsByName.get(dependencyName);
     if (expected === undefined) {
       errors.push(
@@ -361,4 +367,42 @@ export function collectPublishedVersions(definitions, manifestsByDirectory) {
     }
   }
   return versionsByName;
+}
+
+// 配布検査スクリプトの引数検証。既定 tarball 経路のみを扱い、
+// registry 経路 (--source=registry, #100 の提案) は実装しない。
+// 未知の引数は不正として検出し、CI で早期に気づけるようにする。
+// Node 標準のみ。registry・実 npm への問い合わせは行わない。
+export function parseStrictArgs(argv, scriptName) {
+  const errors = [];
+  let help = false;
+  for (const arg of argv ?? []) {
+    if (arg === "--help" || arg === "-h") {
+      help = true;
+      continue;
+    }
+    errors.push(`${scriptName} に不明な引数があります: ${arg}`);
+  }
+  return { help, errors };
+}
+
+// 要求された package/版がローカルの公開予定版に存在するかを検証する。
+// valid な semver でも manifests 由来の versionsByName になければ
+// 「存在しない版」として検出する。registry への問い合わせは行わない。
+export function checkRequestedVersions(requests, versionsByName) {
+  const errors = [];
+  for (const request of requests ?? []) {
+    const published = versionsByName?.get(request?.name);
+    if (published === undefined) {
+      errors.push(`存在しない版を要求しています: ${request?.name}`);
+      continue;
+    }
+    if (request?.version !== undefined && request.version !== published) {
+      errors.push(
+        `要求された版が公開予定版と一致しません: ${request.name}: ` +
+          `expected=${JSON.stringify(published)}, actual=${JSON.stringify(request.version)}`,
+      );
+    }
+  }
+  return errors;
 }

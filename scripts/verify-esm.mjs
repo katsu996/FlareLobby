@@ -1,3 +1,15 @@
+import { parseStrictArgs } from "./package-verification.mjs";
+
+const scriptArgs = parseStrictArgs(process.argv.slice(2), "verify-esm.mjs");
+if (scriptArgs.help) {
+  console.log("使い方: node scripts/verify-esm.mjs [--help]");
+  process.exit(0);
+}
+if (scriptArgs.errors.length > 0) {
+  for (const error of scriptArgs.errors) console.error(`- ${error}`);
+  process.exit(1);
+}
+
 const entryPoints = [
   new URL("../packages/core/dist/index.js", import.meta.url),
   // Cloudflare の Worker エントリーポイントは `cloudflare:workers` を使うため、
