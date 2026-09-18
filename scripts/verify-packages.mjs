@@ -13,7 +13,22 @@ import {
   checkSourceManifest,
   checkSupplementalFiles,
   collectPublishedVersions,
+  parseStrictArgs,
 } from "./package-verification.mjs";
+
+const scriptArgs = parseStrictArgs(
+  process.argv.slice(2),
+  "verify-packages.mjs",
+);
+if (scriptArgs.errors.length > 0) {
+  console.error("公開 package 検証に失敗しました。");
+  for (const error of scriptArgs.errors) console.error(`- ${error}`);
+  process.exit(1);
+}
+if (scriptArgs.help) {
+  console.log("使い方: node scripts/verify-packages.mjs [--help]");
+  process.exit(0);
+}
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";

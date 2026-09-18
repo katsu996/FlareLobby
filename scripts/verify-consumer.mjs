@@ -36,6 +36,22 @@ import { randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { parseStrictArgs } from "./package-verification.mjs";
+
+// 既定 tarball 経路のみ対象 (--source=registry は #100 の範囲のため扱わない)。
+// 引数不正は重い build/pack の前に検出する。
+const consumerArgs = parseStrictArgs(
+  process.argv.slice(2),
+  "verify-consumer.mjs",
+);
+if (consumerArgs.errors.length > 0) {
+  for (const error of consumerArgs.errors) console.error(`- ${error}`);
+  process.exit(1);
+}
+if (consumerArgs.help) {
+  console.log("使い方: node scripts/verify-consumer.mjs [--help]");
+  process.exit(0);
+}
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";

@@ -10,11 +10,13 @@ import {
   checkPackedFiles,
   checkPackedManifest,
   checkPublishReport,
+  checkRequestedVersions,
   checkRootManifest,
   checkSourceManifest,
   checkSupplementalFiles,
   collectPublishedVersions,
   isValidSemver,
+  parseStrictArgs,
 } from "./package-verification.mjs";
 
 const CORE_DEFINITION = {
@@ -331,5 +333,111 @@ describe("不正な配布物の検出", () => {
       cloudflareManifest({ version: "0.2.0" }),
     );
     assert.match(errors.join("\n"), /dry-run version/);
+  });
+});
+
+describe("引数不正の検出", () => {
+  it("引数なしと --help を受け付ける", () => {
+    assert.deepEqual(parseStrictArgs([], "verify-packages.mjs").errors, []);
+    assert.equal(parseStrictArgs(["--help"], "verify-packages.mjs").help, true);
+    assert.equal(parseStrictArgs(["-h"], "verify-esm.mjs").help, true);
+  });
+
+  it("未知の引数を検出する", () => {
+    const errors = parseStrictArgs(
+      ["--unknown-flag"],
+      "verify-packages.mjs",
+    ).errors;
+    assert.match(errors.join("\n"), /不明な引数/);
+  });
+
+  it("未実装の registry 経路は既定 tarball 検査では不正として検出する", () => {
+    const errors = parseStrictArgs(
+      ["--source=registry"],
+      "verify-consumer.mjs",
+    ).errors;
+    assert.match(errors.join("\n"), /不明な引数/);
+  });
+
+  it("値付きの想定外引数を検出する", () => {
+    const errors = parseStrictArgs(
+      ["--package=@flarelobby/core"],
+      "verify-esm.mjs",
+    ).errors;
+    assert.match(errors.join("\n"), /不明な引数/);
+  });
+
+  it("--help と未知引数の混在はエラー側で検出する", () => {
+    const result = parseStrictArgs(
+      ["--help", "--unknown-flag"],
+      "verify-packages.mjs",
+    );
+    assert.match(result.errors.join("\n"), /不明な引数/);
+  });
+});
+
+describe("存在しない版の検出", () => {
+  it("未登録の package 名を要求した場合は失敗にする", () => {
+    const versionsByName = new Map([["@flarelobby/core", "0.1.0"]]);
+    const errors = checkRequestedVersions(
+      [{ name: "@flarelobby/unknown" }],
+      versionsByName,
+    );
+    assert.match(errors.join("\n"), /存在しない版/);
+  });
+
+  it("公開予定版と異なる版の要求は失敗にする", () => {
+    const versionsByName = new Map([["@flarelobby/core", "0.1.0"]]);
+    const errors = checkRequestedVersions(
+      [{ name: "@flarelobby/core", version: "9.9.9" }],
+      versionsByName,
+    );
+    assert.match(errors.join("\n"), /一致しません/);
+  });
+
+  it("一致する版の要求は成功する", () => {
+    const versionsByName = new Map([["@flarelobby/core", "0.1.0"]]);
+    assert.deepEqual(
+      checkRequestedVersions(
+        [{ name: "@flarelobby/core", version: "0.1.0" }],
+        versionsByName,
+      ),
+      [],
+    );
+  });
+
+  it("tarball 内部依存の参照先が不明な場合は失敗にする", () => {
+    const errors = checkPackedManifest(
+      {
+        name: "@flarelobby/cloudflare",
+        dependencies: { "@flarelobby/core": "0.1.0" },
+      },
+      CLOUDFLARE_DEFINITION,
+      new Map(),
+    );
+    assert.match(errors.join("\n"), /内部依存先が不明/);
+  });
+});
+
+describe("版不一致・workspace/file 混入の追加検出", () => {
+  it("source manifest の内部依存が workspace でなければ検出する", () => {
+    const errors = checkSourceManifest(
+      cloudflareManifest({ dependencies: { "@flarelobby/core": "0.1.0" } }),
+      CLOUDFLARE_DEFINITION,
+    );
+    assert.match(errors.join("\n"), /workspace protocol/);
+  });
+
+  it("tarball manifest の file: 参照残存を検出する", () => {
+    const versionsByName = new Map([["@flarelobby/core", "0.1.0"]]);
+    const errors = checkPackedManifest(
+      {
+        name: "@flarelobby/cloudflare",
+        dependencies: { "@flarelobby/core": "file:../core" },
+      },
+      CLOUDFLARE_DEFINITION,
+      versionsByName,
+    );
+    assert.match(errors.join("\n"), /file 参照/);
   });
 });
