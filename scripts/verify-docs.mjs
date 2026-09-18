@@ -323,20 +323,14 @@ const standaloneManifest = parseJsonc(
   "templates/standalone/package.json",
 );
 if (standaloneManifest !== null) {
-  if (
-    typeof standaloneManifest.engines?.node !== "string" ||
-    !standaloneManifest.engines.node.includes(">=22.12.0")
-  ) {
+  if (standaloneManifest.engines?.node !== ">=22.12.0") {
     errors.push(
       "templates/standalone/package.json の engines.node が >=22.12.0 ではありません。",
     );
   }
-  if (
-    typeof standaloneManifest.packageManager !== "string" ||
-    !standaloneManifest.packageManager.startsWith("pnpm@")
-  ) {
+  if (standaloneManifest.packageManager !== "pnpm@11.21.0") {
     errors.push(
-      "templates/standalone/package.json の packageManager が pnpm ではありません。",
+      "templates/standalone/package.json の packageManager が pnpm@11.21.0 ではありません。",
     );
   }
   for (const script of [
@@ -493,6 +487,7 @@ requireAll("templates/standalone/.dev.vars.example", [
 // tarball 経路の記載は開発者向けに残し、削除しない。
 requireAll("docs/getting-started.md", [
   ">=22.12.0",
+  "11.21.0",
   "pnpm generate:types",
   "pnpm typecheck",
   "pnpm db:apply:local",
