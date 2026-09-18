@@ -165,6 +165,7 @@ README、利用ガイド、API リファレンスのコード例は、動作説�
 - 各パッケージの `src/index.ts` が公開する Export が API リファレンスへ掲載されている
 - core と Cloudflare のエラーコード、Room/Ticket の状態名が API リファレンスへ掲載されている
 - 文書内の相対リンクが存在する
+- standalone テンプレートと導入手順の対応（engines、手順コマンド、Binding/Migration、認証・CORS 記載、tarball 経路）が一致する
 - コード例とローカルサンプルの型が現行ソースの型と一致する
 
 ## Issue #26 完了条件と検証先

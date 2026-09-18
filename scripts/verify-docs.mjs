@@ -296,6 +296,228 @@ for (const markdownFile of markdownFiles) {
   }
 }
 
+// Issue #117: standalone テンプレートと導入手順のドリフト検出。
+// registry 取得・実 Supabase 接続は使わず、ローカルに固定できる対応だけを確認する。
+function parseJsonc(content, relativePath) {
+  const withoutComments = content.replace(/\/\/.*$/gm, "");
+  const withoutTrailingCommas = withoutComments.replace(/,(\s*[}\]])/gu, "$1");
+  try {
+    return JSON.parse(withoutTrailingCommas);
+  } catch {
+    errors.push(`${relativePath} の JSONC を解釈できません。`);
+    return null;
+  }
+}
+
+function requireAll(relativePath, texts) {
+  const content = read(relativePath);
+  for (const text of texts) {
+    if (!content.includes(text)) {
+      errors.push(`${relativePath} に必要な記載がありません: ${text}`);
+    }
+  }
+}
+
+const standaloneManifest = parseJsonc(
+  read("templates/standalone/package.json"),
+  "templates/standalone/package.json",
+);
+if (standaloneManifest !== null) {
+  if (
+    typeof standaloneManifest.engines?.node !== "string" ||
+    !standaloneManifest.engines.node.includes(">=22.12.0")
+  ) {
+    errors.push(
+      "templates/standalone/package.json の engines.node が >=22.12.0 ではありません。",
+    );
+  }
+  if (
+    typeof standaloneManifest.packageManager !== "string" ||
+    !standaloneManifest.packageManager.startsWith("pnpm@")
+  ) {
+    errors.push(
+      "templates/standalone/package.json の packageManager が pnpm ではありません。",
+    );
+  }
+  for (const script of [
+    "generate:types",
+    "typecheck",
+    "build",
+    "dev:worker",
+    "dev:browser",
+    "db:apply:local",
+    "deploy:dry-run",
+  ]) {
+    if (typeof standaloneManifest.scripts?.[script] !== "string") {
+      errors.push(
+        `templates/standalone/package.json に script がありません: ${script}`,
+      );
+    }
+  }
+  for (const name of [
+    "@flarelobby/core",
+    "@flarelobby/client",
+    "@flarelobby/cloudflare",
+  ]) {
+    const spec = standaloneManifest.dependencies?.[name];
+    if (typeof spec !== "string") {
+      errors.push(
+        `templates/standalone/package.json の dependencies に ${name} がありません。`,
+      );
+    } else if (
+      spec.includes("workspace:") ||
+      spec.includes("file:") ||
+      spec.includes("/") ||
+      spec.includes("\\")
+    ) {
+      errors.push(
+        `templates/standalone/package.json の ${name} が公開バージョン指定ではありません: ${spec}`,
+      );
+    }
+  }
+}
+
+const standaloneWrangler = parseJsonc(
+  read("templates/standalone/wrangler.jsonc"),
+  "templates/standalone/wrangler.jsonc",
+);
+if (standaloneWrangler !== null) {
+  const bindings = standaloneWrangler.durable_objects?.bindings;
+  const expectedBindings = [
+    ["FLARE_LOBBY_ROOMS", "RoomDurableObject"],
+    ["FLARE_LOBBY_MATCH_POOLS", "MatchPoolDurableObject"],
+    ["FLARE_LOBBY_PARTIES", "PartyDurableObject"],
+    ["FLARE_LOBBY_PARTY_MEMBERSHIPS", "PartyMembershipDurableObject"],
+    ["FLARE_LOBBY_RATE_LIMITS", "RateLimitDurableObject"],
+  ];
+  for (const [name, className] of expectedBindings) {
+    if (
+      !Array.isArray(bindings) ||
+      !bindings.some(
+        (binding) =>
+          binding?.name === name && binding?.class_name === className,
+      )
+    ) {
+      errors.push(
+        `templates/standalone/wrangler.jsonc に Durable Object Binding がありません: ${name} (${className})`,
+      );
+    }
+  }
+  const migrations = standaloneWrangler.migrations;
+  const expectedMigrations = [
+    ["v1", ["RoomDurableObject", "MatchPoolDurableObject"]],
+    ["v2", ["RateLimitDurableObject"]],
+    ["v3", ["PartyDurableObject", "PartyMembershipDurableObject"]],
+  ];
+  for (const [tag, classes] of expectedMigrations) {
+    const entry = Array.isArray(migrations)
+      ? migrations.find((migration) => migration?.tag === tag)
+      : undefined;
+    const actual = entry?.new_sqlite_classes;
+    if (
+      !Array.isArray(actual) ||
+      classes.length !== actual.length ||
+      !classes.every((className) => actual.includes(className))
+    ) {
+      errors.push(
+        `templates/standalone/wrangler.jsonc の DO Migration が不正です: ${tag}`,
+      );
+    }
+  }
+  const d1 = Array.isArray(standaloneWrangler.d1_databases)
+    ? standaloneWrangler.d1_databases[0]
+    : undefined;
+  if (d1?.binding !== "FLARE_LOBBY_DB") {
+    errors.push(
+      "templates/standalone/wrangler.jsonc の D1 binding が FLARE_LOBBY_DB ではありません。",
+    );
+  }
+  if (d1?.migrations_dir !== "node_modules/@flarelobby/cloudflare/migrations") {
+    errors.push(
+      "templates/standalone/wrangler.jsonc の migrations_dir が公開 package 参照ではありません。",
+    );
+  }
+  if ("database_id" in (d1 ?? {})) {
+    errors.push(
+      "templates/standalone/wrangler.jsonc に database_id が含まれています（ローカル用は未設定にします）。",
+    );
+  }
+  const secrets = standaloneWrangler.secrets?.required;
+  if (
+    !Array.isArray(secrets) ||
+    !secrets.includes("FLARE_LOBBY_TOKEN_SECRET")
+  ) {
+    errors.push(
+      "templates/standalone/wrangler.jsonc の secrets.required に FLARE_LOBBY_TOKEN_SECRET がありません。",
+    );
+  }
+}
+
+requireAll("templates/standalone/README.md", [
+  ">=22.12.0",
+  "11.21.0",
+  "cp .dev.vars.example .dev.vars",
+  "FLARE_LOBBY_TOKEN_SECRET",
+  "database_id",
+  "pnpm generate:types",
+  "pnpm typecheck",
+  "pnpm db:apply:local",
+  "pnpm dev:worker",
+  "pnpm dev:browser",
+  "http://localhost:8787",
+  "http://localhost:5173",
+  "pnpm build",
+  "dist/",
+  "pnpm deploy:dry-run",
+  "0001",
+  "0002",
+  "0004",
+  "0005",
+  "0003_local_demo_rps",
+  "verifyApplicationToken",
+  "getAccessToken",
+  "allowedOrigins",
+  "skipLibCheck",
+]);
+const standaloneReadme = read("templates/standalone/README.md");
+if (standaloneReadme.includes("workspace:")) {
+  errors.push(
+    "templates/standalone/README.md に workspace 参照があります（公開パッケージ名で解決します）。",
+  );
+}
+
+requireAll("templates/standalone/.dev.vars.example", [
+  "FLARE_LOBBY_TOKEN_SECRET",
+]);
+
+// tarball 経路の記載は開発者向けに残し、削除しない。
+requireAll("docs/getting-started.md", [
+  ">=22.12.0",
+  "pnpm generate:types",
+  "pnpm typecheck",
+  "pnpm db:apply:local",
+  "pnpm dev:worker",
+  "pnpm dev:browser",
+  "pnpm build",
+  "pnpm deploy:dry-run",
+  "FLARE_LOBBY_TOKEN_SECRET",
+  "database_id",
+  "node_modules/@flarelobby/cloudflare/migrations",
+  "0001",
+  "0002",
+  "0004",
+  "0005",
+  "0003_local_demo_rps",
+  "verifyApplicationToken",
+  "getAccessToken",
+  "http://localhost:5173",
+  "http://localhost:8787",
+  "pack",
+  "file:",
+  "pnpm-workspace.yaml",
+  '"status": "ready"',
+]);
+
 if (errors.length > 0) {
   console.error("文書検証に失敗しました。");
   for (const error of errors) console.error(`- ${error}`);

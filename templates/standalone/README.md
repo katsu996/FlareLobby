@@ -6,7 +6,7 @@
 
 ## 前提
 
-- Node.js >= 22、pnpm >= 11
+- Node.js `>=22.12.0`、pnpm `11.21.0`（テンプレートの `engines`・`packageManager` に従います。未検証のランタイム互換性は対応済みと書きません）
 - 公開パッケージ `@flarelobby/cloudflare`、`@flarelobby/client`、`@flarelobby/core`（`0.1.0`）
 - ブラウザは最小の TypeScript + HTML です。Vite を開発/build 用途に使用し、UI フレームワークは追加していません。
 - Worker（`http://localhost:8787`）とブラウザ（`http://localhost:5173`）は別オリジンで起動します。
