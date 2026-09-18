@@ -366,6 +366,14 @@ describe("引数不正の検出", () => {
     ).errors;
     assert.match(errors.join("\n"), /不明な引数/);
   });
+
+  it("--help と未知引数の混在はエラー側で検出する", () => {
+    const result = parseStrictArgs(
+      ["--help", "--unknown-flag"],
+      "verify-packages.mjs",
+    );
+    assert.match(result.errors.join("\n"), /不明な引数/);
+  });
 });
 
 describe("存在しない版の検出", () => {

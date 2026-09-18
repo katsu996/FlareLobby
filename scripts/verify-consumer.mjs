@@ -44,13 +44,13 @@ const consumerArgs = parseStrictArgs(
   process.argv.slice(2),
   "verify-consumer.mjs",
 );
-if (consumerArgs.help) {
-  console.log("使い方: node scripts/verify-consumer.mjs [--help]");
-  process.exit(0);
-}
 if (consumerArgs.errors.length > 0) {
   for (const error of consumerArgs.errors) console.error(`- ${error}`);
   process.exit(1);
+}
+if (consumerArgs.help) {
+  console.log("使い方: node scripts/verify-consumer.mjs [--help]");
+  process.exit(0);
 }
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
