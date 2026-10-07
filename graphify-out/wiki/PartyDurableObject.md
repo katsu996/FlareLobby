@@ -1,8 +1,8 @@
 # PartyDurableObject
 
-> God node · 46 connections · `packages/cloudflare/src/party.ts`
+> God node · 47 connections · `packages/cloudflare/src/party.ts`
 
-**Community:** [Party System Core](Party_System_Core.md)
+**Community:** [Party Durable Object](Party_Durable_Object.md)
 
 ## Connections by Relation
 
@@ -27,18 +27,19 @@
 - .dissolveInternal() `EXTRACTED`
 - .appendEvent() `EXTRACTED`
 - .requireSnapshot() `EXTRACTED`
+- .fetch() `EXTRACTED`
 - .readProcessedCommand() `EXTRACTED`
 - .recordProcessedCommand() `EXTRACTED`
 - .endQueueTicket() `EXTRACTED`
-- .fetch() `EXTRACTED`
 - .removeMembers() `EXTRACTED`
 - .bumpRevision() `EXTRACTED`
-- .getSnapshot() `EXTRACTED`
+- .requireState() `EXTRACTED`
 
 ### re_exports
 - cloudflare/src/index.ts `EXTRACTED`
 - durable-objects.ts `EXTRACTED`
 - local-demo/src/index.ts `EXTRACTED`
+- hosted-demo/src/index.ts `EXTRACTED`
 - dev-worker.ts `EXTRACTED`
 
 ### references

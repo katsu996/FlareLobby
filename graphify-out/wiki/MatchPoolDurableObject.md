@@ -1,6 +1,6 @@
 # MatchPoolDurableObject
 
-> God node · 87 connections · `packages/cloudflare/src/match-pool.ts`
+> God node · 91 connections · `packages/cloudflare/src/match-pool.ts`
 
 **Community:** [Match Pool Durable Object](Match_Pool_Durable_Object.md)
 
@@ -8,6 +8,10 @@
 
 ### contains
 - match-pool.ts `EXTRACTED`
+
+### implements
+- [IMatchPoolDurableObject](IMatchPoolDurableObject.md) `EXTRACTED`
+- MatchPoolGatewayStub `EXTRACTED`
 
 ### imports
 - config.ts `EXTRACTED`
@@ -27,10 +31,10 @@
 - .processClaimedMatchIntent() `EXTRACTED`
 - .readPoolRow() `EXTRACTED`
 - .initialize() `EXTRACTED`
+- .fetch() `EXTRACTED`
 - .searchAndReserveCandidatesAt() `EXTRACTED`
 - .requirePool() `EXTRACTED`
 - .reserveCandidate() `EXTRACTED`
-- .fetch() `EXTRACTED`
 - .ensureMatchIntent() `EXTRACTED`
 - .readTicketRow() `EXTRACTED`
 - .readTicket() `EXTRACTED`
@@ -42,6 +46,7 @@
 - cloudflare/src/index.ts `EXTRACTED`
 - durable-objects.ts `EXTRACTED`
 - local-demo/src/index.ts `EXTRACTED`
+- hosted-demo/src/index.ts `EXTRACTED`
 - dev-worker.ts `EXTRACTED`
 
 ### references

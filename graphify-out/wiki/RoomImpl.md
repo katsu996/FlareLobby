@@ -2,7 +2,7 @@
 
 > God node · 44 connections · `packages/client/src/custom-room.ts`
 
-**Community:** [Custom Room Client Implementation](Custom_Room_Client_Implementation.md)
+**Community:** [Room WebSocket Client](Room_WebSocket_Client.md)
 
 ## Connections by Relation
 

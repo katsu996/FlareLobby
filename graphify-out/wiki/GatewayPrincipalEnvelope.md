@@ -1,8 +1,8 @@
 # GatewayPrincipalEnvelope
 
-> God node · 43 connections · `packages/cloudflare/src/security.ts`
+> God node · 62 connections · `packages/cloudflare/src/security.ts`
 
-**Community:** [Party Gateway](Party_Gateway.md)
+**Community:** [Party Gateway Routes](Party_Gateway_Routes.md)
 
 ## Connections by Relation
 
@@ -13,39 +13,46 @@
 - room.ts `EXTRACTED`
 - match-pool.ts `EXTRACTED`
 - cloudflare/src/party.ts `EXTRACTED`
+- TicketQueueDO.ts `EXTRACTED`
 - party-gateway.ts `EXTRACTED`
+- RoomWebSocketHandler.ts `EXTRACTED`
 - websocket.test.ts `EXTRACTED`
 - matchmaking-settlement.test.ts `EXTRACTED`
+- IRoom.ts `EXTRACTED`
 - durable-objects.ts `EXTRACTED`
 - match-pool.test.ts `EXTRACTED`
+- room-operations.test.ts `EXTRACTED`
+- RoomAuth.ts `EXTRACTED`
 - cloudflare/test/rating.test.ts `EXTRACTED`
-- party-matchmaking.test.ts `EXTRACTED`
+- room-auth.test.ts `EXTRACTED`
+- IMatchPool.ts `EXTRACTED`
 - cloudflare/test/party.test.ts `EXTRACTED`
+- party-matchmaking.test.ts `EXTRACTED`
 
 ### re_exports
 - cloudflare/src/index.ts `EXTRACTED`
 
 ### references
 - .dispatchWebSocketCommand() `EXTRACTED`
-- .consume() `EXTRACTED`
+- .dispatchWebSocketCommand() `EXTRACTED`
 - RoomHostOperationOptions `EXTRACTED`
-- .requireGatewayPrincipal() `EXTRACTED`
-- .dispatchGameMessage() `EXTRACTED`
-- PartyOperationOptions `EXTRACTED`
-- .resolveGatewayPrincipal() `EXTRACTED`
 - MatchmakingTicketCreationOptions `EXTRACTED`
 - RoomParticipantLeaveOptions `EXTRACTED`
-- RoomParticipantOperationOptions `EXTRACTED`
-- .getTicketForPrincipal() `EXTRACTED`
-- .getEvents() `EXTRACTED`
-- .getSnapshot() `EXTRACTED`
-- PartyCreationOptions `EXTRACTED`
-- PartyInviteAcceptanceOptions `EXTRACTED`
-- PartyInviteOptions `EXTRACTED`
-- .resolveGatewayPrincipal() `EXTRACTED`
 - MatchmakingTicketCancellationOptions `EXTRACTED`
 - MatchmakingTicketEventQueryOptions `EXTRACTED`
+- RoomParticipantOperationOptions `EXTRACTED`
+- .consume() `EXTRACTED`
+- .requireGatewayPrincipal() `EXTRACTED`
+- .getTicketEvents() `EXTRACTED`
+- .dispatchGameMessage() `EXTRACTED`
+- PartyOperationOptions `EXTRACTED`
+- RoomParticipantJoinOptions `EXTRACTED`
+- .resolveGatewayPrincipal() `EXTRACTED`
 - RoomParticipantDisconnectOptions `EXTRACTED`
+- .getTicketForPrincipal() `EXTRACTED`
+- .requireGatewayPrincipal() `EXTRACTED`
+- .getEvents() `EXTRACTED`
+- .getSnapshot() `EXTRACTED`
 
 ---
 

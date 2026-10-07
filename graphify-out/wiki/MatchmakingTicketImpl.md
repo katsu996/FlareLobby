@@ -2,7 +2,7 @@
 
 > God node · 49 connections · `packages/client/src/matchmaking.ts`
 
-**Community:** [Matchmaking Retry Logic](Matchmaking_Retry_Logic.md)
+**Community:** [Client Matchmaking API](Client_Matchmaking_API.md)
 
 ## Connections by Relation
 
@@ -14,25 +14,25 @@
 
 ### method
 - .applyTicket() `EXTRACTED`
-- .waitForMatch() `EXTRACTED`
 - .cancel() `EXTRACTED`
+- .waitForMatch() `EXTRACTED`
+- .handleConnectionClosed() `EXTRACTED`
+- .attemptReconnect() `EXTRACTED`
 - .connect() `EXTRACTED`
 - .attachConnection() `EXTRACTED`
 - .resolveWaiters() `EXTRACTED`
-- .ensureMatchRoom() `EXTRACTED`
-- .handleConnectionClosed() `EXTRACTED`
-- .attemptReconnect() `EXTRACTED`
+- .stopConnection() `EXTRACTED`
 - .setConnectionStatus() `EXTRACTED`
 - .refresh() `EXTRACTED`
+- .ensureMatchRoom() `EXTRACTED`
 - .loadMatchRoomConnection() `EXTRACTED`
-- .stopConnection() `EXTRACTED`
+- .rejectWaiters() `EXTRACTED`
+- .scheduleReconnect() `EXTRACTED`
 - .constructor() `EXTRACTED`
 - .dispose() `EXTRACTED`
 - .handleEvent() `EXTRACTED`
 - .handleTerminalState() `EXTRACTED`
-- .rejectWaiters() `EXTRACTED`
-- .scheduleReconnect() `EXTRACTED`
-- .start() `EXTRACTED`
+- .cancelIfNoWaiters() `EXTRACTED`
 
 ### references
 - PlayerRoom `EXTRACTED`
