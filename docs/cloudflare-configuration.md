@@ -239,6 +239,23 @@ const lobby = defineFlareLobby({
 });
 ```
 
+- `allowedOrigins` は正規の http/https Origin 文字列（scheme/host/任意 port）に限定します。
+  パス・query・fragment・userinfo・wildcard・文字列 `null` は
+  `INVALID_CORS_CONFIGURATION` で拒否します。配列は複製して freeze します。
+- 許可 Origin は完全一致で照合します。任意 Origin の反射やサブドメイン部分一致はしません。
+- 有効な CORS プリフライト（`OPTIONS` + `Origin` + `Access-Control-Request-Method`）は
+  通常の認証と DO/D1 アクセスより先に処理し、許可されたものに `204` を返します。
+  対象 method は既存 HTTP API の `GET`/`POST`、対象ヘッダーは `Authorization`、
+  `Content-Type`、`Idempotency-Key`、`Accept`（大文字小文字を区別せず検証）です。
+  未対応 method/header、許可されない Origin のプリフライトは `403` で許可ヘッダーなしです。
+- 許可 Origin の通常 HTTP 応答には、成功だけでなく `401`/`403`/`429`/`500` にも
+  `Access-Control-Allow-Origin` を付けます。既存の `Vary` へ `Origin` を重複なく追加し、
+  `Access-Control-Expose-Headers` に `Retry-After` を含めるためブラウザ JS から読めます。
+  `Access-Control-Allow-Credentials` は付けません。Cookie 認証は対象外です。
+- `Origin` なしの要求、非プリフライト `OPTIONS`、既存 WebSocket Upgrade の意味は
+  変更しません。通常 HTTP の不許可 Origin は CORS ヘッダーを付けず既存処理を維持します。
+- CORS はサーバー側認可の代替ではありません。操作の可否は `authorization` Hook で判定します。
+
 ## 既存 Worker との共存（フォールバック委譲）
 
 既存 API（例: `/api/v2/*`）と同一 Worker で共存する場合は、
@@ -256,23 +273,6 @@ export default lobby.createGatewayWorker<Env>({
 - FlareLobby 経路で `404` になった要求も同ハンドラへ委譲します。
 - 委譲範囲は `fetch` のみです（`scheduled`/`queue` なし。triggers.crons は空のままです）。
 - CORS は各側に任せます。FlareLobby 側の CORS 処理は委譲応答へ適用しません。
-
-- `allowedOrigins` は正規の http/https Origin 文字列（scheme/host/任意 port）に限定します。
-  パス・query・fragment・userinfo・wildcard・文字列 `null` は
-  `INVALID_CORS_CONFIGURATION` で拒否します。配列は複製して freeze します。
-- 許可 Origin は完全一致で照合します。任意 Origin の反射やサブドメイン部分一致はしません。
-- 有効な CORS プリフライト（`OPTIONS` + `Origin` + `Access-Control-Request-Method`）は
-  通常の認証と DO/D1 アクセスより先に処理し、許可されたものに `204` を返します。
-  対象 method は既存 HTTP API の `GET`/`POST`、対象ヘッダーは `Authorization`、
-  `Content-Type`、`Idempotency-Key`、`Accept`（大文字小文字を区別せず検証）です。
-  未対応 method/header、許可されない Origin のプリフライトは `403` で許可ヘッダーなしです。
-- 許可 Origin の通常 HTTP 応答には、成功だけでなく `401`/`403`/`429`/`500` にも
-  `Access-Control-Allow-Origin` を付けます。既存の `Vary` へ `Origin` を重複なく追加し、
-  `Access-Control-Expose-Headers` に `Retry-After` を含めるためブラウザ JS から読めます。
-  `Access-Control-Allow-Credentials` は付けません。Cookie 認証は対象外です。
-- `Origin` なしの要求、非プリフライト `OPTIONS`、既存 WebSocket Upgrade の意味は
-  変更しません。通常 HTTP の不許可 Origin は CORS ヘッダーを付けず既存処理を維持します。
-- CORS はサーバー側認可の代替ではありません。操作の可否は `authorization` Hook で判定します。
 
 ## 既存 Worker との共存移行手順（Binding・DO Migration・D1）
 
