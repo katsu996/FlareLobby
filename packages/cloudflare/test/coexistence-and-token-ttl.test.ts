@@ -2,7 +2,6 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
 import { defineFlareLobby, verifyJoinToken } from "../src/index.js";
-import type { FlareLobbyBindings } from "../src/index.js";
 
 function createBaseConfiguration(customRooms: Record<string, unknown> = {}) {
   return {
