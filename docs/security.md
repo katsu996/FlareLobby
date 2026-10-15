@@ -45,6 +45,59 @@ authorization: {
 
 試合結果登録では、本文からプレイヤー ID を受け付けません。`matchId` に紐付く成立済み Match Pool のチケットからサーバー側で参加者を確定し、`resultId` と結果値だけを受け取ります。認可 Hook が許可しない場合は D1 のレーティング処理へ進みません。
 
+## ゲーム側 ticket/lease 参照レシピ（`authorizeJoin` 委譲）
+
+厳密な入室制御（30 秒 ticket・二重接続拒否・lease）はゲーム側に残し、
+FlareLobby の `authorizeJoin` Hook から参照するレシピです。
+現行の `FlareLobbyAuthorizationContext` は
+`{ operation, principal, roomId?, matchId? }` のみで、この範囲で足ります。
+不足があれば拡張案を申告してください。
+
+### 前提（ゲーム側確定事項）
+
+- ticket の運び場所は **WS 接続 URL の query（`?ticket=`）のみ**（body/header ではない）。
+- 主な claims 内訳: ticketId / sessionId / matchId（= roomId）/ reservationId /
+  intent（join/resume）/ participationId・expectedEpoch（resume のみ）/
+  protocolVersion / descriptor / expiresAt（30 秒）/ sessionExpiresAt。
+  lease 残秒は reservationExpiresAt（API 応答）+ Registry 側 leaseExpiresAt。
+  照合キーは **roomId + reservationId + sessionId**。
+- 判定が必要なのは **join・resume・quick・rematch を含む全入室経路**。create は不要。
+  spectate 枠なし（maxPlayers=8 のみ）のため spectate 判定は不要。
+  match_result も不要（FPS 結果は自テーブル確定。FlareLobby rating 連携時のみ
+  `authorizeMatchResult` を使用）。
+- Hook 内 DB / 外部 fetch は**原則不要**（ゲーム側 Gateway が先に判定済みのため結果参照のみ）。
+  非同期・タイムアウト要件なし。必要になったら申告してください。
+
+### レシピ
+
+ゲーム側 Gateway が ticket・lease を先に判定し、許可済み予約だけを
+`authorizeJoin` が参照できる形（例: 予約 Map のクロージャ参照）で保持します。
+Hook は結果参照のみで、DB / 外部 fetch を行いません。
+
+```ts
+// ゲーム側 Gateway が先に判定済みの許可予約（照合キー: roomId + reservationId + sessionId）。
+const allowedReservations = new Map<string, { expiresAt: number }>();
+
+const lobby = defineFlareLobby({
+  // ...
+  authorization: {
+    authorizeJoin: ({ principal, roomId }) => {
+      if (roomId === undefined) {
+        return false;
+      }
+      // reservationId + sessionId はゲーム側 Gateway が ticket（WS query ?ticket= のみ）
+      // から検証済み。ここでは join・resume・quick・rematch を含む全入室経路の
+      // 許可有無だけを参照する（create・spectate・match_result の判定は不要）。
+      return hasValidReservation(allowedReservations, principal.id, roomId);
+    },
+  },
+});
+```
+
+ticket の claims 追加受け渡しが必要になった場合（例: Hook 内で ticketId や
+lease 残秒を直接読む場合）は、運び場所・claims・判定経路を添えて申告してください。
+`FlareLobbyAuthorizationContext` の拡張として検討します。
+
 ## 共通入力検証
 
 HTTP 本文には `readValidatedJsonBody(request, maxBytes, validator)` を使います。`Content-Length` を早期に確認したうえで、ストリームから最大サイズまでだけ読み取ります。Query は `validateQuery(request, validator)`、WebSocket コマンドは `validateWebSocketCommand(message, maxBytes, validator)` を使います。後者はサイズ、UTF-8、JSON プロトコル v1、利用者の追加検証を順に適用します。
