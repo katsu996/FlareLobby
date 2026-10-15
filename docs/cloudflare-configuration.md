@@ -274,6 +274,63 @@ export default lobby.createGatewayWorker<Env>({
   変更しません。通常 HTTP の不許可 Origin は CORS ヘッダーを付けず既存処理を維持します。
 - CORS はサーバー側認可の代替ではありません。操作の可否は `authorization` Hook で判定します。
 
+## 既存 Worker との共存移行手順（Binding・DO Migration・D1）
+
+既存 Worker（`/api/v2/*`、MatchRoom / RoomRegistry DO、`RESULTS_DB`）と
+FlareLobby Gateway（`/v1/*`、5 種 DO、`FLARE_LOBBY_DB`）を同一 Worker で
+共存させる手順です。既存 DO データを壊さず統合でき、分離・統合のどちらを
+選んでも手順どおりで壊れません。
+
+### Binding・DO Migration
+
+既存と FlareLobby の DO binding・migrations タグは衝突しません。
+binding の別名対応のためのコード変更は行わず、別名運用とします。
+
+| 既存                                                                                            | FlareLobby                                               | 衝突         |
+| ----------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ------------ |
+| binding `RAPIER_SPIKE` → `RapierSpike`、`MATCH` → `MatchRoom`、`ROOM_REGISTRY` → `RoomRegistry` | 5 種（`FLARE_LOBBY_ROOMS` ほか「必要な Binding」表参照） | 名称衝突なし |
+| migrations タグ `v1: RapierSpike` / `v2: MatchRoom` / `v3: RoomRegistry`                        | **v4 以降付番**                                          | タグ重複なし |
+| 必須 7 = DO×5 + D1 + Secret                                                                     | 同左                                                     | 相違なし     |
+
+統合例（`wrangler.jsonc` の `migrations` は既存タグを不変のまま追記します。
+新規 DO のタグは `v4` 以降にします）：
+
+```jsonc
+{
+  "durable_objects": {
+    "bindings": [
+      // 既存（変更なし）
+      { "name": "RAPIER_SPIKE", "class_name": "RapierSpike" },
+      { "name": "MATCH", "class_name": "MatchRoom" },
+      { "name": "ROOM_REGISTRY", "class_name": "RoomRegistry" },
+      // FlareLobby（追加）
+      { "name": "FLARE_LOBBY_ROOMS", "class_name": "RoomDurableObject" },
+      // ... 残り 4 種も同様に追加
+    ],
+  },
+  "migrations": [
+    // 既存タグは不変
+    { "tag": "v1", "new_sqlite_classes": ["RapierSpike"] },
+    { "tag": "v2", "new_sqlite_classes": ["MatchRoom"] },
+    { "tag": "v3", "new_sqlite_classes": ["RoomRegistry"] },
+    // FlareLobby は v4 以降
+    { "tag": "v4", "new_sqlite_classes": ["RoomDurableObject"] },
+    // ... 残りも v4 以降へ
+  ],
+}
+```
+
+### D1
+
+**D1 分離で確定**です（コスト・JOIN の理由なし）。統合は必須ではありません。
+
+- 既存番号体系: `apps/server/migrations/` に `0001_match_results.sql`・
+  `0002_match_stats.sql`・`0003_anonymous_metrics.sql`（最新 0003、連番 + スネークケース）。
+- 既存テーブルは `match_results` / `match_participants` / `metric_event_dedup` /
+  `metric_daily` のみで、`flarelobby_*` との衝突はありません。
+- 推奨は D1 分離（`RESULTS_DB` と `FLARE_LOBBY_DB` を別データベースのまま運用）です。
+  統合する場合の番号重複回避（例: FlareLobby 側を 0004 以降へ振り直し）は参考情報です。
+
 ## デプロイ
 
 ```sh

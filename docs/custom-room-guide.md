@@ -158,7 +158,8 @@ HTTP のエラー本文は `{ "code": "...", "message": "..." }` です。`messa
 
 ## 関連文書
 
-- [カスタムルームの参加・退出・観戦](./custom-room-participation.md)
+- [カスタムルーム利用ガイド](./custom-room-guide.md)
 - [公開カスタムルーム一覧](./custom-room-list.md)
 - [JSON 通信プロトコル v1](./protocol.md)
 - [アーキテクチャ](./architecture.md)
+- [ゲーム統合ガイド](./game-integration.md)

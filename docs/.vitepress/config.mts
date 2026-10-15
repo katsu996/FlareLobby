@@ -171,6 +171,7 @@ export default defineConfig({
           { text: "マッチメイキング", link: "/matchmaking-guide" },
           { text: "マッチングプール", link: "/match-pool" },
           { text: "レーティング", link: "/rating" },
+          { text: "ゲーム統合ガイド", link: "/game-integration" },
         ],
       },
       {
