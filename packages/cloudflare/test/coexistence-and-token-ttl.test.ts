@@ -98,7 +98,7 @@ describe("joinToken TTL 設定化 (#125)", () => {
 describe("Worker 共存フォールバック (#127)", () => {
   it("FlareLobby 対象外は Binding 検証より前に委譲される", async () => {
     const lobby = defineFlareLobby(createBaseConfiguration());
-    const worker = lobby.createGatewayWorker<Env & Record<string, unknown>>({
+    const worker = lobby.createGatewayWorker<Env>({
       onUnhandledRequest: (request) =>
         Response.json({
           delegated: true,
@@ -107,7 +107,7 @@ describe("Worker 共存フォールバック (#127)", () => {
     });
     const brokenEnv = {
       FLARE_LOBBY_DB: undefined,
-    } as unknown as FlareLobbyBindings;
+    } as unknown as Env;
 
     const response = await worker.fetch(
       new Request("https://example.test/api/v2/match") as never,
