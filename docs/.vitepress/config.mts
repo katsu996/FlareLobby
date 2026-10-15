@@ -170,6 +170,7 @@ export default defineConfig({
           { text: "公開ルーム一覧", link: "/custom-room-list" },
           { text: "マッチメイキング", link: "/matchmaking-guide" },
           { text: "マッチングプール", link: "/match-pool" },
+          { text: "パーティー", link: "/party-guide" },
           { text: "レーティング", link: "/rating" },
           { text: "ゲーム統合ガイド", link: "/game-integration" },
         ],
