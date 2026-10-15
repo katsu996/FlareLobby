@@ -49,7 +49,7 @@ await lobby.joinCustomRoom(target.id);
 
 - `phase` は `waiting` / `playing` の 2 値です（FlareLobby state とは別）。
   `remainingSeconds` は試合残り秒で、`playing` 時のみ減算し、`waiting` は `null` 可です。
-- 取得は手動 + 詳細 open 時の 10 秒 poll です（server 側 rate は 3/10 秒）。最大 10 件です。
+- 取得は手動 + 詳細 open 時の 10 秒 poll です（ゲーム側 server 側 rate は 3/10 秒）。最大 10 件です。
 - 必須は `acceptingJoin` + `activePlayers` / `reservedSlots` / `maxPlayers`（= 8）です。
   `phase` / `remainingSeconds` は欠けても可、`reservedSlots` は必須寄り
   （予約込み定員判定のため）です。
@@ -77,7 +77,7 @@ const page = await fetch("/v1/custom-rooms?available=true&limit=10").then((r) =>
 ## `game.message` 誤用防止（F10）
 
 - `game.message` の tick 用途は非推奨です。docs 明記のみで、拒否 / 警告 / メトリクスは行いません。
-- ゲーム側の高頻度経路は現行 `input_batch`（30Hz 送信・2step/batch）のみです。
+- ゲーム側の高頻度経路は現行 `input_batch`（ゲーム側実装、30Hz 送信・2step/batch）のみです。
   `game.message` で送る予定はありません。
 - `maxMessagesPerMinute: 60` を 3600 に上げる誤用を防ぐため、高頻度送信には
   `input_batch` を使い、`game.message` の上限引き上げは行わないでください。

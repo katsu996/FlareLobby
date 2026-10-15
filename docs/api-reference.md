@@ -236,7 +236,7 @@ HTTP の非成功応答は本文が JSON・非 JSON・空・不正のいずれ�
 
 | 設定               | 必須項目・既定値                                                                                                                                                                                                              |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `customRooms`      | `maxPlayers`、`defaultSettings`。`maxSpectators` の既定は 0、参加用トークン TTL 10 分（`joinTokenTtlMs` で短縮可・custom-room のみ）、再開 TTL 30 分、切断猶予 30 秒、履歴 128 件、処理済み結果 10 分、終了 Room 保持 24 時間 |
+| `customRooms`      | `maxPlayers`、`defaultSettings`。`maxSpectators` の既定は 0、参加用トークン TTL 10 分（`joinTokenTtlMs` で変更可・custom-room のみ）、再開 TTL 30 分、切断猶予 30 秒、履歴 128 件、処理済み結果 10 分、終了 Room 保持 24 時間 |
 | `matchmakingPools` | `id`、`gameId`、`seasonId`、`mode`、`region`。任意 `searchPolicy`、`matchRoom`、`rating`                                                                                                                                      |
 | `authenticate`     | `Request → Principal/null/Promise`。失敗・不正値は未認証                                                                                                                                                                      |
 | `authorization`    | `authorizeHostOperation`、`authorizeJoin`、`authorizeSpectate`、`authorizeMatchResult`。未設定/false/例外は拒否                                                                                                               |
@@ -270,30 +270,30 @@ CORS はサーバー側認可の代替ではありません。認可は `authori
 
 ### Gateway HTTP/WebSocket API
 
-| Method / Path                                                  | 認証                             | 入力                                                                                        | 成功結果                         |
-| -------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------- |
-| `GET /`                                                        | 不要                             | なし                                                                                        | `{ status: "ready" }`            |
-| `GET /v1/custom-rooms`                                         | 不要                             | `mode`、`region`、`state/status`、`available`、`availableSlots`、`limit/pageSize`、`cursor` | `{ rooms, nextCursor }`          |
-| `POST /v1/custom-rooms`                                        | 必須                             | `CustomRoomCreationInput`                                                                   | `201 + CustomRoomCreationResult` |
-| `POST /v1/custom-rooms/join` または `/{roomId-or-code}/join`   | 必須                             | `roomId`/`invitationCode`、role、password、requestId                                        | `CustomRoomJoinResult`           |
-| `POST /v1/custom-rooms/leave` または `/{roomId}/leave`         | 必須                             | roomId、joinToken/token、participantId、role、requestId                                     | `CustomRoomLeaveResult`          |
-| `GET /v1/custom-rooms/{roomId}/ws`                             | WebSocket subprotocol            | `flarelobby.v1` と auth subprotocol                                                         | `room.snapshot` と後続イベント   |
-| `POST /v1/matchmaking/pools/{poolId}/tickets`                  | 必須（partyId 指定時はリーダー） | rating、region、inputMethod、検索属性、期限、`partyId?`、requestId                          | `201 + { ticket }`               |
-| `GET /v1/matchmaking/pools/{poolId}/tickets/{ticketId}`        | 所有者                           | なし                                                                                        | `{ ticket }`                     |
-| `POST` または `DELETE /v1/.../tickets/{ticketId}/cancel`       | 所有者                           | requestId（POST）                                                                           | `{ ticket }`                     |
-| `GET /v1/.../tickets/{ticketId}/events`                        | 所有者                           | `afterSequence?`                                                                            | `{ events }`                     |
-| `GET /v1/.../tickets/{ticketId}/events/ws`                     | Ticket 所有者                    | WebSocket                                                                                   | `matchmaking.ticket` イベント    |
-| `GET /v1/.../tickets/{ticketId}/connection`                    | 所有者、matched のみ             | なし                                                                                        | `{ ticket, connection }`         |
-| `GET /v1/matchmaking/pools/{poolId}/rating`                    | 必須                             | なし                                                                                        | `{ rating }`                     |
-| `POST /v1/matchmaking/pools/{poolId}/matches/{matchId}/result` | 認可 Hook                        | `resultId`、A 側 `result`。参加者はサーバー側で復元                                         | `{ match, applied }`             |
-| `POST /v1/parties`                                             | 必須                             | `requestId`、`maxPartySize?`                                                                | `201 + { party }`                |
-| `GET /v1/parties/{partyId}`                                    | メンバー                         | なし                                                                                        | `{ party }`                      |
-| `POST /v1/parties/{partyId}/invites`                           | リーダー                         | `requestId`、`playerId`、`ttlMs?`                                                           | `{ invite }`                     |
-| `POST /v1/parties/{partyId}/members`                           | 招待された主体                   | `requestId`、`token`                                                                        | `{ party }`                      |
-| `POST /v1/parties/{partyId}/leave`                             | メンバー                         | `requestId?`                                                                                | `{ dissolved }`                  |
-| `POST /v1/parties/{partyId}/transfer-leadership`               | リーダー                         | `requestId`、`playerId`                                                                     | `{ party }`                      |
-| `POST /v1/parties/{partyId}/dissolve`                          | リーダー                         | `requestId?`                                                                                | `{ party }`                      |
-| `GET /v1/parties/{partyId}/events` と `/events/ws`             | メンバー                         | `afterSequence?`、WebSocket                                                                 | Party Event 配列                 |
+| Method / Path                                                                     | 認証                             | 入力                                                                                        | 成功結果                         |
+| --------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------- |
+| `GET /`                                                                           | 不要                             | なし                                                                                        | `{ status: "ready" }`            |
+| `GET /v1/custom-rooms`                                                            | 不要                             | `mode`、`region`、`state/status`、`available`、`availableSlots`、`limit/pageSize`、`cursor` | `{ rooms, nextCursor }`          |
+| `POST /v1/custom-rooms`                                                           | 必須                             | `CustomRoomCreationInput`                                                                   | `201 + CustomRoomCreationResult` |
+| `POST /v1/custom-rooms/join` または `/{roomId-or-code}/join`                      | 必須                             | `roomId`/`invitationCode`、role、password、requestId                                        | `CustomRoomJoinResult`           |
+| `POST /v1/custom-rooms/leave` または `/{roomId}/leave`                            | 必須                             | roomId、joinToken/token、participantId、role、requestId                                     | `CustomRoomLeaveResult`          |
+| `GET /v1/custom-rooms/{roomId}/ws`                                                | WebSocket subprotocol            | `flarelobby.v1` と auth subprotocol                                                         | `room.snapshot` と後続イベント   |
+| `POST /v1/matchmaking/pools/{poolId}/tickets`                                     | 必須（partyId 指定時はリーダー） | rating、region、inputMethod、検索属性、期限、`partyId?`、requestId                          | `201 + { ticket }`               |
+| `GET /v1/matchmaking/pools/{poolId}/tickets/{ticketId}`                           | 所有者                           | なし                                                                                        | `{ ticket }`                     |
+| `POST` または `DELETE /v1/.../tickets/{ticketId}/cancel`                          | 所有者                           | requestId（POST）                                                                           | `{ ticket }`                     |
+| `GET /v1/.../tickets/{ticketId}/events`                                           | 所有者                           | `afterSequence?`                                                                            | `{ events }`                     |
+| `GET /v1/.../tickets/{ticketId}/events/ws`                                        | Ticket 所有者                    | WebSocket                                                                                   | `matchmaking.ticket` イベント    |
+| `GET /v1/.../tickets/{ticketId}/connection`                                       | 所有者、matched のみ             | なし                                                                                        | `{ ticket, connection }`         |
+| `GET /v1/matchmaking/pools/{poolId}/rating`                                       | 必須                             | なし                                                                                        | `{ rating }`                     |
+| `POST /v1/matchmaking/pools/{poolId}/matches/{matchId}/result`（別名 `/results`） | 認可 Hook                        | `resultId`、A 側 `result`。参加者はサーバー側で復元                                         | `{ match, applied }`             |
+| `POST /v1/parties`                                                                | 必須                             | `requestId`、`maxPartySize?`                                                                | `201 + { party }`                |
+| `GET /v1/parties/{partyId}`                                                       | メンバー                         | なし                                                                                        | `{ party }`                      |
+| `POST /v1/parties/{partyId}/invites`                                              | リーダー                         | `requestId`、`playerId`、`ttlMs?`                                                           | `{ invite }`                     |
+| `POST /v1/parties/{partyId}/members`                                              | 招待された主体                   | `requestId`、`token`                                                                        | `{ party }`                      |
+| `POST /v1/parties/{partyId}/leave`                                                | メンバー                         | `requestId?`                                                                                | `{ dissolved }`                  |
+| `POST /v1/parties/{partyId}/transfer-leadership`                                  | リーダー                         | `requestId`、`playerId`                                                                     | `{ party }`                      |
+| `POST /v1/parties/{partyId}/dissolve`                                             | リーダー                         | `requestId?`                                                                                | `{ party }`                      |
+| `GET /v1/parties/{partyId}/events` と `/events/ws`                                | メンバー                         | `afterSequence?`、WebSocket                                                                 | Party Event 配列                 |
 
 エンドポイントの `poolId`、`roomId`、`ticketId`、`matchId` は URL エンコードします。
 一覧は D1 の投影で一時的に古くなるため、参加の定員・状態は Room Durable Object が
@@ -361,8 +361,8 @@ Gateway は Match Pool Durable Object へ `MatchPoolGatewayStub` 契約で転送
 
 パーティーの正本は `PartyDurableObject`（1 パーティー = 1 DO）であり、所属の
 不変条件は主体ごとの `PartyMembershipDurableObject` が検査します。既定定員は
-`DEFAULT_PARTY_MAX_SIZE`、招待 TTL は `DEFAULT_PARTY_INVITE_TTL_MS`、無活動掃除は
-`DEFAULT_PARTY_IDLE_TTL_MS` です。Gateway の入口は `handlePartyRequest`、
+`DEFAULT_PARTY_MAX_SIZE`（5 人）、招待 TTL は `DEFAULT_PARTY_INVITE_TTL_MS`（10 分）、
+無活動掃除は `DEFAULT_PARTY_IDLE_TTL_MS`（24 時間）です。Gateway の入口は `handlePartyRequest`、
 WebSocket 判定は `getPartyWebSocketRoute` と `upgradePartyEventsWebSocket` です。
 
 | メソッド                              | 引数                                        | 戻り値                                    |

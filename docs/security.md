@@ -156,7 +156,7 @@ const verified = await verifyResumeToken(env.FLARE_LOBBY_TOKEN_SECRET, token, {
 ### 参加用トークンの TTL とゲーム側 ticket の役割分担
 
 カスタムルームの参加用トークン（`joinToken`）は入室用途のみです。既定の有効期間は
-10 分で、`customRooms.joinTokenTtlMs`（1 以上の整数ミリ秒）で短縮できます。
+10 分で、`customRooms.joinTokenTtlMs`（1 以上の整数ミリ秒）で変更できます。
 対象は custom-room のみで、matchmaking 経由の TTL は変更しません。
 
 ```ts
