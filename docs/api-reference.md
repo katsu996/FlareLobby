@@ -234,31 +234,31 @@ HTTP の非成功応答は本文が JSON・非 JSON・空・不正のいずれ�
 `createGatewayWorker<TEnv>()` で Wrangler 生成の `Env` に対応する Worker を作ります。
 `createGatewayWorker(configuration)` は同じ Worker を直接作る関数です。
 
-| 設定               | 必須項目・既定値                                                                                                                                                                                                              |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `customRooms`      | `maxPlayers`、`defaultSettings`。`maxSpectators` の既定は 0、参加用トークン TTL 10 分（`joinTokenTtlMs` で変更可・custom-room のみ）、再開 TTL 30 分、切断猶予 30 秒、履歴 128 件、処理済み結果 10 分、終了 Room 保持 24 時間 |
-| `matchmakingPools` | `id`、`gameId`、`seasonId`、`mode`、`region`。任意 `searchPolicy`、`matchRoom`、`rating`                                                                                                                                      |
-| `authenticate`     | `Request → Principal/null/Promise`。失敗・不正値は未認証                                                                                                                                                                      |
-| `authorization`    | `authorizeHostOperation`、`authorizeJoin`、`authorizeSpectate`、`authorizeMatchResult`。未設定/false/例外は拒否                                                                                                               |
-| `inputLimits`      | `maxHttpRequestBytes`、`maxWebSocketMessageBytes`、`maxMessagesPerMinute`、`maxRoomCreationsPerMinute`                                                                                                                        |
-| `cors`             | 任意 `allowedOrigins`。正規の http/https Origin 文字列の配列。未設定時は同一オリジン向け挙動を維持                                                                                                                            |
-| `observability`    | `logSampleRate?`、`analyticsSampleRate?`。既定は 1                                                                                                                                                                            |
-
-必須 Binding は `FLARE_LOBBY_ROOMS`、`FLARE_LOBBY_MATCH_POOLS`、
-`FLARE_LOBBY_PARTIES`、`FLARE_LOBBY_PARTY_MEMBERSHIPS`、
-`FLARE_LOBBY_RATE_LIMITS`、`FLARE_LOBBY_DB`、`FLARE_LOBBY_TOKEN_SECRET` です。
-`FLARE_LOBBY_ANALYTICS` は任意です。設定不備は `FlareLobbyConfigurationError` と
-`FLARE_LOBBY_CONFIGURATION_ERROR_CODES`（`D1_BINDING_MISSING`、
-`ROOM_DURABLE_OBJECT_BINDING_MISSING`、`MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING`、
-`PARTY_DURABLE_OBJECT_BINDING_MISSING`、
-`PARTY_MEMBERSHIP_DURABLE_OBJECT_BINDING_MISSING`、
-`RATE_LIMIT_DURABLE_OBJECT_BINDING_MISSING`、`TOKEN_SECRET_MISSING`、
-`INVALID_CUSTOM_ROOM_CONFIGURATION`、`INVALID_MATCHMAKING_POOL`、
-`INVALID_INPUT_LIMITS`、`INVALID_AUTHENTICATION_HOOK`、`INVALID_CORS_CONFIGURATION`、
-`INVALID_OBSERVABILITY_CONFIGURATION`）で判定します。必須 Binding は `undefined`/`null`
-を不備とし、Secret は `undefined`/`null`・非文字列・空文字・空白だけを不備として
-`TOKEN_SECRET_MISSING` で報告します。値の強制変換や `trim` した値の署名利用はしません。
-エラー本文とログには Secret や Binding 実体を出力しません。
+| 設定                                                                                    | 必須項目・既定値                                                                                                                                                                                                                                                                                                                                   |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `customRooms`                                                                           | `maxPlayers`、`defaultSettings`。任意 `maxSpectators`（既定 0）、`finishedRoomRetentionMs`（既定 24 時間）、`joinTokenTtlMs`（既定 10 分・custom-room のみ）、`resumeTokenTtlMs`（既定 30 分）、`disconnectGracePeriodMs`（既定 30 秒）、`eventHistoryLimit`（既定 128 件）、`processedCommandRetentionMs`（既定 10 分）                           |
+| `matchmakingPools`                                                                      | `id`、`gameId`、`seasonId`、`mode`、`region`。任意 `maxPartySize`（既定 1）、`teamSize`（既定 1）、`searchPolicy`（`stages`・`maxRatingDifference`・検索件数上限）、`matchRoom`（`settings`・`metadata`・`teamIds`・定員・開始条件・試行上限）、`rating`（`algorithm`・`initialRating`・`kFactor`・`initialRatingDeviation`・`tau`・`volatility`） |
+| `authenticate`                                                                          | `Request → Principal/null/Promise`。失敗・不正値は未認証                                                                                                                                                                                                                                                                                           |
+| `authorization`                                                                         | `authorizeHostOperation`、`authorizeJoin`、`authorizeSpectate`、`authorizeMatchResult`。未設定/false/例外は拒否                                                                                                                                                                                                                                    |
+| `inputLimits`                                                                           | `maxHttpRequestBytes`、`maxWebSocketMessageBytes`、`maxMessagesPerMinute`、`maxRoomCreationsPerMinute`（いずれも必須の正整数、既定値なし）                                                                                                                                                                                                         |
+| `cors`                                                                                  | 任意 `allowedOrigins`。正規の http/https Origin 文字列の配列。未設定時は同一オリジン向け挙動を維持                                                                                                                                                                                                                                                 |
+| `observability`                                                                         | 任意 `logSampleRate`、`analyticsSampleRate`。既定は 1                                                                                                                                                                                                                                                                                              |
+| `gatewayOptions`                                                                        | `createGatewayWorker(configuration, options?)` の任意 `onUnhandledRequest`（`/`・`/v1/*` 以外と FlareLobby 経路の 404 を既存 Worker へ委譲。詳細は [Cloudflare 設定](./cloudflare-configuration.md)）                                                                                                                                              |
+| 必須 Binding は `FLARE_LOBBY_ROOMS`、`FLARE_LOBBY_MATCH_POOLS`、                        |
+| `FLARE_LOBBY_PARTIES`、`FLARE_LOBBY_PARTY_MEMBERSHIPS`、                                |
+| `FLARE_LOBBY_RATE_LIMITS`、`FLARE_LOBBY_DB`、`FLARE_LOBBY_TOKEN_SECRET` です。          |
+| `FLARE_LOBBY_ANALYTICS` は任意です。設定不備は `FlareLobbyConfigurationError` と        |
+| `FLARE_LOBBY_CONFIGURATION_ERROR_CODES`（`D1_BINDING_MISSING`、                         |
+| `ROOM_DURABLE_OBJECT_BINDING_MISSING`、`MATCH_POOL_DURABLE_OBJECT_BINDING_MISSING`、    |
+| `PARTY_DURABLE_OBJECT_BINDING_MISSING`、                                                |
+| `PARTY_MEMBERSHIP_DURABLE_OBJECT_BINDING_MISSING`、                                     |
+| `RATE_LIMIT_DURABLE_OBJECT_BINDING_MISSING`、`TOKEN_SECRET_MISSING`、                   |
+| `INVALID_CUSTOM_ROOM_CONFIGURATION`、`INVALID_MATCHMAKING_POOL`、                       |
+| `INVALID_INPUT_LIMITS`、`INVALID_AUTHENTICATION_HOOK`、`INVALID_CORS_CONFIGURATION`、   |
+| `INVALID_OBSERVABILITY_CONFIGURATION`）で判定します。必須 Binding は `undefined`/`null` |
+| を不備とし、Secret は `undefined`/`null`・非文字列・空文字・空白だけを不備として        |
+| `TOKEN_SECRET_MISSING` で報告します。値の強制変換や `trim` した値の署名利用はしません。 |
+| エラー本文とログには Secret や Binding 実体を出力しません。                             |
 
 別オリジンのブラウザから利用する場合は `cors: { allowedOrigins: ["https://game.example"] }`
 を指定します。許可 Origin は完全一致で照合し、パス・query・fragment・userinfo・
