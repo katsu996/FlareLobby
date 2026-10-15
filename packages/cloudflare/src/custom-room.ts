@@ -27,6 +27,7 @@ import type {
   AuthenticatedGatewayRequest,
   FlareLobbyRoomParticipantRole,
 } from "./security.js";
+import { DEFAULT_JOIN_TOKEN_TTL_MS } from "./room-constants.js";
 import {
   readObservabilityContext,
   withObservabilityRequestId,
@@ -47,7 +48,6 @@ const CUSTOM_ROOM_CREATE_COMMAND = "custom_room.create";
 const CUSTOM_ROOM_JOIN_COMMAND = "custom_room.join";
 const CUSTOM_ROOM_LEAVE_COMMAND = "custom_room.leave";
 const DEFAULT_ROOM_NAME = "ルーム";
-const DEFAULT_JOIN_TOKEN_TTL_MS = 10 * 60 * 1_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ROOM_NAME_LENGTH = 80;
 const MAX_PASSWORD_LENGTH = 128;
@@ -264,12 +264,14 @@ export async function createCustomRoom<
     }
 
     const participantId = `participant-${roomId}`;
+    const joinTokenTtlMs =
+      configuration.customRooms.joinTokenTtlMs ?? DEFAULT_JOIN_TOKEN_TTL_MS;
     const joinToken = await issueJoinToken(env.FLARE_LOBBY_TOKEN_SECRET, {
       principal: authenticatedRequest.principal,
       roomId,
       role: "player",
       participantId,
-      expiresAt: Date.now() + DEFAULT_JOIN_TOKEN_TTL_MS,
+      expiresAt: Date.now() + joinTokenTtlMs,
     });
 
     /* istanbul ignore next -- 有効な環境では署名発行は失敗しないため到達不能な防御です。 */
@@ -435,12 +437,14 @@ export async function joinCustomRoom<
       ...(input.password === null ? {} : { password: input.password }),
       observability,
     });
+    const joinTokenTtlMs =
+      configuration.customRooms.joinTokenTtlMs ?? DEFAULT_JOIN_TOKEN_TTL_MS;
     const joinToken = await issueJoinToken(env.FLARE_LOBBY_TOKEN_SECRET, {
       principal: authenticatedRequest.principal,
       roomId,
       role: joined.role,
       participantId: joined.participantId,
-      expiresAt: Date.now() + DEFAULT_JOIN_TOKEN_TTL_MS,
+      expiresAt: Date.now() + joinTokenTtlMs,
     });
 
     /* istanbul ignore next -- 有効な環境では署名発行は失敗しないため到達不能な防御です。 */

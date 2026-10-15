@@ -12,3 +12,6 @@ export const DEFAULT_EVENT_HISTORY_LIMIT = 128;
 
 /** 処理済みコマンド結果を保持する既定期間です。 */
 export const DEFAULT_PROCESSED_COMMAND_RETENTION_MS = 10 * 60 * 1_000;
+
+/** カスタムルームの参加用トークンの既定有効期間です。入室用途のみに使います。 */
+export const DEFAULT_JOIN_TOKEN_TTL_MS = 10 * 60 * 1_000;
