@@ -119,6 +119,61 @@ Room の初回接続または再接続時の `room.snapshot` は、通常のス�
 差分を返せる場合だけ順番に再送し、履歴不足や範囲外では完全スナップショットへ切り替えます。
 再開トークンは明示的な `leave()` 後には無効です。
 
+## Room コマンドカタログ
+
+WebSocket で Room Durable Object へ送るコマンドの一覧です。成功時は送信者へ
+`success`（payload は最新 `RoomSnapshot`）を返し、別途 `room.snapshot` イベントを
+全接続へ broadcast します。`requestId` を指定した再送は保存結果を返し、
+異なるコマンド・入力での再利用は `CONFLICT` です。
+
+| コマンド               | 実行者                    | 状態前提        | 入力 `payload`                                                                                          |
+| ---------------------- | ------------------------- | --------------- | ------------------------------------------------------------------------------------------------------- |
+| `room.set_ready`       | 参加者本人（player のみ） | `waiting` のみ  | `{ ready: boolean }`                                                                                    |
+| `room.select_team`     | 参加者本人（player のみ） | `waiting` のみ  | `{ teamId: string \| null }`（`null` は未選択へ戻す）                                                   |
+| `room.update_settings` | ホストのみ                | `waiting` のみ  | `{ settings: オブジェクト }`（既存設定へ浅くマージ）                                                    |
+| `room.transfer_host`   | ホストのみ                | `waiting` のみ  | `{ targetParticipantId: string }`（自分自身・不在・非playerは `CONFLICT`）                              |
+| `room.kick`            | ホストのみ                | `waiting` のみ  | `{ targetParticipantId? , targetPlayerId?, reason? }`（ID はどちらか一方のみ、ホスト自身は `CONFLICT`） |
+| `room.start_match`     | ホストのみ                | `waiting` のみ  | `{ at?: string }`（省略時は現在時刻。開始条件不足は `CONFLICT`）                                        |
+| `room.close`           | ホストのみ                | `finished` 以外 | `{ at?: string }`（省略時は現在時刻。終了済みは `ROOM_FINISHED`）                                       |
+
+- spectator は `set_ready`・`select_team` を含む全コマンドで `FORBIDDEN` です。
+- 対戦ルーム（match）にはホストがいないため、ホスト専用コマンドは常に `FORBIDDEN` です。
+- `start_match` は `waiting` → `preparing` → `in_progress` へ連続遷移し（`revision` は +2）、
+  `close` は保持期限後に削除対象になります。
+
+## `game.message` イベント
+
+ゲーム固有の低頻度メッセージ用です。tick 用途は非推奨で、高頻度送信には使いません
+（[ゲーム統合ガイド](./game-integration.md) 参照）。
+
+- 送信形式は `{ command: "<name>", payload: <任意のJSON値> }` です。
+  メッセージ名は `command` 自体で、`room.` 接頭辞は予約のため使えません。
+  名前は 128 文字までです。
+- 送信者は参加者本人（player のみ、spectator は `FORBIDDEN`）で、
+  終了済みルームでは `ROOM_FINISHED` です。
+- 成功時の `success` の payload は `null` で、イベント
+  `{ event: "game.message", payload: { name, payload, sender: { participantId, role } } }` を
+  全接続（送信者自身を含む）へ broadcast します。
+- `revision` は増加せず、履歴にも保存されないため再開リプレイの対象外です。
+- 同一 `requestId` + 同一内容の再送は再 broadcast しません。
+  異なる内容での再利用は `CONFLICT` です。
+
+## `matchmaking.ticket` イベント
+
+マッチングチケットの状態変化を配信するイベントです。`payload` は次の形です。
+
+| 項目           | 意味                                                                                                                 |
+| -------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `ticket`       | チケットの現在状態（`status` 別の Union。`creating` / `waiting` / `reserved` / `matched` / `cancelled` / `expired`） |
+| `waitingCount` | 待機中のチケット数                                                                                                   |
+| `activeCount`  | 有効なチケット数（`creating` + `waiting` + `reserved`）                                                              |
+| `sequence`     | Pool 全体で採番されるイベント番号（特定チケットの履歴には飛びがあり得る）                                            |
+| `occurredAt`   | イベント発生時刻                                                                                                     |
+| `searchWidth`  | イベント時点の適用検索幅                                                                                             |
+
+`revision` は Room ではなく Pool の版番号です。ポーリング取得では
+`afterSequence` 以降を番号順に返します。
+
 ## 公開エラー
 
 `FlareLobbyError` は安全な `message` と、表示文言から独立した `code` を持ちます。HTTP と WebSocket の失敗は同じコードへ正規化します。
