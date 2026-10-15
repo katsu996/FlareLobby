@@ -100,6 +100,27 @@ const verified = await verifyResumeToken(env.FLARE_LOBBY_TOKEN_SECRET, token, {
 
 発行・検証は `ProtocolResult` を返します。期限切れ、用途違い、署名改ざん、別主体、別ルームのトークンはすべて `UNAUTHENTICATED` として拒否します。トークンの内容をエラー文へ反映してはいけません。
 
+### 参加用トークンの TTL とゲーム側 ticket の役割分担
+
+カスタムルームの参加用トークン（`joinToken`）は入室用途のみです。既定の有効期間は
+10 分で、`customRooms.joinTokenTtlMs`（1 以上の整数ミリ秒）で短縮できます。
+対象は custom-room のみで、matchmaking 経由の TTL は変更しません。
+
+```ts
+const lobby = defineFlareLobby({
+  customRooms: {
+    maxPlayers: 8,
+    defaultSettings,
+    joinTokenTtlMs: 30_000,
+  },
+  // ...
+});
+```
+
+TTL 切れ後の WS 接続中セッションは維持されます。厳密な 30 秒使い切り・二重接続拒否・
+lease などの厳密制御はゲーム側 ticket（例: `JOIN_TICKET_TTL_MS=30_000`）が担い、
+FlareLobby token は入室用という役割分担です。
+
 ## CORS とプリフライト処理
 
 別オリジンのブラウザから HTTP API を利用する場合は `defineFlareLobby()` に `cors` を指定します。詳細は Cloudflare 設定を参照してください。

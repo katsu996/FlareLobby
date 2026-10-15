@@ -234,15 +234,15 @@ HTTP の非成功応答は本文が JSON・非 JSON・空・不正のいずれ�
 `createGatewayWorker<TEnv>()` で Wrangler 生成の `Env` に対応する Worker を作ります。
 `createGatewayWorker(configuration)` は同じ Worker を直接作る関数です。
 
-| 設定               | 必須項目・既定値                                                                                                                                     |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `customRooms`      | `maxPlayers`、`defaultSettings`。`maxSpectators` の既定は 0、再開 TTL 30 分、切断猶予 30 秒、履歴 128 件、処理済み結果 10 分、終了 Room 保持 24 時間 |
-| `matchmakingPools` | `id`、`gameId`、`seasonId`、`mode`、`region`。任意 `searchPolicy`、`matchRoom`、`rating`                                                             |
-| `authenticate`     | `Request → Principal/null/Promise`。失敗・不正値は未認証                                                                                             |
-| `authorization`    | `authorizeHostOperation`、`authorizeJoin`、`authorizeSpectate`、`authorizeMatchResult`。未設定/false/例外は拒否                                      |
-| `inputLimits`      | `maxHttpRequestBytes`、`maxWebSocketMessageBytes`、`maxMessagesPerMinute`、`maxRoomCreationsPerMinute`                                               |
-| `cors`             | 任意 `allowedOrigins`。正規の http/https Origin 文字列の配列。未設定時は同一オリジン向け挙動を維持                                                   |
-| `observability`    | `logSampleRate?`、`analyticsSampleRate?`。既定は 1                                                                                                   |
+| 設定               | 必須項目・既定値                                                                                                                                                                                                              |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `customRooms`      | `maxPlayers`、`defaultSettings`。`maxSpectators` の既定は 0、参加用トークン TTL 10 分（`joinTokenTtlMs` で短縮可・custom-room のみ）、再開 TTL 30 分、切断猶予 30 秒、履歴 128 件、処理済み結果 10 分、終了 Room 保持 24 時間 |
+| `matchmakingPools` | `id`、`gameId`、`seasonId`、`mode`、`region`。任意 `searchPolicy`、`matchRoom`、`rating`                                                                                                                                      |
+| `authenticate`     | `Request → Principal/null/Promise`。失敗・不正値は未認証                                                                                                                                                                      |
+| `authorization`    | `authorizeHostOperation`、`authorizeJoin`、`authorizeSpectate`、`authorizeMatchResult`。未設定/false/例外は拒否                                                                                                               |
+| `inputLimits`      | `maxHttpRequestBytes`、`maxWebSocketMessageBytes`、`maxMessagesPerMinute`、`maxRoomCreationsPerMinute`                                                                                                                        |
+| `cors`             | 任意 `allowedOrigins`。正規の http/https Origin 文字列の配列。未設定時は同一オリジン向け挙動を維持                                                                                                                            |
+| `observability`    | `logSampleRate?`、`analyticsSampleRate?`。既定は 1                                                                                                                                                                            |
 
 必須 Binding は `FLARE_LOBBY_ROOMS`、`FLARE_LOBBY_MATCH_POOLS`、
 `FLARE_LOBBY_PARTIES`、`FLARE_LOBBY_PARTY_MEMBERSHIPS`、

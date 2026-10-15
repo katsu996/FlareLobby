@@ -239,6 +239,24 @@ const lobby = defineFlareLobby({
 });
 ```
 
+## 既存 Worker との共存（フォールバック委譲）
+
+既存 API（例: `/api/v2/*`）と同一 Worker で共存する場合は、
+`createGatewayWorker()` に `onUnhandledRequest` を渡します。
+
+```ts
+export default lobby.createGatewayWorker<Env>({
+  onUnhandledRequest: (request, env) => existingApp.fetch(request, env),
+});
+```
+
+- `/` と `/v1/*` 以外の要求は、必須 Binding の検証より前に `Request` と `Env` のまま
+  委譲されます。FlareLobby の Binding 不備時も既存 `/api/v2/*` は動作します
+  （既存対戦の可用性を FlareLobby 設定不備で壊しません）。
+- FlareLobby 経路で `404` になった要求も同ハンドラへ委譲します。
+- 委譲範囲は `fetch` のみです（`scheduled`/`queue` なし。triggers.crons は空のままです）。
+- CORS は各側に任せます。FlareLobby 側の CORS 処理は委譲応答へ適用しません。
+
 - `allowedOrigins` は正規の http/https Origin 文字列（scheme/host/任意 port）に限定します。
   パス・query・fragment・userinfo・wildcard・文字列 `null` は
   `INVALID_CORS_CONFIGURATION` で拒否します。配列は複製して freeze します。

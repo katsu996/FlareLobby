@@ -57,6 +57,7 @@ import {
   DEFAULT_DISCONNECT_GRACE_PERIOD_MS,
   DEFAULT_EVENT_HISTORY_LIMIT,
   DEFAULT_FINISHED_ROOM_RETENTION_MS,
+  DEFAULT_JOIN_TOKEN_TTL_MS,
   DEFAULT_PROCESSED_COMMAND_RETENTION_MS,
   DEFAULT_RESUME_TOKEN_TTL_MS,
 } from "./room-constants.js";
@@ -115,6 +116,8 @@ export interface CustomRoomConfiguration<
   readonly defaultSettings: AppRoomSettings<TApp>;
   /** 終了済み Room を削除するまでの保持期間（ミリ秒）です。 */
   readonly finishedRoomRetentionMs?: number;
+  /** カスタムルームの参加用トークンの有効期間（ミリ秒）です。既定は 10 分です。 */
+  readonly joinTokenTtlMs?: number;
   /** 再開トークンの有効期間（ミリ秒）です。 */
   readonly resumeTokenTtlMs?: number;
   /** 通信切断後に参加状態を保持する猶予期間（ミリ秒）です。 */
@@ -242,9 +245,33 @@ export interface DefinedFlareLobby<
   TApp extends AnyFlareLobbyApp = AnyFlareLobbyApp,
 > {
   readonly configuration: FlareLobbyConfiguration<TApp>;
-  createGatewayWorker<
-    TEnv extends FlareLobbyBindings,
-  >(): FlareLobbyGatewayWorker<TEnv>;
+  createGatewayWorker<TEnv extends FlareLobbyBindings>(
+    options?: FlareLobbyGatewayOptions<TEnv>,
+  ): FlareLobbyGatewayWorker<TEnv>;
+}
+
+/**
+ * 未処理リクエストを既存 Worker へ委譲するフォールバックです。
+ *
+ * `Request` と利用者側の `Env` をそのまま受け取り、既存 API（例: `/api/v2/*`）の
+ * 応答を返します。`scheduled`/`queue` の委譲は対象外で、`fetch` のみです。
+ * FlareLobby の CORS 処理は適用されず、各側の実装に任せます。
+ */
+export type FlareLobbyUnhandledRequestHandler<TEnv = unknown> = (
+  request: Request,
+  env: TEnv,
+) => Response | Promise<Response>;
+
+/** `createGatewayWorker()` に渡す共存オプションです。 */
+export interface FlareLobbyGatewayOptions<TEnv = unknown> {
+  /**
+   * FlareLobby が処理しない要求のフォールバックです。
+   *
+   * `/` と `/v1/*` 以外の経路は必須 Binding の検証より前に委譲されるため、
+   * FlareLobby の設定不備時も既存 API は動作します。FlareLobby 経路で `404` に
+   * なった要求も、設定されていればこのハンドラへ委譲します。
+   */
+  readonly onUnhandledRequest?: FlareLobbyUnhandledRequestHandler<TEnv>;
 }
 
 /**
@@ -261,10 +288,10 @@ export function defineFlareLobby<TApp extends AnyFlareLobbyApp = FlareLobbyApp>(
 
   return Object.freeze({
     configuration: normalizedConfiguration,
-    createGatewayWorker<
-      TEnv extends FlareLobbyBindings,
-    >(): FlareLobbyGatewayWorker<TEnv> {
-      return createGatewayWorker<TEnv, TApp>(normalizedConfiguration);
+    createGatewayWorker<TEnv extends FlareLobbyBindings>(
+      options?: FlareLobbyGatewayOptions<TEnv>,
+    ): FlareLobbyGatewayWorker<TEnv> {
+      return createGatewayWorker<TEnv, TApp>(normalizedConfiguration, options);
     },
   });
 }
@@ -273,11 +300,25 @@ export function defineFlareLobby<TApp extends AnyFlareLobbyApp = FlareLobbyApp>(
 export function createGatewayWorker<
   TEnv extends FlareLobbyBindings,
   TApp extends AnyFlareLobbyApp = AnyFlareLobbyApp,
->(configuration: FlareLobbyConfiguration<TApp>): FlareLobbyGatewayWorker<TEnv> {
+>(
+  configuration: FlareLobbyConfiguration<TApp>,
+  options?: FlareLobbyGatewayOptions<TEnv>,
+): FlareLobbyGatewayWorker<TEnv> {
   const normalizedConfiguration = normalizeConfiguration(configuration);
+  const onUnhandledRequest = options?.onUnhandledRequest;
 
   return {
     async fetch(request, env): Promise<Response> {
+      // 共存フォールバック: FlareLobby 経路以外は Binding 検証より前に委譲し、
+      // FlareLobby 設定不備時も既存 API（例: /api/v2/*）を動作させます。
+      // CORS は各側に任せるため、委譲応答へ FlareLobby の CORS 処理は適用しません。
+      if (
+        onUnhandledRequest !== undefined &&
+        !isFlareLobbyHandledPath(new URL(request.url).pathname)
+      ) {
+        return await onUnhandledRequest(request, env);
+      }
+
       const context = createObservabilityContext(request, {
         // 相関 ID はクライアント申告値を信頼せず、Gateway の入口で発行します。
         correlationId: crypto.randomUUID(),
@@ -451,6 +492,10 @@ export function createGatewayWorker<
               : createErrorResponse(result.error);
           }
 
+          if (onUnhandledRequest !== undefined) {
+            return await onUnhandledRequest(request, env);
+          }
+
           return new Response("Not Found", { status: 404 });
         },
       );
@@ -467,6 +512,16 @@ const CUSTOM_ROOM_OPERATION_PATH_PATTERNS: Readonly<
   join: /^\/v1\/custom-rooms\/[^/]+\/join$/u,
   leave: /^\/v1\/custom-rooms\/[^/]+\/leave$/u,
 };
+
+/**
+ * FlareLobby が処理する経路かどうかを判定します。
+ *
+ * `/` と `/v1/` 配下だけが FlareLobby 経路です。それ以外（例: `/api/v2/*`）は
+ * 共存フォールバック `onUnhandledRequest` へ委譲します。
+ */
+function isFlareLobbyHandledPath(pathname: string): boolean {
+  return pathname === "/" || pathname.startsWith("/v1/");
+}
 
 function isCustomRoomOperationPath(
   pathname: string,
@@ -650,6 +705,8 @@ function normalizeConfiguration<TApp extends AnyFlareLobbyApp>(
       finishedRoomRetentionMs:
         configuration.customRooms.finishedRoomRetentionMs ??
         DEFAULT_FINISHED_ROOM_RETENTION_MS,
+      joinTokenTtlMs:
+        configuration.customRooms.joinTokenTtlMs ?? DEFAULT_JOIN_TOKEN_TTL_MS,
       resumeTokenTtlMs:
         configuration.customRooms.resumeTokenTtlMs ??
         DEFAULT_RESUME_TOKEN_TTL_MS,
@@ -789,6 +846,16 @@ function assertCustomRoomConfiguration<TApp extends AnyFlareLobbyApp>(
     throw new FlareLobbyConfigurationError(
       "INVALID_CUSTOM_ROOM_CONFIGURATION",
       "customRooms.resumeTokenTtlMs は 1 以上の整数で指定してください。",
+    );
+  }
+
+  if (
+    configuration.joinTokenTtlMs !== undefined &&
+    !isPositiveInteger(configuration.joinTokenTtlMs)
+  ) {
+    throw new FlareLobbyConfigurationError(
+      "INVALID_CUSTOM_ROOM_CONFIGURATION",
+      "customRooms.joinTokenTtlMs は 1 以上の整数で指定してください。",
     );
   }
 

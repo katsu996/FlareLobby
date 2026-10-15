@@ -52,8 +52,10 @@ export type {
   FlareLobbyBindings,
   FlareLobbyConfiguration,
   FlareLobbyConfigurationErrorCode,
+  FlareLobbyGatewayOptions,
   FlareLobbyGatewayWorker,
   FlareLobbyInputLimits,
+  FlareLobbyUnhandledRequestHandler,
   MatchmakingPoolConfiguration,
 } from "./config.js";
 export type { FlareLobbyCorsConfiguration } from "./cors.js";
@@ -122,6 +124,7 @@ export {
   DEFAULT_DISCONNECT_GRACE_PERIOD_MS,
   DEFAULT_EVENT_HISTORY_LIMIT,
   DEFAULT_FINISHED_ROOM_RETENTION_MS,
+  DEFAULT_JOIN_TOKEN_TTL_MS,
   DEFAULT_PROCESSED_COMMAND_RETENTION_MS,
   DEFAULT_RESUME_TOKEN_TTL_MS,
   getParticipantWebSocketTag,
